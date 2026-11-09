@@ -42,6 +42,10 @@ dash.loader('IBIT', { description: 'eToro daily candles as rows: date, open, hig
 dash.loader('AG', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
 dash.loader('MSTR', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
 dash.loader('SPCX', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
+dash.loader('MRVL', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
+dash.loader('AAOI', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
+dash.loader('CCJ', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
+dash.loader('NXE', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
 dash.loader('EURUSD', { description: 'eToro daily candles as rows: date, open, high, low, close, volume (oldest first)', fn: readCandles });
 dash.calc('settings', {
   title: "Settings",
@@ -69,11 +73,11 @@ dash.calc('settings', {
 });
 dash.calc('panel', {
   title: "Daily prices + averages",
-  description: "All 26 ETFs and the 3 stocks you hold in one table, with their moving averages and RSI.",
-  inputs: ["settings","SPY","QQQ","IWM","XLK","XLF","XLE","XLV","XLI","XLY","XLP","XLU","XLB","XLRE","XLC","SMH","IGV","XBI","KRE","ITA","GDX","SIL","COPX","URA","GLD","TLT","IBIT","AG","MSTR","SPCX"],
-  fn: (settings, SPY, QQQ, IWM, XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC, SMH, IGV, XBI, KRE, ITA, GDX, SIL, COPX, URA, GLD, TLT, IBIT, AG, MSTR, SPCX) => {
+  description: "All 26 ETFs and 7 single stocks in one table, with their moving averages and RSI.",
+  inputs: ["settings","SPY","QQQ","IWM","XLK","XLF","XLE","XLV","XLI","XLY","XLP","XLU","XLB","XLRE","XLC","SMH","IGV","XBI","KRE","ITA","GDX","SIL","COPX","URA","GLD","TLT","IBIT","AG","MSTR","SPCX","MRVL","AAOI","CCJ","NXE"],
+  fn: (settings, SPY, QQQ, IWM, XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC, SMH, IGV, XBI, KRE, ITA, GDX, SIL, COPX, URA, GLD, TLT, IBIT, AG, MSTR, SPCX, MRVL, AAOI, CCJ, NXE) => {
   const S = settings[0];
-  const all = { SPY, QQQ, IWM, XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC, SMH, IGV, XBI, KRE, ITA, GDX, SIL, COPX, URA, GLD, TLT, IBIT, AG, MSTR, SPCX };
+  const all = { SPY, QQQ, IWM, XLK, XLF, XLE, XLV, XLI, XLY, XLP, XLU, XLB, XLRE, XLC, SMH, IGV, XBI, KRE, ITA, GDX, SIL, COPX, URA, GLD, TLT, IBIT, AG, MSTR, SPCX, MRVL, AAOI, CCJ, NXE };
   const r4 = (x) => (x == null || !isFinite(x) ? null : Math.round(x * 1e4) / 1e4);
   const out = [];
   for (const [symbol, rows] of Object.entries(all)) {
@@ -224,6 +228,7 @@ dash.calc('metrics', {
     COPX: ['Copper miners', 'Commodity'], URA: ['Uranium', 'Commodity'], GLD: ['Gold', 'Cross-asset'],
     TLT: ['20+ year Treasuries', 'Cross-asset'], IBIT: ['Bitcoin', 'Cross-asset'],
     AG: ['First Majestic Silver', 'Stock'], MSTR: ['Strategy (bitcoin holder)', 'Stock'], SPCX: ['SpaceX', 'Stock'],
+    MRVL: ['Marvell Technology', 'Stock'], AAOI: ['Applied Optoelectronics', 'Stock'], CCJ: ['Cameco (uranium)', 'Stock'], NXE: ['NexGen Energy (uranium)', 'Stock'],
   };
   const groups = {};
   for (const r of panel) (groups[r.symbol] = groups[r.symbol] || []).push(r);
@@ -471,7 +476,7 @@ dash.calc('regime', {
 });
 dash.calc('portfolio', {
   title: "Your holdings",
-  description: "Each holding through the fund or stock it follows: its 12-month return against the rule's picks, verdict and euro returns.",
+  description: "Each holding through the fund or stock it follows: its 12-month return against the rule's picks, verdict, euro returns, and its share of the portfolio when amounts are given.",
   inputs: ["settings","metrics","rule","holdings","EURUSD","revolut"],
   fn: (settings, metrics, rule, holdings, EURUSD, revolut) => {
   const S = settings[0];
@@ -484,13 +489,16 @@ dash.calc('portfolio', {
   const inEur = (r, days, end) => { const a = rateOn(end), b = rateOn(back(end, days)); return r == null || !a || !b ? null : (1 + r) * (b / a) - 1; };
   const M = new Map(metrics.map((m) => [m.symbol, m])), R = new Map(rule.map((r) => [r.symbol, r]));
   const followed = new Set(holdings.map((h) => h.tracks));
+  // euro amounts are optional (typed in the app's Settings): each holding's share of the total, and the weekly step of a move
+  const total = holdings.reduce((a, h) => a + (h.amount > 0 ? h.amount : 0), 0);
   const top = rule.filter((r) => r.now).sort((a, b) => b.score - a.score);
   const cut = top.length ? top[top.length - 1].score : Infinity; // the weakest of today's top 4
   const into = (top.find((r) => !followed.has(r.symbol)) || {}).symbol || null;
   const intoRev = ((revolut || []).find((r) => r.us === into) || {}).revolut_ticker || null;
   return holdings.map((h) => {
     const m = M.get(h.tracks), r = R.get(h.tracks), lt = !!h.long_term;
-    const base = { ticker: h.ticker, name: h.name, tracks: h.tracks, match: h.match || null, long_term: lt, note: h.note || '' };
+    const amt = h.amount > 0 ? h.amount : null;
+    const base = { ticker: h.ticker, name: h.name, tracks: h.tracks, match: h.match || null, long_term: lt, note: h.note || '', amount: amt, share: amt && total ? r4(amt / total) : null };
     if (!m || !r) return { ...base, verdict: 'No data', into: null, into_revolut: null };
     const sc = r.score;
     let verdict;
@@ -502,7 +510,7 @@ dash.calc('portfolio', {
     return {
       ...base, tracks_name: m.name, date: m.date, close: m.close, r1m: m.r1m, r1m_eur: r4(inEur(m.r1m, S.monthDays, m.date)), r3m_eur: r4(inEur(m.r3m, S.quarterDays, m.date)),
       phase: m.phase, phase_w: m.phase_w, score: sc, vol12m: r.vol12m, ma200: r.ma200, vs_ma200: r.vs_ma200, above: r.above,
-      verdict, into: move ? into : null, into_revolut: move ? intoRev : null, eurusd_1m: r4(fxEnd && fxStart ? fxEnd / fxStart - 1 : null),
+      verdict, into: move ? into : null, into_revolut: move ? intoRev : null, step: move && amt ? Math.round(amt / (S.ruleSteps || 4)) : null, eurusd_1m: r4(fxEnd && fxStart ? fxEnd / fxStart - 1 : null),
     };
   });
 },

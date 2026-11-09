@@ -85,6 +85,10 @@ body.sheet-open { overflow: hidden; }
 .hint.bad { color: #c62828; }
 
 .update-bar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 12px; background: var(--color-panel, #fff); box-shadow: 0 4px 18px rgba(0,0,0,.18); z-index: 50; font-size: 14px; }
+.key-count { font-size: 12px; color: var(--color-fg-muted); min-height: 1em; }
+.keys-swap { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 2px 0 8px; }
+.keys-swap[hidden] { display: none; }
+.notes-bar span { line-height: 1.4; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
@@ -200,9 +204,10 @@ body.sheet-open { overflow: hidden; }
   .sr-folio tbody tr { cursor: pointer; }
   .sr-folio tbody tr:hover { background: var(--color-bg); }
   .sr-folio td:first-child b { font-weight: var(--cds-font-weight-medium); }
+  .sr-folio.sr-noamt .sr-amt { display: none; }
   .sr-verdict-out { color: var(--color-bad); font-weight: var(--cds-font-weight-medium); }
   .sr-verdict-in { color: var(--color-ok); font-weight: var(--cds-font-weight-medium); }
-  @container (min-width: 601px) and (max-width: 900px) { .sr-folio th:nth-child(4), .sr-folio td:nth-child(4), .sr-folio th:nth-child(6), .sr-folio td:nth-child(6) { display: none; } }
+  @container (min-width: 601px) and (max-width: 900px) { .sr-folio th:nth-child(5), .sr-folio td:nth-child(5), .sr-folio th:nth-child(7), .sr-folio td:nth-child(7) { display: none; } }
   @container (max-width: 600px) {
     .sr-folio thead { display: none; }
     .sr-folio, .sr-folio tbody { display: block; width: 100%; }
@@ -214,7 +219,7 @@ body.sheet-open { overflow: hidden; }
     .sr-folio td.sr-f { order: 3; font-size: 12px; }
     .sr-folio td.sr-f::before { content: attr(data-label) " "; color: var(--color-fg-muted); }
     .sr-folio td.sr-f.num { text-align: left; }
-    .sr-folio td.sr-empty, .sr-folio td:nth-child(6) { display: none; }
+    .sr-folio td.sr-empty, .sr-folio td:nth-child(7) { display: none; }
   }
 
   /* backtest */

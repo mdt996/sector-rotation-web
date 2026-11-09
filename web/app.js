@@ -30,6 +30,14 @@
     return r ? r.value : 'etoro';
   }
   function toggleKeys() { $('keys').hidden = selectedSource() !== 'etoro'; }
+  // eToro keys: count the characters and spot keys pasted the wrong way round (the User key is the long one)
+  function keyHints() {
+    const a = SRApp.cleanKey($('cfg-api').value), u = SRApp.cleanKey($('cfg-user').value);
+    $('api-count').textContent = a ? `${a.length} characters` : '';
+    $('user-count').textContent = u ? `${u.length} characters` : '';
+    $('keys-swap').hidden = !(a && u && a.length > u.length);
+  }
+  function swapKeys() { const a = $('cfg-api').value; $('cfg-api').value = $('cfg-user').value; $('cfg-user').value = a; keyHints(); }
   function fill() {
     const c = SRApp.config();
     document.querySelectorAll('input[name="source"]').forEach((r) => { r.checked = r.value === c.source; });
@@ -45,6 +53,7 @@
     $('cfg-holdings').value = c.holdings || '';
     $('cfg-holdings').placeholder = (window.SR_HOLDINGS || []).map((h) => h.ticker + (h.tracks !== h.ticker ? ' = ' + h.tracks : '') + (h.long_term ? ' long' : '')).join('\n');
     toggleKeys();
+    keyHints();
     const N = native();
     $('notify-perm').hidden = !N || !N.notificationsAllowed || N.notificationsAllowed();
     $('notify-test').hidden = !N;
@@ -77,7 +86,7 @@
   // a new build arrived while the app is open: switch at once during start-up, otherwise offer it
   function offerReload(build) {
     if (!N || !N.reloadPage) return;
-    if (performance.now() < 8000 && sheet.hidden) { N.reloadPage(); return; }
+    if (performance.now() - shownAt < 8000 && sheet.hidden) { N.reloadPage(); return; }
     let bar = document.getElementById('update-bar');
     if (!bar) {
       bar = document.createElement('div'); bar.id = 'update-bar'; bar.className = 'update-bar';
@@ -88,6 +97,20 @@
     bar.querySelector('span').textContent = `The app was updated (build ${build}).`;
   }
   window.appUpdated = (build) => offerReload(build);
+  let shownAt = 0, lastCheck = 0; // when the page was last opened or brought back; when updates were last checked
+  // after an update, say once what changed (each build of the screens ships its own notes)
+  function whatsNew() {
+    const n = window.SR_NOTES;
+    if (!n || !n.build || !n.text) return;
+    let seen = 0;
+    try { seen = Number(localStorage.getItem('sr.notesSeen') || 0); localStorage.setItem('sr.notesSeen', String(n.build)); } catch (e) { return; }
+    if (seen >= n.build) return;
+    const bar = document.createElement('div'); bar.className = 'update-bar notes-bar';
+    bar.innerHTML = '<span></span><button class="btn" type="button">OK</button>';
+    bar.querySelector('span').textContent = `Updated (build ${n.build}): ${n.text}`;
+    bar.querySelector('button').addEventListener('click', () => bar.remove());
+    document.body.appendChild(bar);
+  }
   function openSettings() { fill(); sheet.hidden = false; document.body.classList.add('sheet-open'); }
   function closeSettings() { sheet.hidden = true; document.body.classList.remove('sheet-open'); }
   function save() {
@@ -116,10 +139,19 @@
   $('app-banner-action').addEventListener('click', openSettings);
   document.querySelectorAll('input[name="source"]').forEach((r) => r.addEventListener('change', toggleKeys));
   $('show-user').addEventListener('change', (e) => { $('cfg-user').type = e.target.checked ? 'text' : 'password'; });
+  $('cfg-api').addEventListener('input', keyHints);
+  $('cfg-user').addEventListener('input', keyHints);
+  $('btn-swapkeys').addEventListener('click', swapKeys);
   $('btn-testkeys').addEventListener('click', async () => {
     const out = $('keys-result');
     out.className = 'hint'; out.textContent = 'Asking eToro…';
-    const r = await SRApp.testKeys($('cfg-api').value, $('cfg-user').value);
+    const api = $('cfg-api').value, user = $('cfg-user').value;
+    const r = await SRApp.testKeys(api, user);
+    if (!r.ok && r.status === 401 && SRApp.cleanKey(api) && SRApp.cleanKey(user)) {
+      // refused: try them the other way round, the usual mistake
+      const s = await SRApp.testKeys(user, api);
+      if (s.ok) { swapKeys(); out.className = 'hint ok'; out.textContent = 'The two keys were in each other\'s place: they are swapped now and eToro accepts them. Tap Save and refresh.'; return; }
+    }
     out.className = 'hint ' + (r.ok ? 'ok' : 'bad');
     out.textContent = r.ok ? 'eToro accepted these keys. Tap Save and refresh.' : r.status ? `eToro answered ${r.status}${r.reason ? ': ' + r.reason : ''}` : `No answer from eToro${r.reason ? ': ' + r.reason : ''}`;
   });
@@ -128,7 +160,12 @@
 
   let t = null;
   window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => SRApp.render(), 150); });
-  window.appResume = () => { if (sheet.hidden && SRApp.isStale()) SRApp.refresh(); };
+  window.appResume = () => {
+    shownAt = performance.now();
+    // look for newer screens when coming back to the app, at most every 2 minutes
+    if (N && N.checkUpdates && Date.now() - lastCheck > 2 * 60 * 1000) { lastCheck = Date.now(); N.checkUpdates(); }
+    if (sheet.hidden && SRApp.isStale()) SRApp.refresh();
+  };
   window.appBack = () => { if (!sheet.hidden) { closeSettings(); return true; } return false; };
 
   const cache = SRApp.boot();
@@ -138,6 +175,7 @@
   if (needsKeys || SRApp.isStale()) SRApp.refresh();
   setInterval(() => { if (!document.hidden && sheet.hidden && SRApp.isStale()) SRApp.refresh(); }, 5 * 60 * 1000);
   $('btn-update').addEventListener('click', () => { showUpdateInfo('checking…'); if (N && N.checkUpdates) N.checkUpdates(); });
+  whatsNew();
   // the page started: tell the app this build of the screens works
   try { if (N && N.booted) N.booted(); } catch (e) { /* older app */ }
 })();

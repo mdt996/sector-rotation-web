@@ -8,7 +8,7 @@
     ['XLI', 3019], ['XLY', 3024], ['XLP', 3022], ['XLU', 3013], ['XLB', 4438], ['XLRE', 4442], ['XLC', 4427],
     ['SMH', 6357], ['IGV', 10879], ['XBI', 4431], ['KRE', 4443], ['ITA', 6961], ['GDX', 3002], ['SIL', 14481],
     ['COPX', 10805], ['URA', 8748], ['GLD', 3025], ['TLT', 3020], ['IBIT', 1367],
-    ['AG', 6584], ['MSTR', 6473], ['SPCX', 15618], ['EURUSD', 1],
+    ['AG', 6584], ['MSTR', 6473], ['SPCX', 15618], ['MRVL', 4358], ['AAOI', 9462], ['CCJ', 6634], ['NXE', 14428], ['EURUSD', 1],
   ];
   const YAHOO = { EURUSD: 'EURUSD=X' }; // Yahoo's symbol where it differs
   const STALE_MS = 55 * 60 * 1000;
@@ -129,21 +129,32 @@
     ls.set('sr.cache', { at: Date.now(), source, rows: packed });
   }
 
-  // ---- holdings: one per line, "TICKER", "TICKER = US symbol it follows", add "long" for long-term holds ----
+  // ---- holdings: one per line: "TICKER", "TICKER = US symbol it follows", "long" for a long-term hold,
+  //      "rough" when the US symbol only roughly follows it, and optionally the euro amount held:
+  //      "SEC0 = SMH 500", "MSTR 250,50 long", "QUTM = QQQ rough 100" ----
   function parseHoldings(text) {
     const defaults = window.SR_HOLDINGS || [];
     if (!text || !String(text).trim()) return defaults.slice();
     const out = [];
-    for (const raw of String(text).split(/[\n,;]+/)) {
-      const line = raw.trim();
+    // a comma between two digits is a decimal comma (250,50); any other comma, a semicolon or a new line separates holdings
+    for (const raw of String(text).split(/\r?\n|;|,(?!\d)|(?<!\d),/)) {
+      let line = raw.trim();
       if (!line) continue;
-      const long = /\blong\b/i.test(line);
-      const parts = line.replace(/\blong(-term)?\b/ig, ' ').split('=').map((x) => x.trim().toUpperCase()).filter(Boolean);
+      const long = /\blong(-term)?\b/i.test(line), rough = /\brough\b/i.test(line);
+      line = line.replace(/\blong(-term)?\b|\brough\b/ig, ' ');
+      // the amount: a number on its own, with or without a euro sign (tickers such as SEC0 are not numbers)
+      let amount = null;
+      line = line.replace(/(^|\s)(?:€\s?)?(\d+(?:[.,]\d+)?)(?:\s?€|\s?eur(?:os?)?)?(?=\s|$)/i, (m, pre, num) => { amount = parseFloat(num.replace(',', '.')); return pre + ' '; });
+      const parts = line.split('=').map((x) => x.trim().toUpperCase()).filter(Boolean);
       const ticker = (parts[0] || '').split(/\s+/)[0];
       if (!ticker) continue;
       const tracks = parts[1] ? parts[1].split(/\s+/)[0] : ticker;
-      const d = defaults.find((h) => h.ticker === ticker);
-      out.push({ ticker, name: d && d.tracks === tracks ? d.name : d ? d.name : ticker, tracks, match: d && d.tracks === tracks ? d.match : tracks === ticker ? 'same' : 'close', long_term: long, note: d && d.tracks === tracks ? d.note : '' });
+      const d = defaults.find((h) => h.ticker === ticker), known = d && d.tracks === tracks;
+      out.push({
+        ticker, name: d ? d.name : '', tracks,
+        match: rough ? 'rough' : known ? d.match : tracks === ticker ? 'same' : 'close',
+        long_term: long, note: known ? d.note : '', amount: amount > 0 ? amount : null,
+      });
     }
     return out;
   }

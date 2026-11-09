@@ -108,16 +108,17 @@
     <div class="sr-card-head">
       <div>
         <h2 class="sr-h2">Your holdings</h2>
-        <p class="sr-note">Each holding read through the US fund or stock it follows (a European semiconductor ETF through SMH, for example), with the rotation rule's yardstick: its 12-month return without the latest month. As strong as the weakest of the rule's picks: Hold, strong. Weaker: Hold, lagging, with the rule's strongest pick as the alternative. Down over the year: Reduce. Long-term holds are never told to sell, only when adding looks timely. Returns are converted to euros. Click a row to open its chart.</p>
+        <p class="sr-note">Each holding read through the US fund or stock it follows (a European semiconductor ETF through SMH, for example), with the rotation rule's yardstick: its 12-month return without the latest month. As strong as the weakest of the rule's picks: Hold, strong. Weaker: Hold, lagging, with the rule's strongest pick as the alternative. Down over the year: Reduce. Long-term holds are never told to sell, only when adding looks timely. Returns are converted to euros. With euro amounts (typed in the app's Settings), each holding shows its share of the total, and a suggested move shows the euros to shift each week, a quarter at a time. Click a row to open its chart.</p>
       </div>
     </div>
-    <p class="sr-folio-sum"><b>Reduce:</b> <span data-draw="foliolist" data-kind="out" data-source="portfolio">—</span>. <b>Lagging the rule's picks:</b> <span data-draw="foliolist" data-kind="lag" data-source="portfolio">—</span>. <b>Good time to add:</b> <span data-draw="foliolist" data-kind="add" data-source="portfolio">—</span>. <span data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</span></p>
+    <p class="sr-folio-sum"><span data-draw="foliototal" data-source="portfolio"></span><b>Reduce:</b> <span data-draw="foliolist" data-kind="out" data-source="portfolio">—</span>. <b>Lagging the rule's picks:</b> <span data-draw="foliolist" data-kind="lag" data-source="portfolio">—</span>. <b>Good time to add:</b> <span data-draw="foliolist" data-kind="add" data-source="portfolio">—</span>. <span data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</span></p>
     <div class="sr-tablewrap">
       <table class="sr-table sr-folio" data-source="portfolio" data-row-key="ticker">
         <thead>
           <tr>
             <th data-field="ticker">Holding</th>
             <th data-field="name">Name</th>
+            <th data-field="amount" class="num sr-amt">Value</th>
             <th data-field="tracks">Follows</th>
             <th data-field="match">Match</th>
             <th data-field="r1m_eur" class="num">1M in €</th>
@@ -374,14 +375,15 @@
     <label class="opt"><input type="radio" name="source" value="etoro"><span><b>eToro</b> with your own API keys: the same data as your Claude dashboard.</span></label>
     <label class="opt"><input type="radio" name="source" value="yahoo"><span><b>Yahoo Finance</b>, no key needed: an unofficial feed that can be rate-limited.</span></label>
     <div id="keys">
-      <label class="field"><span>Public API key (x-api-key)</span><input id="cfg-api" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-      <label class="field"><span>User key (x-user-key)</span><input id="cfg-user" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <label class="field"><span>Public API key (x-api-key), the shorter one</span><input id="cfg-api" autocomplete="off" autocapitalize="off" spellcheck="false"><small class="key-count" id="api-count"></small></label>
+      <label class="field"><span>User key (x-user-key), the long one</span><input id="cfg-user" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"><small class="key-count" id="user-count"></small></label>
+      <p class="hint bad keys-swap" id="keys-swap" hidden><span>These look swapped: the User key is the long one.</span><button id="btn-swapkeys" class="btn" type="button">Swap them</button></p>
       <label class="opt sub"><input type="checkbox" id="show-user"><span>Show the user key</span></label>
       <div class="keys-test"><button id="btn-testkeys" class="btn" type="button">Test keys</button><span class="hint" id="keys-result" aria-live="polite"></span></div>
       <p class="hint">In eToro: Settings → Trading → API Key Management → Create key, confirm with the SMS code, then copy both keys. They stay on this phone and are sent only to public-api.etoro.com.</p>
     </div>
     <h3>Your holdings</h3>
-    <label class="field"><span>One per line: Revolut ticker, then = and the US ticker it follows (if different), and "long" for long-term holds</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
+    <label class="field"><span>One per line: Revolut ticker, then = and the US ticker it follows (if different), "rough" if it only roughly follows it, "long" for long-term holds, and the amount in euros if you want each holding's share and moves in euros. Example: SEC0 = SMH 500</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
     <p class="hint">The US ticker must be one of the funds or stocks in the ranking. Leave empty to use the default list shown in grey.</p>
     <h3>Alerts</h3>
     <label class="opt"><input type="checkbox" id="cfg-notify"><span>Notify me when something changes (checked about every hour, on completed daily closes)</span></label>
@@ -414,6 +416,7 @@
 <script src="draw-rrg.js"></script>
 <script src="draw-race-heat.js"></script>
 <script src="draw-extra.js"></script>
+<script src="notes.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

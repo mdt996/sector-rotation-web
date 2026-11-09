@@ -55,7 +55,16 @@ dash.draw('foliolist', (el) => {
   if (d.status !== 'ok') { el.textContent = '—'; return; }
   const test = { out: (v) => v === 'Reduce', lag: (v) => v === 'Hold, lagging', add: (v) => /good time to add/.test(v) }[el.getAttribute('data-kind')] || (() => false);
   const rows = d.data.filter((r) => test(r.verdict || ''));
-  el.textContent = rows.length ? rows.map((r) => r.ticker + (r.into ? ` (or ${r.into}${r.into_revolut ? ' / ' + r.into_revolut : ''})` : '')).join(', ') : 'none';
+  el.textContent = rows.length ? rows.map((r) => r.ticker + (r.amount ? ' ' + SR.eur(r.amount) : '') + (r.into ? ` (or ${r.into}${r.into_revolut ? ' / ' + r.into_revolut : ''}${r.step ? ', ' + SR.eur(r.step) + ' a week' : ''})` : '')).join(', ') : 'none';
+});
+
+SR.eur = (x) => (x == null || !isFinite(x) ? '—' : '€' + d3.format(',.0f')(x));
+// the total of the euro amounts typed in Settings (the app only; the dashboard has none)
+dash.draw('foliototal', (el) => {
+  const d = dash.data('portfolio'), rows = d.status === 'ok' ? d.data.filter((r) => r.amount > 0) : [];
+  if (!rows.length) { el.textContent = ''; return; } // nothing shows without amounts (the dashboard has none)
+  const sum = (f) => rows.filter(f).reduce((a, r) => a + r.amount, 0), total = sum(() => true), lt = sum((r) => r.long_term);
+  el.textContent = `Total ${SR.eur(total)}` + (lt ? `: long term ${SR.eur(lt)} (${d3.format('.0%')(lt / total)}), the rest ${SR.eur(total - lt)} (${d3.format('.0%')(1 - lt / total)})` : '') + '. ';
 });
 
 dash.draw('foliofx', (el) => {
@@ -67,6 +76,8 @@ dash.draw('folio', (tbody) => {
   const d = dash.data('portfolio');
   tbody.replaceChildren();
   if (d.status !== 'ok') return;
+  const table = tbody.closest('table');
+  if (table) table.classList.toggle('sr-noamt', !d.data.some((h) => h.amount > 0)); // the Value column only when amounts were given
   for (const h of d.data) {
     const tr = tbody.appendChild(document.createElement('tr'));
     tr.setAttribute('data-key', h.ticker);
@@ -75,7 +86,8 @@ dash.draw('folio', (tbody) => {
     const td = (kind, label, num) => { const c = tr.appendChild(document.createElement('td')); c.className = [kind, num ? 'num' : ''].filter(Boolean).join(' '); if (label) c.setAttribute('data-label', label); return c; };
     const txt = (kind, label, text, cls, num) => { const c = td(kind, label, num); if (text === '—') c.classList.add('sr-empty'); if (cls) { const s = c.appendChild(document.createElement('span')); s.className = cls; s.textContent = text; } else c.textContent = text; };
     const hc = td('sr-h'); const b = hc.appendChild(document.createElement('b')); b.textContent = h.ticker;
-    txt('sr-n', '', h.name || '—');
+    txt('sr-n', '', h.name || h.tracks_name || '—');
+    txt('sr-f sr-amt', 'Value', h.amount ? SR.eur(h.amount) + (h.share != null ? ' · ' + d3.format('.1%')(h.share) : '') : '—', '', true);
     txt('sr-f', 'Follows', h.tracks || '—');
     txt('sr-f', 'Match', h.match || '—');
     if (h.match !== 'rough') tr.lastChild.classList.add('sr-empty'); // on phones, only a rough match is worth a line
@@ -86,7 +98,7 @@ dash.draw('folio', (tbody) => {
     txt('sr-f', 'Daily', h.phase || '—', SR.phaseCls(h.phase));
     txt('sr-f', 'Weekly', h.phase_w || '—', SR.phaseCls(h.phase_w));
     txt('sr-v', '', h.verdict || '—', SR.verdictCls(h.verdict));
-    txt('sr-f', 'Rotate into', h.into || '—');
+    txt('sr-f', 'Rotate into', h.into ? h.into + (h.step ? ', ' + SR.eur(h.step) + ' a week' : '') : '—');
     txt('sr-f', 'On Revolut', h.into_revolut || '—');
   }
 });
