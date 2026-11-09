@@ -166,7 +166,91 @@
     if (N && N.checkUpdates && Date.now() - lastCheck > 2 * 60 * 1000) { lastCheck = Date.now(); N.checkUpdates(); }
     if (sheet.hidden && SRApp.isStale()) SRApp.refresh();
   };
-  window.appBack = () => { if (!sheet.hidden) { closeSettings(); return true; } return false; };
+  // ---- tabs and sub-tabs: each block of the dashboard page belongs to one of them; only what's open is drawn ----
+  const TABS = {
+    holdings: [['', ['portfolio']]],
+    rule: [['This week', ['rule']], ['On Revolut', ['revolut']]],
+    market: [['Overview', ['top', 'regime', 'headline']], ['Ranking', ['ranking']], ['Map', ['map']], ['Trends', ['sr-grid']]],
+    chart: [['', ['chart']]],
+    study: [['15 years', ['backtest']], ['Method', ['method']]],
+  };
+  const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
+  const blocks = [...document.querySelectorAll('#dash-root .sr > *')];
+  for (const b of blocks) {
+    let where = ['market', 0];
+    for (const [t, subs] of Object.entries(TABS)) subs.forEach(([, keys], i) => { if (keys.includes(keyOf(b))) where = [t, i]; });
+    b.setAttribute('data-tab', where[0]); b.setAttribute('data-sub', String(where[1]));
+  }
+  const method = document.getElementById('method');
+  if (method) method.open = true; // the Method sub-tab shows the notes unfolded
+  const subbar = document.createElement('nav');
+  subbar.className = 'subtabs'; subbar.setAttribute('aria-label', 'Sub-sections');
+  document.getElementById('dash-root').prepend(subbar);
+  const tabBtns = [...document.querySelectorAll('#tabbar [data-tab]')];
+  let nav = { tab: null, sub: {} }, cameFrom = null;
+  try { nav = Object.assign(nav, JSON.parse(localStorage.getItem('sr.nav') || '{}'), { tab: null }); } catch (e) { /* defaults */ }
+  let saved = null;
+  try { saved = (JSON.parse(localStorage.getItem('sr.nav') || '{}') || {}).tab; } catch (e) { saved = null; }
+  function showTab(id, sub, keepScroll) {
+    if (!TABS[id]) id = 'holdings';
+    const subs = TABS[id];
+    const i = Math.min(Math.max(0, sub != null ? sub : nav.sub[id] || 0), subs.length - 1);
+    if (id === nav.tab && i === (nav.sub[id] || 0) && subbar.dataset.tab === id) return;
+    nav.tab = id; nav.sub[id] = i;
+    for (const b of blocks) b.hidden = !(b.getAttribute('data-tab') === id && b.getAttribute('data-sub') === String(i));
+    for (const b of tabBtns) b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === id));
+    subbar.dataset.tab = id;
+    subbar.replaceChildren(...(subs.length > 1 ? subs.map(([label], k) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.setAttribute('aria-selected', String(k === i));
+      b.addEventListener('click', () => { cameFrom = null; showTab(id, k); });
+      return b;
+    }) : []));
+    subbar.hidden = subs.length < 2;
+    try { localStorage.setItem('sr.nav', JSON.stringify(nav)); } catch (e) { /* not kept */ }
+    if (!keepScroll) window.scrollTo(0, 0);
+    SRApp.render(); // drawings skip hidden blocks, so the newly shown ones are drawn now
+  }
+  for (const b of tabBtns) b.addEventListener('click', () => { cameFrom = null; showTab(b.getAttribute('data-tab')); });
+  // opening a chart (a row in Holdings, the ranking, the map…) switches to the Chart tab; Back returns
+  if (window.SR && SR.open) {
+    const open = SR.open;
+    SR.open = (sym) => { if (nav.tab !== 'chart') cameFrom = [nav.tab, nav.sub[nav.tab] || 0]; showTab('chart', 0, true); open(sym); };
+  }
+
+  // ---- short notes: one line on what a card is for; the full explanation behind "How to read this" ----
+  const SHORT = {
+    rule: 'The 4 sectors to hold, picked every Friday by their 12-month return (leaving out the last month). Move a quarter of the rotation money each week.',
+    portfolio: 'Each of your holdings against the rule\'s picks, and what to do with it. Tap a row for its chart.',
+    ranking: 'Funds sorted by last month\'s return, with their rotation phase. Tap a row for its chart.',
+    chart: 'Daily candles with support, resistance and the exit and entry levels.',
+    map: 'Each fund against the S&P 500: right is stronger than the market, up is getting stronger. Rings mark the rule\'s picks.',
+    backtest: 'How the rule did over 15 years against the S&P 500 and equal-weight sectors.',
+    revolut: 'The European (UCITS) version of each US fund, the one you can buy on Revolut.',
+  };
+  for (const note of document.querySelectorAll('#dash-root .sr-note')) {
+    const card = note.closest('section'), head = note.closest('.sr-card-head');
+    const short = head && card ? SHORT[card.id] : null;
+    const words = (note.textContent || '').trim().split(/\s+/).length;
+    if (!short && words < 40) continue; // already short
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'sr-more';
+    if (short) {
+      const p = document.createElement('p'); p.className = 'sr-note sr-short'; p.textContent = short + ' ';
+      p.appendChild(btn); note.before(p); note.hidden = true;
+      btn.textContent = 'How to read this';
+      btn.addEventListener('click', () => { note.hidden = !note.hidden; btn.textContent = note.hidden ? 'How to read this' : 'Hide'; if (!note.hidden) SRApp.render(); });
+    } else {
+      note.classList.add('sr-clamp'); note.after(btn); btn.textContent = 'More';
+      btn.addEventListener('click', () => { const c = note.classList.toggle('sr-clamp'); btn.textContent = c ? 'More' : 'Less'; });
+    }
+  }
+  showTab(saved || 'holdings');
+
+  window.appBack = () => {
+    if (!sheet.hidden) { closeSettings(); return true; }
+    if (cameFrom) { const [t, i] = cameFrom; cameFrom = null; showTab(t, i); return true; }
+    return false;
+  };
 
   const cache = SRApp.boot();
   const cfg = SRApp.config();

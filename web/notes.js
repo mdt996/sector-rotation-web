@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 4, "text": "Your holdings can carry euro amounts: each one shows its value and share of the total, and a suggested move shows the euros to shift each week. The app now follows Marvell, Applied Optoelectronics, Cameco and NexGen, checks for updates when you come back to it, and the key fields count characters and spot swapped keys."};
+window.SR_NOTES = {"build": 5, "text": "The app is now organized in tabs at the bottom: Holdings, Rule, Market, Chart and Study. Tapping a holding or a fund opens its chart, and Back takes you where you were."};
