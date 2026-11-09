@@ -280,13 +280,15 @@
   const sheet = () => $('search');
   let results = [], view = null, qTimer = null, seq = 0;
   function open() {
-    sheet().hidden = false; document.body.classList.add('sheet-open');
+    direct = false; sheet().hidden = false; document.body.classList.add('sheet-open');
     showResults(); const q = $('search-q'); q.focus(); if (!q.value) listDefault();
   }
   function close() { closeDetail(); want('search', []); sheet().hidden = true; document.body.classList.remove('sheet-open'); }
   function showResults() { $('search-detail').hidden = true; $('search-results').hidden = false; }
   function closeDetail() { if (view) { view.destroy(); view = null; } showResults(); want('search', results.map((r) => r.id)); }
-  function back() { for (const v of views) if (v.back()) return true; if (sheet().hidden) return false; if (!$('search-detail').hidden) closeDetail(); else close(); return true; }
+  let direct = false; // an asset opened from Today, Portfolio or Markets: Back closes the sheet
+  function back() { for (const v of views) if (v.back()) return true; if (sheet().hidden) return false; if (!$('search-detail').hidden) { if (direct) { direct = false; close(); } else closeDetail(); } else close(); return true; }
+  function openAsset(inst) { direct = true; sheet().hidden = false; document.body.classList.add('sheet-open'); openDetail(inst); }
   function openDetail(r) {
     const recent = lsGet('sr.recent', []).filter((x) => x.id !== r.id);
     recent.unshift({ id: r.id, symbol: r.symbol, name: r.name, exchange: r.exchange, type: r.type });
@@ -451,6 +453,6 @@
     if (bk) bk.addEventListener('click', back);
     watchHoldings();
   }
-  window.SRLive = { open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll };
+  window.SRLive = { open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

@@ -115,7 +115,8 @@
     bar.querySelector('button').addEventListener('click', () => bar.remove());
     document.body.appendChild(bar);
   }
-  function openSettings() { fill(); sheet.hidden = false; document.body.classList.add('sheet-open'); }
+  function openSettings(focus) { fill(); sheet.hidden = false; document.body.classList.add('sheet-open'); if (focus === 'holdings') setTimeout(() => { const t = $('cfg-holdings'); if (t) { t.scrollIntoView({ block: 'center' }); t.focus(); } }, 60); }
+  window.appOpenSettings = openSettings;
   function closeSettings() { sheet.hidden = true; document.body.classList.remove('sheet-open'); }
   function save() {
     const c = Object.assign(SRApp.config(), {
@@ -175,16 +176,15 @@
   };
   // ---- tabs and sub-tabs: each block of the dashboard page belongs to one of them; only what's open is drawn ----
   const TABS = {
-    holdings: [['', ['portfolio']]],
-    rule: [['Board', ['rotboard']], ['Heatmap', ['rotheat']], ['Map', ['map']], ['This week', ['rule']], ['On Revolut', ['revolut']]],
-    market: [['Overview', ['top', 'regime', 'headline']], ['Ranking', ['ranking']], ['Trends', ['sr-grid']]],
-    chart: [['Price', ['quote']], ['Technical', ['chart']]],
-    study: [['15 years', ['backtest']], ['Method', ['method']]],
+    today: [['', ['today']]],
+    portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']]],
+    markets: [['Ranking', ['rotboard']], ['Heatmap', ['rotheat']], ['Map', ['map']], ['All funds', ['ranking']]],
+    plan: [['Plan', ['plan']], ['15 years', ['backtest']]],
   };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
   const blocks = [...document.querySelectorAll('#dash-root .sr > *')];
   for (const b of blocks) {
-    let where = ['market', 0];
+    let where = ['none', 0]; // blocks of the old layout that no tab uses stay out of sight
     for (const [t, subs] of Object.entries(TABS)) subs.forEach(([, keys], i) => { if (keys.includes(keyOf(b))) where = [t, i]; });
     b.setAttribute('data-tab', where[0]); b.setAttribute('data-sub', String(where[1]));
   }
@@ -199,7 +199,7 @@
   let saved = null;
   try { saved = (JSON.parse(localStorage.getItem('sr.nav') || '{}') || {}).tab; } catch (e) { saved = null; }
   function showTab(id, sub, keepScroll) {
-    if (!TABS[id]) id = 'holdings';
+    if (!TABS[id]) id = 'today';
     const subs = TABS[id];
     const i = Math.min(Math.max(0, sub != null ? sub : nav.sub[id] || 0), subs.length - 1);
     if (id === nav.tab && i === (nav.sub[id] || 0) && subbar.dataset.tab === id) return;
@@ -220,38 +220,25 @@
   }
   for (const b of tabBtns) b.addEventListener('click', () => { cameFrom = null; showTab(b.getAttribute('data-tab')); });
   // opening a chart (a row in Holdings, the ranking, the map…) switches to the Chart tab; Back returns
-  if (window.SR && SR.open) {
-    const open = SR.open;
-    SR.open = (sym) => { if (nav.tab !== 'chart') cameFrom = [nav.tab, nav.sub[nav.tab] || 0]; showTab('chart', 0, true); open(sym); };
+  window.appShowTab = (t, s) => { cameFrom = null; showTab(t, s); };
+  if (window.SR) {
+    SR.open = (sym) => {
+      const id = SRApp.idOf(sym); if (!id || !window.SRLive || !window.SRLive.openAsset) return;
+      const M = dash.data('metrics'), m = M.status === 'ok' ? M.data.find((r) => r.symbol === sym) : null;
+      window.SRLive.openAsset({ id, symbol: sym, name: m ? m.name : '', exchange: '' });
+    };
   }
 
-  // ---- short notes: one line on what a card is for; the full explanation behind "How to read this" ----
-  const SHORT = {
-    rule: 'The rule that held up in the 15-year test: the 8 long-standing sectors in equal parts; one whose weekly RSI closes above 70 waits in cash until it cools down. Smoother than holding them all, not higher-returning than the S&P 500.',
-    portfolio: 'Your holdings with live values. The only tested flag is Overheated (weekly RSI above 70): don\'t add. Tap a row for its chart.',
-    ranking: 'Funds sorted by last month\'s return, with their rotation phase. Tap a row for its chart.',
-    chart: 'Daily candles with moving averages, support, resistance and the exit and entry levels.',
-    map: 'Each fund against the S&P 500: right is stronger than the market, up is getting stronger. Rings mark the rule\'s picks.',
-    backtest: '15 years: the rule, a Nasdaq + defensive mix (the one that beat the S&P 500 on return and volatility out of sample) and the S&P 500.',
-    revolut: 'The European (UCITS) version of each US fund, the one you can buy on Revolut.',
-  };
-  for (const note of document.querySelectorAll('#dash-root .sr-note')) {
-    const card = note.closest('section'), head = note.closest('.sr-card-head');
-    const short = head && card ? SHORT[card.id] : null;
-    const words = (note.textContent || '').trim().split(/\s+/).length;
-    if (!short && words < 40) continue; // already short
-    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'sr-more';
-    if (short) {
-      const p = document.createElement('p'); p.className = 'sr-note sr-short'; p.textContent = short + ' ';
-      p.appendChild(btn); note.before(p); note.hidden = true;
-      btn.textContent = 'How to read this';
-      btn.addEventListener('click', () => { note.hidden = !note.hidden; btn.textContent = note.hidden ? 'How to read this' : 'Hide'; if (!note.hidden) SRApp.render(); });
-    } else {
-      note.classList.add('sr-clamp'); note.after(btn); btn.textContent = 'More';
-      btn.addEventListener('click', () => { const c = note.classList.toggle('sr-clamp'); btn.textContent = c ? 'More' : 'Less'; });
-    }
+  // ---- card notes: hidden behind a small ⓘ next to the title ----
+  for (const note of document.querySelectorAll('#dash-root .sr-card-head .sr-note')) {
+    const head = note.closest('.sr-card-head'), h = head && head.querySelector('h2, .sr-h2');
+    if (!h) continue;
+    note.hidden = true;
+    const i = document.createElement('button'); i.type = 'button'; i.className = 'g-info'; i.textContent = 'i'; i.setAttribute('aria-label', 'What this shows');
+    i.addEventListener('click', () => { note.hidden = !note.hidden; if (!note.hidden) SRApp.render(); });
+    h.appendChild(i);
   }
-  showTab(saved || 'holdings');
+  showTab(TABS[saved] ? saved : 'today');
 
   window.appBack = () => {
     if (!sheet.hidden) { closeSettings(); return true; }

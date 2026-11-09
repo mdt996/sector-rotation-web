@@ -118,7 +118,7 @@ dash.draw('folio', (tbody) => {
 });
 
 // ---- 15-year study (a fixed file) ----------------------------------------------
-SR.btColors = () => ({ rule: dash.colors[0], qqqdef: dash.colors[1], equal: dash.colors[2], spy: 'var(--color-fg-muted)' });
+SR.btColors = () => ({ smhplan: dash.colors[3], rule: dash.colors[0], qqqdef: dash.colors[1], equal: dash.colors[2], spy: 'var(--color-fg-muted)' });
 
 dash.draw('bt', (el) => {
   if (!SR.ready(['study_curve'])) { SR.wait(el, ['study_curve']); return; }
@@ -126,7 +126,7 @@ dash.draw('bt', (el) => {
   el.replaceChildren();
   const B = dash.data('study_curve').data.map((r) => ({ ...r, d: new Date(r.date + 'T00:00:00Z') }));
   if (B.length < 2) { const f = el.appendChild(document.createElement('div')); f.className = 'sr-failed'; f.textContent = 'No study data'; return; }
-  const col = SR.btColors(), keys = [['qqqdef', 'Nasdaq + defensive'], ['rule', 'Rule'], ['equal', 'Equal parts'], ['spy', 'SPY']].filter(([k]) => B[0][k] != null);
+  const col = SR.btColors(), keys = [['smhplan', 'Semis on trend'], ['qqqdef', 'Nasdaq + defensive'], ['rule', 'Rule'], ['spy', 'SPY']].filter(([k]) => B[0][k] != null);
   const W = Math.max(300, el.clientWidth), H = W < 560 ? 280 : 330;
   const svg = SR.svg(el, W, H).attr('aria-label', '15-year study: value of 100 invested');
   const tip = SR.tip(el);
@@ -145,7 +145,7 @@ dash.draw('bt', (el) => {
   let lastRight = -Infinity; // drop date labels that would overlap the one before
   xl.nodes().forEach((n) => { const b = n.getBBox(); if (b.x < lastRight + 8 || b.x < 0 || b.x + b.width > W) n.remove(); else lastRight = b.x + b.width; });
   for (const [k] of keys) svg.append('path').datum(B).attr('d', d3.line().x((r) => x(r.d)).y((r) => y(r[k])))
-    .attr('fill', 'none').style('stroke', col[k]).attr('stroke-width', k === 'rule' || k === 'qqqdef' ? 2.2 : 1.6).attr('stroke-dasharray', k === 'spy' ? '4 3' : null).attr('stroke-linejoin', 'round');
+    .attr('fill', 'none').style('stroke', col[k]).attr('stroke-width', k === 'smhplan' || k === 'qqqdef' ? 2.2 : 1.6).attr('stroke-dasharray', k === 'spy' ? '4 3' : null).attr('stroke-linejoin', 'round');
   const ends = SR.spread(keys.map(([k, n]) => ({ k, n, y: y(B[B.length - 1][k]) })), 13, mt + 4, mt + ih);
   for (const e of ends) svg.append('text').attr('x', ml + iw + 6).attr('y', e.y + 4).style('fill', col[e.k]).style('font-weight', 600).text(lab(e.k, e.n));
   const rule = svg.append('line').style('stroke', 'var(--color-fg-muted)').attr('stroke-dasharray', '3 3').attr('y1', mt).attr('y2', mt + ih).style('display', 'none');

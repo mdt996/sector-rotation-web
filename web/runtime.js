@@ -158,10 +158,12 @@
       const parts = line.split('=').map((x) => x.trim().toUpperCase()).filter(Boolean);
       const ticker = (parts[0] || '').split(/\s+/)[0];
       if (!ticker) continue;
-      const tracks = parts[1] ? parts[1].split(/\s+/)[0] : ticker;
+      const rev = (window.SR_REVOLUT || []).find((r) => r.revolut_ticker === ticker);
+      const tracks = parts[1] ? parts[1].split(/\s+/)[0] : rev ? rev.us : ticker;
       const d = defaults.find((h) => h.ticker === ticker), known = d && d.tracks === tracks;
+      const revName = rev && !d ? rev.ucits_name : '';
       out.push({
-        ticker, name: d ? d.name : '', tracks,
+        ticker, name: d ? d.name : revName, tracks,
         match: rough ? 'rough' : known ? d.match : tracks === ticker ? 'same' : 'close',
         long_term: long, note: known ? d.note : '', amount: amount > 0 ? amount : null,
       });
