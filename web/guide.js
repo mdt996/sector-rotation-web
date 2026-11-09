@@ -121,6 +121,12 @@
     const other = {}; // holdings not on a current line, by ticker
     for (const h of scope) { const l = lineFor(h, T); if (l) st.cur[l.t] = (st.cur[l.t] || 0) + h.value; else other[h.ticker] = (other[h.ticker] || 0) + h.value; }
     st.size = scope.reduce((x, h) => x + h.value, 0) + (p.add > 0 ? p.add : 0);
+    if (st.swing && st.size > 0) { // during a semis swing trade: keep the SEC0 you hold, don't add; the rest of that half waits in cash
+      const held = Math.min(0.5, (st.cur.SEC0 || 0) / st.size);
+      T = T.map((l) => (l.t === 'SEC0' ? { ...l, w: held } : l));
+      if (0.5 - held > 0.001) T.push({ t: 'CASH', name: 'Cash (Revolut)', w: 0.5 - held });
+      st.T = T;
+    }
     st.inPlan = T.reduce((x, l) => x + (st.cur[l.t] || 0), 0);
     if (st.size < 50) return st;
     const others = Object.keys(other);
@@ -171,27 +177,44 @@
     c.appendChild(el('div', 'g-card-t', title));
     return c;
   }
-  function orderList(c, a, total) {
+  // the weakest fits go first: the most volatile holdings, where the swing rule also failed in the tests
+  const FIRST_THEMES = ['Uranium', 'Gold & silver', 'Quantum'], FIRST_TICKERS = ['AAOI'];
+  function orderList(c, a, total, H) {
     const sells = a.orders.filter((o) => o.side === 'sell' && o.t !== 'CASH'), buys = a.orders.filter((o) => o.side === 'buy' && o.t !== 'CASH');
     const keepCash = a.orders.find((o) => o.side === 'buy' && o.t === 'CASH'), useCash = a.orders.find((o) => o.side === 'sell' && o.t === 'CASH');
-    const ol = c.appendChild(el('ol', 'g-steps'));
+    const hOf = (t) => (H || []).find((h) => h.ticker === t);
+    const first = sells.filter((o) => FIRST_TICKERS.includes(o.t) || (hOf(o.t) && FIRST_THEMES.includes(themeOf(o.t, hOf(o.t).tracks))));
+    const later = sells.filter((o) => !first.includes(o));
+    const S = sells.reduce((x, o) => x + o.eur, 0) || 1, R10 = (x) => Math.round(x / 10) * 10;
+    const share = (part) => part.reduce((x, o) => x + o.eur, 0) / S;
     let n = 0;
-    const step = (side, label, t, name, amt, all) => {
-      const li = ol.appendChild(el('li', 'g-step'));
-      li.appendChild(el('span', 'g-step-n', String(++n)));
-      li.appendChild(el('span', 'g-side g-' + side, label));
-      const w = li.appendChild(el('span', 'g-step-w')); w.appendChild(el('b', '', t)); if (name) w.appendChild(el('span', 'g-muted', name));
-      const v = li.appendChild(el('span', 'g-step-v')); v.appendChild(el('b', '', (all ? 'all · ' : '') + eur(amt)));
-      if (total) v.appendChild(el('span', 'g-muted', d3.format('.0%')(amt / total) + ' of portfolio'));
+    const block = (title, sub, ss, k, withCash) => {
+      c.appendChild(el('div', 'g-sec', title));
+      if (sub) c.appendChild(el('div', 'g-hint g-sub2', sub));
+      const ol = c.appendChild(el('ol', 'g-steps'));
+      const step = (side, label, t, name, amt, all) => {
+        if (amt < 10) return;
+        const li = ol.appendChild(el('li', 'g-step'));
+        li.appendChild(el('span', 'g-step-n', String(++n)));
+        li.appendChild(el('span', 'g-side g-' + side, label));
+        const w = li.appendChild(el('span', 'g-step-w')); w.appendChild(el('b', '', t)); if (name) w.appendChild(el('span', 'g-muted', name));
+        const v = li.appendChild(el('span', 'g-step-v')); v.appendChild(el('b', '', (all ? 'all · ' : '') + eur(amt)));
+        if (total) v.appendChild(el('span', 'g-muted', d3.format('.0%')(amt / total) + ' of portfolio'));
+      };
+      for (const o of ss) step('sell', 'Sell', o.t, NAME[o.t] || (hOf(o.t) && hOf(o.t).name) || '', o.eur, o.all);
+      if (withCash && useCash) step('cash', 'Use', 'Cash', 'from Revolut', useCash.eur);
+      for (const o of buys) step('buy', 'Buy', o.t, NAME[o.t] || '', R10(o.eur * k));
+      if (keepCash) step('cash', 'Keep', 'Cash', 'stays in Revolut', R10(keepCash.eur * k));
     };
-    for (const o of sells) step('sell', 'Sell', o.t, NAME[o.t] || '', o.eur, o.all);
-    if (useCash) step('cash', 'Use', 'Cash', 'from Revolut', useCash.eur);
-    for (const o of buys) step('buy', 'Buy', o.t, NAME[o.t] || '', o.eur);
-    if (keepCash) step('cash', 'Keep', 'Cash', 'stays in Revolut', keepCash.eur);
+    if (first.length && later.length) {
+      const k1 = share(first);
+      block('Step 1 · start here', 'The most volatile holdings, where the swing rule also failed in the tests.', first, k1, true);
+      block('Step 2 · when you are ready', 'Larger positions: check which are up before selling (gains are taxed at 31.4%).', later, 1 - k1, false);
+    } else block('Orders on Revolut, in this order', '', sells, 1, true);
     if (a.keep && a.keep.length) {
-      const k = c.appendChild(el('div', 'g-keep'));
-      k.appendChild(el('span', 'g-muted', 'Don\'t touch: ')); k.appendChild(el('b', '', a.keep.join(', ')));
-      const ch = k.appendChild(el('button', 'g-link', 'change')); ch.type = 'button'; ch.addEventListener('click', () => go('plan', 0));
+      const kk = c.appendChild(el('div', 'g-keep'));
+      kk.appendChild(el('span', 'g-muted', 'Don\'t touch: ')); kk.appendChild(el('b', '', a.keep.join(', ')));
+      const ch = kk.appendChild(el('button', 'g-link', 'change')); ch.type = 'button'; ch.addEventListener('click', () => go('plan', 0));
     }
   }
   function spark(box, s) {
@@ -273,9 +296,8 @@
       if (same.length) c.appendChild(el('div', 'g-hint', 'Unchanged: ' + same.map((r) => `${r.th} ${d3.format('.0%')(r.now)}`).join(' · ')));
     }
     if (st.actions.length) {
-      c.appendChild(el('div', 'g-sec', 'Orders on Revolut, in this order'));
-      orderList(c, st.actions[0], R.total);
-      c.appendChild(el('div', 'g-hint', 'Sell first, then buy with the proceeds. After trading, send Claude a screenshot of Revolut. Selling realises gains (31.4% flat tax in a compte-titres).'));
+      orderList(c, st.actions[0], R.total, H);
+      c.appendChild(el('div', 'g-hint', 'In each step, sell first, then buy with the proceeds. Positions at a loss can be sold without tax. After trading, send Claude a screenshot of Revolut.'));
     }
     if (!st.P) {
       const list = c.appendChild(el('div', 'g-moves'));
@@ -292,7 +314,7 @@
       const rank = (u) => (th === 'Semiconductors' && u.th === havenTh ? 0 : u.th === 'Defensive' ? 1 : u.th === havenTh ? 2 : 3);
       return rank(x) - rank(y);
     });
-    const tick = (th, keepOut) => H.filter((h) => h.value > 0 && themeOf(h.ticker, h.tracks) === th && !(st.keep && st.keep.has(h.ticker))).map((h) => h.ticker).filter((t) => !keepOut.includes(t));
+    const tick = (th, keepOut) => H.filter((h) => h.value > 0 && themeOf(h.ticker, h.tracks) === th && !(st.keep && st.keep.has(h.ticker)) && !lineFor(h, st.T)).map((h) => h.ticker).filter((t) => !keepOut.includes(t));
     const planBuys = (th) => st.T.filter((l) => themeOf(l.t, l.us) === th).map((l) => l.t);
     const out = [];
     for (const d of downs) {
