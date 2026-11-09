@@ -61,7 +61,7 @@
     if (hit && Date.now() - hit.at < ttl) return hit.rows;
     const j = await getJSON(`/api/v1/market-data/instruments/${id}/history/candles/desc/${interval}/${count}`);
     const list = (j.candles && j.candles[0] && j.candles[0].candles) || [];
-    const rows = list.map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close }))
+    const rows = list.map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }))
       .filter((r) => r.close > 0).sort((a, b) => a.t - b.t);
     cache.set(key, { at: Date.now(), rows });
     return rows;
@@ -81,79 +81,89 @@
   }
   const prevSync = (id) => { const own = storedRows(id); if (own) return prevFromRows(own); const h = prevCache.get(id); return h && h.day === todayET() ? h.price : null; };
 
-  // ---- a clean price chart --------------------------------------------------------
-  const RANGES = [
-    { k: '1D', iv: 'FiveMinutes', n: 600, session: true },
-    { k: '1W', iv: 'OneHour', n: 240, days: 7 },
-    { k: '1M', iv: 'OneDay', n: 400, days: 31 },
-    { k: '6M', iv: 'OneDay', n: 400, days: 183 },
-    { k: '1Y', iv: 'OneDay', n: 400, days: 366 },
-    { k: '5Y', iv: 'OneWeek', n: 270, days: 1830 },
-  ];
-  function slice(rows, R) {
-    if (!rows.length) return rows;
-    const end = rows[rows.length - 1].t;
-    if (R.session) {
-      // the latest session; with less than an hour of it so far, the one before as well
-      const starts = [0];
-      for (let i = 1; i < rows.length; i++) if (rows[i].t - rows[i - 1].t > 2 * 3600e3) starts.push(i);
-      let s = starts[starts.length - 1];
-      if (rows.length - s < 12 && starts.length > 1) s = starts[starts.length - 2];
-      return rows.slice(Math.max(s, rows.findIndex((r) => r.t >= end - 36 * 3600e3)));
-    }
-    return rows.filter((r) => r.t >= end - R.days * 864e5);
+  // ---- price zones: where the price sat against its 200-day average over the last 2 years ----
+  // accumulate = its cheapest 10–25%, fair value = the middle half, take profit = its richest 75–90%
+  const zcache = lsGet('sr.zones', {});
+  function computeZones(rows) {
+    const t = todayET(), closes = rows.filter((r) => r.date < t).map((r) => r.close);
+    if (closes.length < 260) return null;
+    const ratios = [];
+    let sum = 0;
+    for (let i = 0; i < closes.length; i++) { sum += closes[i]; if (i >= 200) sum -= closes[i - 200]; if (i >= 199) ratios.push(closes[i] / (sum / 200)); }
+    const sorted = ratios.slice(-500).sort((a, b) => a - b), q = (p) => sorted[Math.round(p * (sorted.length - 1))];
+    return { sma: sum / 200, q10: q(0.1), q25: q(0.25), q75: q(0.75), q90: q(0.9), n: sorted.length };
   }
-  function tickLabel(ms, R) {
-    const d = new Date(ms);
-    if (R.k === '1D') return hhmm(ms);
-    if (R.k === '1W') return d.toLocaleDateString([], { weekday: 'short' });
-    if (R.k === '5Y' || R.k === '1Y') return d.toLocaleDateString([], { month: 'short', year: '2-digit' });
-    return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  function zoneLevels(z) {
+    if (!z || z.none) return null;
+    const s = z.sma;
+    return { acc: [s * z.q10, s * z.q25], fair: [s * z.q25, s * z.q75], tp: [s * z.q75, s * z.q90] };
   }
-  let gid = 0;
-  function drawChart(box, pts, R, ref, onScrub) {
-    box.replaceChildren();
-    const W = Math.max(260, box.clientWidth || 340), H = 210, top = 10, bottom = 22, right = 2;
-    if (pts.length < 2) { box.appendChild(el('div', 'av-empty', 'No prices for this range yet.')); return; }
-    const vals = pts.map((p) => p.close).concat(ref ? [ref] : []);
-    let lo = d3.min(vals), hi = d3.max(vals); const pad = (hi - lo || hi * 0.01) * 0.08; lo -= pad; hi += pad;
-    const x = d3.scaleLinear().domain([0, pts.length - 1]).range([0, W - right]);
-    const y = d3.scaleLinear().domain([lo, hi]).range([H - bottom, top]);
-    const base = ref != null ? ref : pts[0].close, up = pts[pts.length - 1].close >= base;
-    const color = up ? 'var(--av-up)' : 'var(--av-down)', id = 'avg' + (++gid);
-    const svg = d3.select(box).append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H).attr('class', 'av-svg');
-    const g = svg.append('defs').append('linearGradient').attr('id', id).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
-    g.append('stop').attr('offset', '0%').attr('stop-color', color).attr('stop-opacity', 0.22);
-    g.append('stop').attr('offset', '100%').attr('stop-color', color).attr('stop-opacity', 0);
-    // three quiet price levels
-    for (const v of y.ticks(3)) {
-      svg.append('line').attr('class', 'av-grid').attr('x1', 0).attr('x2', W).attr('y1', y(v)).attr('y2', y(v));
-      svg.append('text').attr('class', 'av-axis').attr('x', W - 2).attr('y', y(v) - 3).attr('text-anchor', 'end').text(fmtP(v));
+  function zoneOf(price, L) {
+    if (price == null || !L) return null;
+    if (price < L.acc[0]) return { key: 'deep', label: 'Below accumulation' };
+    if (price < L.acc[1]) return { key: 'acc', label: 'Accumulation zone' };
+    if (price <= L.fair[1]) return { key: 'fair', label: 'Fair value range' };
+    if (price <= L.tp[1]) return { key: 'tp', label: 'Take-profit zone' };
+    return { key: 'hot', label: 'Above take-profit' };
+  }
+  function zonesFrom(id, rows) { const z = computeZones(rows); zcache[id] = Object.assign({ day: todayET() }, z || { none: true }); lsSet('sr.zones', zcache); return zcache[id]; }
+  async function zones(id) {
+    const hit = zcache[id];
+    if (hit && hit.day === todayET()) return hit;
+    return zonesFrom(id, await candles(id, 'OneDay', 1000));
+  }
+  const zonesSync = (id) => { const z = zcache[id]; return z && z.day === todayET() ? z : null; };
+
+  // shaded zone bands drawn under the candles (a Lightweight Charts series primitive)
+  class ZoneBands {
+    constructor() { this.levels = null; this.series = null; this.req = null; }
+    set(levels) { this.levels = levels; if (this.req) this.req(); }
+    attached(p) { this.series = p.series; this.req = p.requestUpdate; }
+    detached() { this.series = null; this.req = null; }
+    updateAllViews() {}
+    paneViews() {
+      const self = this;
+      return [{
+        zOrder: () => 'bottom',
+        renderer: () => ({
+          draw: () => {},
+          drawBackground: (target) => {
+            const L = self.levels, s = self.series;
+            if (!L || !s) return;
+            target.useBitmapCoordinateSpace((sc) => {
+              const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio;
+              const bands = [[L.tp, 'rgba(230, 140, 20, 0.13)', 'Take profit'], [L.fair, 'rgba(110, 120, 140, 0.10)', 'Fair value'], [L.acc, 'rgba(26, 160, 70, 0.13)', 'Accumulate']];
+              ctx.font = `${Math.round(10 * r)}px system-ui, sans-serif`;
+              for (const [[lo, hi], color, label] of bands) {
+                const y1 = s.priceToCoordinate(hi), y2 = s.priceToCoordinate(lo);
+                if (y1 == null || y2 == null) continue;
+                ctx.fillStyle = color;
+                ctx.fillRect(0, Math.round(y1 * r), W, Math.max(1, Math.round((y2 - y1) * r)));
+                if (y2 - y1 > 16) { ctx.fillStyle = 'rgba(120, 125, 135, 0.9)'; ctx.fillText(label, Math.round(6 * sc.horizontalPixelRatio), Math.round((y1 + 12) * r)); }
+              }
+            });
+          },
+        }),
+      }];
     }
-    if (ref != null) svg.append('line').attr('class', 'av-ref').attr('x1', 0).attr('x2', W).attr('y1', y(ref)).attr('y2', y(ref));
-    svg.append('path').attr('d', d3.area().x((p, i) => x(i)).y0(H - bottom).y1((p) => y(p.close)).curve(d3.curveMonotoneX)(pts)).attr('fill', `url(#${id})`);
-    svg.append('path').attr('d', d3.line().x((p, i) => x(i)).y((p) => y(p.close)).curve(d3.curveMonotoneX)(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 2);
-    const last = pts.length - 1;
-    svg.append('circle').attr('class', 'av-dot-live').attr('cx', x(last)).attr('cy', y(pts[last].close)).attr('r', 3.5).attr('fill', color);
-    for (const i of [0, Math.round(last / 2), last]) {
-      svg.append('text').attr('class', 'av-axis').attr('x', x(i)).attr('y', H - 6).attr('text-anchor', i === 0 ? 'start' : i === last ? 'end' : 'middle').text(tickLabel(pts[i].t, R));
-    }
-    // touch the chart to read any point
-    const v = svg.append('line').attr('class', 'av-cross').attr('y1', top).attr('y2', H - bottom).style('display', 'none');
-    const dot = svg.append('circle').attr('r', 4.5).attr('fill', color).attr('stroke', 'var(--color-panel, #fff)').attr('stroke-width', 2).style('display', 'none');
-    const hit = svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'transparent');
-    const at = (ev) => { const [px] = d3.pointer(ev, svg.node()); return Math.max(0, Math.min(last, Math.round(x.invert(px)))); };
-    const show = (ev) => { const i = at(ev); v.style('display', null).attr('x1', x(i)).attr('x2', x(i)); dot.style('display', null).attr('cx', x(i)).attr('cy', y(pts[i].close)); onScrub(pts[i], base); };
-    const hide = () => { v.style('display', 'none'); dot.style('display', 'none'); onScrub(null, base); };
-    hit.on('pointerdown', show).on('pointermove', (ev) => { if (ev.pointerType === 'mouse' || ev.buttons || ev.pressure) show(ev); }).on('pointerup pointerleave pointercancel', hide);
   }
 
-  // ---- the asset page: live price, chart with ranges, a few facts ---------------------
+  // ---- the asset page: live price, an eToro-style candle chart, zones and a few facts ----
+  const FRAMES = [
+    { k: '5m', iv: 'FiveMinutes', n: 1000, sec: 300, show: 140 },
+    { k: '15m', iv: 'FifteenMinutes', n: 1000, sec: 900, show: 140 },
+    { k: '1H', iv: 'OneHour', n: 1000, sec: 3600, show: 140 },
+    { k: '4H', iv: 'FourHours', n: 1000, sec: 14400, show: 140 },
+    { k: '1D', iv: 'OneDay', n: 1000, sec: 86400, show: 160 },
+    { k: '1W', iv: 'OneWeek', n: 1000, sec: 604800, show: 160 },
+  ];
+  const cssVar = (name, fb) => (getComputedStyle(document.documentElement).getPropertyValue(name) || '').trim() || fb;
+  const dark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   let vid = 0;
   function assetView(root, inst, opts) {
     opts = opts || {};
     const who = 'view' + (++vid);
-    let range = RANGES.find((r) => r.k === (lsGet('sr.range', '1D'))) || RANGES[0], pts = [], prev = null, daily = [], scrub = false, dead = false;
+    let frame = FRAMES.find((f) => f.k === lsGet('sr.frame', '1D')) || FRAMES[4], bars = [], daily = [], prev = null, L = null, dead = false, hovering = false;
     root.replaceChildren();
     const wrap = root.appendChild(el('div', 'av'));
     const top = wrap.appendChild(el('div', 'av-top'));
@@ -164,47 +174,87 @@
     const priceRow = wrap.appendChild(el('div', 'av-price'));
     const last = priceRow.appendChild(el('span', 'av-last', '—'));
     const chg = priceRow.appendChild(el('span', 'av-chg', ''));
+    const badge = priceRow.appendChild(el('span', 'av-zone', ''));
     const sub = wrap.appendChild(el('div', 'av-sub', hasKeys() ? 'Connecting…' : 'Add your eToro keys in Settings for live prices.'));
+    const frames = wrap.appendChild(el('div', 'av-ranges'));
+    for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); load(true); }); }
     const box = wrap.appendChild(el('div', 'av-chart'));
-    const chips = wrap.appendChild(el('div', 'av-ranges'));
-    for (const R of RANGES) {
-      const b = chips.appendChild(el('button', '', R.k)); b.type = 'button';
-      b.addEventListener('click', () => { range = R; lsSet('sr.range', R.k); load(); });
-    }
     const stats = wrap.appendChild(el('dl', 'av-stats'));
-    const stat = (k) => { const d = stats.appendChild(el('div')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
+    const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
+    const sAcc = stat('Accumulation zone', 'z-acc'), sFair = stat('Fair value range', 'z-fair'), sTp = stat('Take-profit zone', 'z-tp');
+    const how = wrap.appendChild(el('button', 'sr-more av-how', 'How the zones work')); how.type = 'button';
+    const howText = wrap.appendChild(el('p', 'av-note', 'Each zone is where the price sat against its 200-day average over the last 2 years: accumulation = its cheapest 10–25% of the time, fair value = the middle half, take profit = its most stretched 75–90%. Statistics on the price alone, not a valuation or a forecast.'));
+    howText.hidden = true;
+    how.addEventListener('click', () => { howText.hidden = !howText.hidden; });
+
+    // the chart (TradingView Lightweight Charts): drag to move, pinch or scroll to zoom
+    const LW = window.LightweightCharts;
+    const up = cssVar('--av-up', '#1a7f37'), down = cssVar('--av-down', '#d1242f');
+    const chart = LW.createChart(box, {
+      autoSize: true, height: 340,
+      layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, attributionLogo: true },
+      grid: { vertLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.22 } },
+      timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
+      crosshair: { mode: LW.CrosshairMode.Normal },
+      localization: { timeFormatter: (t) => new Date(t * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), priceFormatter: fmtP },
+      handleScroll: true, handleScale: true,
+    });
+    const candlesS = chart.addSeries(LW.CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down, priceLineStyle: 2 });
+    const volS = chart.addSeries(LW.HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
+    const bands = new ZoneBands();
+    candlesS.attachPrimitive(bands);
+    const legend = (b) => `O ${fmtP(b.open)}  H ${fmtP(b.high)}  L ${fmtP(b.low)}  C ${fmtP(b.close)}  · ${new Date(b.time * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+    chart.subscribeCrosshairMove((p) => {
+      const b = p && p.time != null ? p.seriesData.get(candlesS) : null;
+      hovering = !!b;
+      if (b) { sub.textContent = legend({ ...b, time: p.time }); sub.className = 'av-sub'; } else header();
+    });
 
     const live = () => quotes.get(inst.id);
-    function header(p, base) {
+    function header() {
       if (dead) return;
-      const q = live();
-      if (p) { // reading a point on the chart
-        last.textContent = fmtP(p.close);
-        const c = base ? p.close / base - 1 : null;
-        chg.textContent = c == null ? '' : fmtPct(c); chg.className = 'av-chg ' + cls(c);
-        sub.textContent = new Date(p.t).toLocaleString([], range.k === '1D' || range.k === '1W' ? { weekday: 'short', hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short', year: 'numeric' });
-        return;
-      }
-      const price = q ? q.price : pts.length ? pts[pts.length - 1].close : null;
+      const q = live(), price = q ? q.price : bars.length ? bars[bars.length - 1].close : null;
       last.textContent = fmtP(price);
       const c = price != null && prev ? price / prev - 1 : null;
       chg.textContent = c == null ? '' : `${fmtPct(c)}  ${price - prev >= 0 ? '+' : '−'}${fmtP(Math.abs(price - prev))} today`;
       chg.className = 'av-chg ' + cls(c);
+      const z = zoneOf(price, L);
+      badge.textContent = z ? z.label : ''; badge.className = 'av-zone' + (z ? ' z-' + z.key : '');
+      if (hovering) return;
       sub.textContent = q ? `Live · ${hhmm(q.at)}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
     }
-    function redraw() {
+    function toBars(rows) {
+      return rows.map((r) => ({ time: Math.floor(r.t / 1000), open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume || 0 }));
+    }
+    function paint(fit) {
       if (dead) return;
-      for (const b of chips.children) b.setAttribute('aria-selected', String(b.textContent === range.k));
-      let p = slice(pts, range);
+      for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
+      candlesS.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+      volS.setData(bars.map((b) => ({ time: b.time, value: b.volume, color: b.close >= b.open ? 'rgba(26,160,70,0.35)' : 'rgba(209,36,47,0.35)' })));
+      chart.applyOptions({ timeScale: { timeVisible: frame.sec < 86400 } });
+      if (fit && bars.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - frame.show), to: bars.length + 3 });
+      bands.set(L);
+    }
+    // the live price moves the newest candle, or opens the next one
+    function liveCandle() {
       const q = live();
-      if (q && range.session && p.length) { // the live price as the newest point of the day
-        const end = p[p.length - 1];
-        p = Date.now() - end.t < 5 * 60e3 ? p.slice(0, -1).concat([{ ...end, close: q.price }]) : p.concat([{ t: Math.max(Date.now(), end.t + 1), close: q.price }]);
+      if (!q || !bars.length) return;
+      const lastBar = bars[bars.length - 1], now = Math.floor(Date.now() / 1000);
+      let bucket = Math.floor(now / frame.sec) * frame.sec;
+      if (frame.sec === 604800) bucket = lastBar.time; // a week: the current candle
+      if (frame.sec === 86400 && new Date(lastBar.time * 1000).toISOString().slice(0, 10) === new Date(q.at).toISOString().slice(0, 10)) bucket = lastBar.time;
+      if (bucket <= lastBar.time) {
+        Object.assign(lastBar, { close: q.price, high: Math.max(lastBar.high, q.price), low: Math.min(lastBar.low, q.price) });
+        candlesS.update({ time: lastBar.time, open: lastBar.open, high: lastBar.high, low: lastBar.low, close: lastBar.close });
+      } else if (q.at > (lastBar.time + frame.sec) * 1000 - frame.sec * 1000) {
+        const nb = { time: bucket, open: q.price, high: q.price, low: q.price, close: q.price, volume: 0 };
+        bars.push(nb);
+        candlesS.update({ time: nb.time, open: nb.open, high: nb.high, low: nb.low, close: nb.close });
       }
-      drawChart(box, p, range, range.session ? prev : null, (pt, base) => { scrub = !!pt; header(pt, base); });
-      if (!scrub) header(null);
     }
     function facts() {
       const q = live(), price = q ? q.price : null;
@@ -216,27 +266,29 @@
       const y1 = yr.length ? yr[0].close : null, now = price || (daily.length ? daily[daily.length - 1].close : null);
       const c = y1 && now ? now / y1 - 1 : null;
       s1y.textContent = fmtPct(c); s1y.className = cls(c);
+      sAcc.textContent = L ? `${fmtP(L.acc[0])} – ${fmtP(L.acc[1])}` : 'Not enough history';
+      sFair.textContent = L ? `${fmtP(L.fair[0])} – ${fmtP(L.fair[1])}` : '—';
+      sTp.textContent = L ? `${fmtP(L.tp[0])} – ${fmtP(L.tp[1])}` : '—';
     }
-    async function load() {
-      if (!hasKeys()) { header(null); return; }
+    async function load(fit) {
+      if (!hasKeys()) { header(); return; }
       box.classList.add('is-loading');
       try {
-        const [rows, d, pc] = await Promise.all([candles(inst.id, range.iv, range.n), candles(inst.id, 'OneDay', 400), prevClose(inst.id)]);
+        const [d, pc] = await Promise.all([candles(inst.id, 'OneDay', 1000), prevClose(inst.id)]);
+        const rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n);
         if (dead) return;
-        pts = rows; daily = d; prev = pc;
-        redraw(); facts();
+        daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
+        bars = toBars(rows);
+        paint(fit); liveCandle(); header(); facts();
       } catch (e) {
-        if (!dead) { box.replaceChildren(el('div', 'av-empty', 'eToro did not answer (' + (e.status || 'no connection') + ').')); }
+        if (!dead) sub.textContent = 'eToro did not answer (' + (e.status || 'no connection') + ').';
       } finally { box.classList.remove('is-loading'); }
     }
-    const tick = () => { if (dead || scrub) return; if (range.session) redraw(); else header(null); facts(); };
+    const tick = () => { if (dead) return; liveCandle(); header(); facts(); };
     ticks.add(tick);
     want(who, [inst.id]);
-    load();
-    let rt = null;
-    const onResize = () => { clearTimeout(rt); rt = setTimeout(redraw, 150); };
-    window.addEventListener('resize', onResize);
-    return { id: inst.id, destroy() { dead = true; ticks.delete(tick); want(who, []); window.removeEventListener('resize', onResize); } };
+    load(true);
+    return { id: inst.id, destroy() { dead = true; ticks.delete(tick); want(who, []); try { chart.remove(); } catch (e) { /* gone */ } } };
   }
 
   // ---- search over every eToro asset ------------------------------------------------
@@ -395,6 +447,12 @@
     SR.liveRows = out;
   }
   SR.liveFolio = (h) => (SR.liveRows && SR.liveRows[h.ticker]) || null;
+  SR.zoneFolio = (h) => {
+    const l = liveOf(h); if (!l) return null;
+    const q = quotes.get(l.id), rows = storedRows(l.id);
+    const price = q ? q.price : rows ? rows[rows.length - 1].close : null;
+    return zoneOf(price, zoneLevels(zonesSync(l.id)));
+  };
   SR.liveTotals = () => totals;
   SR.fmtPctLive = fmtPct; SR.fmtEurLive = fmtEur;
   ticks.add(() => { computeLive(); SRApp.renderDraw('folio'); SRApp.renderDraw('foliototal'); });
@@ -402,6 +460,7 @@
     const H = holdingsLive();
     want('holdings', H.map((h) => h.id));
     for (const h of H) if (!storedRows(h.id)) prevClose(h.id).catch(() => {});
+    (async () => { for (const h of H) if (!zonesSync(h.id)) { try { await zones(h.id); } catch (e) { /* next time */ } } SRApp.renderDraw('folio'); })();
   }
   SRApp.onChange(watchHoldings);
 

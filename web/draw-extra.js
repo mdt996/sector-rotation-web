@@ -88,6 +88,7 @@ dash.draw('folio', (tbody) => {
   const table = tbody.closest('table');
   if (table) table.classList.toggle('sr-noamt', !d.data.some((h) => h.amount > 0)); // the Value column only when amounts were given
   if (table) table.classList.toggle('sr-nolive', !(SR.liveFolio && d.data.some((h) => SR.liveFolio(h)))); // Today only with live prices
+  if (table) table.classList.toggle('sr-nozone', !(SR.zoneFolio && d.data.some((h) => SR.zoneFolio(h)))); // Zone only in the app
   for (const h of d.data) {
     const tr = tbody.appendChild(document.createElement('tr'));
     tr.setAttribute('data-key', h.ticker);
@@ -99,6 +100,8 @@ dash.draw('folio', (tbody) => {
     txt('sr-n', '', h.name || h.tracks_name || '—');
     const L = SR.liveFolio ? SR.liveFolio(h) : null, val = L && L.value != null ? L.value : h.amount, share = L && L.share != null ? L.share : h.share;
     txt('sr-f sr-amt', 'Value', val ? SR.eur(val) + (share != null ? ' · ' + d3.format('.1%')(share) : '') : '—', '', true);
+    const Z = SR.zoneFolio ? SR.zoneFolio(h) : null;
+    txt('sr-f sr-zone', 'Zone', Z ? Z.label : '—', Z ? 'sr-z z-' + Z.key : '');
     txt('sr-f sr-today', 'Today', L && L.chg != null ? SR.fmtPctLive(L.chg) + (L.chgEur != null ? ' · ' + SR.fmtEurLive(L.chgEur, true) : '') : '—', L ? SR.signCls(L.chg) : '', true);
     txt('sr-f', 'Follows', h.tracks || '—');
     txt('sr-f sr-c-match', 'Match', h.match || '—');
