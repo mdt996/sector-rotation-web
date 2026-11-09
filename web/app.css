@@ -46,6 +46,10 @@ body.sheet-open { overflow: hidden; }
 .app-banner { display: flex; align-items: center; gap: var(--cds-gap-md); margin: var(--cds-gap-md) var(--cds-gap-md) 0; padding: 10px 12px; border-radius: var(--cds-radius);
   background: color-mix(in srgb, var(--color-warn) 14%, var(--color-panel)); border: 1px solid color-mix(in srgb, var(--color-warn) 40%, transparent); font-size: var(--cds-font-size-caption); }
 .app-banner span { flex: 1; }
+/* hidden always wins over display rules (the banner's display:flex kept an empty bar on screen) */
+[hidden] { display: none !important; }
+/* a few funds not updating is information, not an error: neutral look, no button */
+.app-banner.is-info { background: var(--color-panel); border-color: var(--color-border-line); color: var(--color-fg-muted); }
 .btn { font: inherit; font-size: var(--cds-font-size-body); padding: 9px 14px; border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); }
 .btn.primary { background: var(--color-fg); color: var(--color-bg); border-color: var(--color-fg); font-weight: 600; width: 100%; }
 .btn:active { opacity: .8; }

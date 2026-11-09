@@ -21,6 +21,7 @@
       b.hidden = false;
       $('app-banner-text').textContent = st.error.message;
       $('app-banner-action').hidden = !(st.error.kind === 'keys' || st.error.kind === 'network');
+      b.classList.toggle('is-info', st.error.kind === 'partial');
     } else b.hidden = true;
   }
   SRApp.onChange(status);
