@@ -51,6 +51,8 @@
     $('cfg-regime').checked = c.notifyRegime !== false;
     $('cfg-holdon').checked = c.notifyHoldings !== false;
     $('cfg-holdings').value = c.holdings || '';
+    $('cfg-sync').value = c.syncToken || '';
+    if (window.SRSync) window.SRSync.showStatus();
     $('cfg-holdings').placeholder = (window.SR_HOLDINGS || []).map((h) => h.ticker + (h.tracks !== h.ticker ? ' = ' + h.tracks : '') + (h.long_term ? ' long' : '')).join('\n');
     toggleKeys();
     keyHints();
@@ -128,9 +130,12 @@
       notifyHoldings: $('cfg-holdon').checked,
       holdings: $('cfg-holdings').value.trim(),
     });
+    const prevToken = SRApp.config().syncToken || '';
+    c.syncToken = $('cfg-sync').value.replace(/\s+/g, '');
     SRApp.saveConfig(c);
     closeSettings();
     SRApp.refresh();
+    if (window.SRSync) window.SRSync.afterSave(prevToken);
   }
 
   $('btn-refresh').addEventListener('click', () => SRApp.refresh());

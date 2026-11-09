@@ -370,7 +370,7 @@
       const q = quotes.get(h.id), r = b.rows[h.ticker];
       if (h.amount > 0 && q && (!r || r.id !== h.id)) { b.rows[h.ticker] = { id: h.id, usd: q.usd, fx: fx.price, at: Date.now() }; changed = true; }
     }
-    if (changed && Object.keys(b.rows).length) SRApp.saveConfig(Object.assign(cfg, { holdingsBase: b }));
+    if (changed && Object.keys(b.rows).length) { SRApp.saveConfig(Object.assign(cfg, { holdingsBase: b })); if (window.SRSync) window.SRSync.pushSoon(); }
     return b;
   }
   const fxPrev = () => { const d = S().EURUSD; return d && d.status === 'ok' ? prevFromRows(d.data) : null; };

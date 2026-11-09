@@ -56,6 +56,16 @@
     }
     return fetch(url, { headers }).then(async (r) => ({ status: r.status, body: await r.text() }), (e) => ({ status: 0, body: String(e) }));
   }
+  // GET and PUT through the app, for the settings sync (older apps don't have it: status -1)
+  function request(method, url, headers, body) {
+    if (!(hasNative() && typeof Native.httpRequest === 'function')) return Promise.resolve({ status: -1, body: 'this version of the app cannot sync yet' });
+    return new Promise((resolve) => {
+      const id = 'r' + (++seq);
+      const timer = setTimeout(() => { if (pending[id]) { delete pending[id]; resolve({ status: 0, body: 'timed out' }); } }, 45000);
+      pending[id] = (r) => { clearTimeout(timer); resolve(r); };
+      Native.httpRequest(id, method, url, JSON.stringify(headers || {}), body == null ? null : String(body));
+    });
+  }
   function uuid() {
     const b = new Uint8Array(16);
     (window.crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach((_, i) => (b[i] = Math.floor(Math.random() * 256)));
@@ -360,6 +370,7 @@
     const fn = draws[name];
     if (fn) document.querySelectorAll('[data-draw="' + name + '"]').forEach((el) => { if (!el.closest('[hidden]')) safe(() => fn(el)); });
   }
+  function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { DATASETS, state, config, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, onChange: (fn) => listeners.push(fn), _store: store };
+  window.SRApp = { DATASETS, state, config, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();
