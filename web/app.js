@@ -171,7 +171,7 @@
     holdings: [['', ['portfolio']]],
     rule: [['This week', ['rule']], ['On Revolut', ['revolut']]],
     market: [['Overview', ['top', 'regime', 'headline']], ['Ranking', ['ranking']], ['Map', ['map']], ['Trends', ['sr-grid']]],
-    chart: [['', ['chart']]],
+    chart: [['Price', ['quote']], ['Technical', ['chart']]],
     study: [['15 years', ['backtest']], ['Method', ['method']]],
   };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
@@ -223,7 +223,7 @@
     rule: 'The 4 sectors to hold, picked every Friday by their 12-month return (leaving out the last month). Move a quarter of the rotation money each week.',
     portfolio: 'Each of your holdings against the rule\'s picks, and what to do with it. Tap a row for its chart.',
     ranking: 'Funds sorted by last month\'s return, with their rotation phase. Tap a row for its chart.',
-    chart: 'Daily candles with support, resistance and the exit and entry levels.',
+    chart: 'Daily candles with moving averages, support, resistance and the exit and entry levels.',
     map: 'Each fund against the S&P 500: right is stronger than the market, up is getting stronger. Rings mark the rule\'s picks.',
     backtest: 'How the rule did over 15 years against the S&P 500 and equal-weight sectors.',
     revolut: 'The European (UCITS) version of each US fund, the one you can buy on Revolut.',
@@ -248,6 +248,7 @@
 
   window.appBack = () => {
     if (!sheet.hidden) { closeSettings(); return true; }
+    if (window.SRLive && window.SRLive.back()) return true;
     if (cameFrom) { const [t, i] = cameFrom; cameFrom = null; showTab(t, i); return true; }
     return false;
   };

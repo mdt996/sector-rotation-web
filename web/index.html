@@ -10,6 +10,7 @@
 <body>
 <header class="app-bar">
   <div class="app-title"><b>Sector Rotation</b><span class="app-status" id="app-status">Loading…</span></div>
+  <button class="app-icon" id="btn-search" type="button" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
   <button class="app-icon" id="btn-refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
   <button class="app-icon" id="btn-settings" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
@@ -119,10 +120,11 @@
             <th data-field="ticker">Holding</th>
             <th data-field="name">Name</th>
             <th data-field="amount" class="num sr-amt">Value</th>
+            <th class="num sr-today">Today</th>
             <th data-field="tracks">Follows</th>
-            <th data-field="match">Match</th>
+            <th data-field="match" class="sr-c-match">Match</th>
             <th data-field="r1m_eur" class="num">1M in €</th>
-            <th data-field="r3m_eur" class="num">3M in €</th>
+            <th data-field="r3m_eur" class="num sr-c-3m">3M in €</th>
             <th data-field="score" class="num">12 months, without the last</th>
             <th data-field="vs_ma200" class="num">vs 200-day</th>
             <th data-field="phase">Daily</th>
@@ -179,6 +181,7 @@
     </div>
   </section>
 
+  <section class="sr-card" id="quote" aria-label="Price"><div data-draw="quote"></div></section>
   <section class="sr-card" id="chart">
     <div class="sr-card-head">
       <div>
@@ -369,6 +372,10 @@
 </div>
 </main>
 <nav class="tabbar" id="tabbar" role="tablist" aria-label="Sections"><button type="button" role="tab" data-tab="holdings" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg><span>Holdings</span></button><button type="button" role="tab" data-tab="rule" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg><span>Rule</span></button><button type="button" role="tab" data-tab="market" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-8"/><path d="M22 20H2"/></svg><span>Market</span></button><button type="button" role="tab" data-tab="chart" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span>Chart</span></button><button type="button" role="tab" data-tab="study" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Study</span></button></nav>
+<section class="sheet" id="search" hidden aria-label="Search">
+  <div class="search-head"><button class="app-icon" id="search-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><input id="search-q" type="search" placeholder="Search eToro: stocks, ETFs, crypto…" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search"></div>
+  <div class="sheet-body search-body"><div id="search-results"></div><div id="search-detail" hidden></div></div>
+</section>
 <section class="sheet" id="settings" hidden aria-label="Settings">
   <div class="sheet-head"><h2>Settings</h2><button class="app-icon" id="btn-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="sheet-body">
@@ -419,5 +426,6 @@
 <script src="draw-extra.js"></script>
 <script src="notes.js"></script>
 <script src="app.js"></script>
+<script src="live.js"></script>
 </body>
 </html>

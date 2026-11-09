@@ -61,6 +61,15 @@ dash.draw('foliolist', (el) => {
 SR.eur = (x) => (x == null || !isFinite(x) ? '—' : '€' + d3.format(',.0f')(x));
 // the total of the euro amounts typed in Settings (the app only; the dashboard has none)
 dash.draw('foliototal', (el) => {
+  const T = SR.liveTotals ? SR.liveTotals() : null; // the phone app's live prices
+  if (T) {
+    el.replaceChildren();
+    const b = el.appendChild(document.createElement('b')); b.textContent = 'Total ' + SR.eur(T.total);
+    const t = el.appendChild(document.createElement('span')); t.className = SR.signCls(T.today);
+    t.textContent = `  today ${SR.fmtEurLive(T.today, true)} (${SR.fmtPctLive(T.todayPct)})`;
+    if (T.lt) el.appendChild(document.createTextNode(` · long term ${d3.format('.0%')(T.lt / T.total)}`));
+    return;
+  }
   const d = dash.data('portfolio'), rows = d.status === 'ok' ? d.data.filter((r) => r.amount > 0) : [];
   if (!rows.length) { el.textContent = ''; return; } // nothing shows without amounts (the dashboard has none)
   const sum = (f) => rows.filter(f).reduce((a, r) => a + r.amount, 0), total = sum(() => true), lt = sum((r) => r.long_term);
@@ -78,6 +87,7 @@ dash.draw('folio', (tbody) => {
   if (d.status !== 'ok') return;
   const table = tbody.closest('table');
   if (table) table.classList.toggle('sr-noamt', !d.data.some((h) => h.amount > 0)); // the Value column only when amounts were given
+  if (table) table.classList.toggle('sr-nolive', !(SR.liveFolio && d.data.some((h) => SR.liveFolio(h)))); // Today only with live prices
   for (const h of d.data) {
     const tr = tbody.appendChild(document.createElement('tr'));
     tr.setAttribute('data-key', h.ticker);
@@ -87,12 +97,14 @@ dash.draw('folio', (tbody) => {
     const txt = (kind, label, text, cls, num) => { const c = td(kind, label, num); if (text === '—') c.classList.add('sr-empty'); if (cls) { const s = c.appendChild(document.createElement('span')); s.className = cls; s.textContent = text; } else c.textContent = text; };
     const hc = td('sr-h'); const b = hc.appendChild(document.createElement('b')); b.textContent = h.ticker;
     txt('sr-n', '', h.name || h.tracks_name || '—');
-    txt('sr-f sr-amt', 'Value', h.amount ? SR.eur(h.amount) + (h.share != null ? ' · ' + d3.format('.1%')(h.share) : '') : '—', '', true);
+    const L = SR.liveFolio ? SR.liveFolio(h) : null, val = L && L.value != null ? L.value : h.amount, share = L && L.share != null ? L.share : h.share;
+    txt('sr-f sr-amt', 'Value', val ? SR.eur(val) + (share != null ? ' · ' + d3.format('.1%')(share) : '') : '—', '', true);
+    txt('sr-f sr-today', 'Today', L && L.chg != null ? SR.fmtPctLive(L.chg) + (L.chgEur != null ? ' · ' + SR.fmtEurLive(L.chgEur, true) : '') : '—', L ? SR.signCls(L.chg) : '', true);
     txt('sr-f', 'Follows', h.tracks || '—');
-    txt('sr-f', 'Match', h.match || '—');
+    txt('sr-f sr-c-match', 'Match', h.match || '—');
     if (h.match !== 'rough') tr.lastChild.classList.add('sr-empty'); // on phones, only a rough match is worth a line
     txt('sr-f', '1M €', SR.pct(h.r1m_eur), SR.signCls(h.r1m_eur), true);
-    txt('sr-f', '3M €', SR.pct(h.r3m_eur), SR.signCls(h.r3m_eur), true);
+    txt('sr-f sr-c-3m', '3M €', SR.pct(h.r3m_eur), SR.signCls(h.r3m_eur), true);
     txt('sr-f', '12 months', SR.pct(h.score), SR.signCls(h.score), true);
     txt('sr-f', 'vs 200-day', SR.pct(h.vs_ma200), SR.signCls(h.vs_ma200), true);
     txt('sr-f', 'Daily', h.phase || '—', SR.phaseCls(h.phase));

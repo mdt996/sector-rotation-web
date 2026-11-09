@@ -182,13 +182,13 @@
       }
     }
   }
-  // The latest daily candle is still forming while the US market is open: drop it for close-based signals.
+  // Today's daily candle is still forming until the US close (pre-market included): drop it for close-based signals.
   function closedOnly(rows) {
     const now = new Date();
     const et = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' }).formatToParts(now);
     const g = (t) => (et.find((p) => p.type === t) || {}).value;
     const today = `${g('year')}-${g('month')}-${g('day')}`, minutes = Number(g('hour')) * 60 + Number(g('minute'));
-    const open = minutes >= 9 * 60 + 30 && minutes < 16 * 60 + 15 && !['Sat', 'Sun'].includes(g('weekday'));
+    const open = minutes < 16 * 60 + 15 && !['Sat', 'Sun'].includes(g('weekday'));
     return rows.map((list) => (open && list.length && list[list.length - 1].date === today ? list.slice(0, -1) : list));
   }
   function setDatasets(rowsBySym, meta, opts) {
@@ -350,5 +350,16 @@
     setLink: () => {},
     refresh: () => refresh(),
   };
-  window.SRApp = { DATASETS, state, config, saveConfig, refresh, boot, isStale, render, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, onChange: (fn) => listeners.push(fn), _store: store };
+  // eToro reads for the live layer (prices, search, intraday candles) with the keys saved in Settings
+  async function etoroGet(path) {
+    const cfg = config();
+    if (!(cfg.apiKey && cfg.userKey)) return { status: 0, body: '', reason: 'no keys' };
+    return httpGet('https://public-api.etoro.com' + path, etoroHeaders(cfg.apiKey, cfg.userKey));
+  }
+  function renderDraw(name) {
+    const fn = draws[name];
+    if (fn) document.querySelectorAll('[data-draw="' + name + '"]').forEach((el) => { if (!el.closest('[hidden]')) safe(() => fn(el)); });
+  }
+  const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
+  window.SRApp = { DATASETS, state, config, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, onChange: (fn) => listeners.push(fn), _store: store };
 })();
