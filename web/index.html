@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Sector Rotation</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="app-bar">
+  <div class="app-title"><b>Sector Rotation</b><span class="app-status" id="app-status">Loading…</span></div>
+  <button class="app-icon" id="btn-refresh" type="button" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+  <button class="app-icon" id="btn-settings" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</header>
+<div class="app-banner" id="app-banner" hidden><span id="app-banner-text"></span><button class="btn" id="app-banner-action" type="button">Settings</button></div>
+<main id="dash-root">
+<div class="sr">
+  <header class="sr-head" id="top">
+    <h1 class="sr-title">Sector rotation tracker</h1>
+    <p class="sr-lede">
+      <span class="sr-lede-k">Led the last month:</span> <b data-draw="names" data-list="leaders" data-source="metrics">—</b><span class="sr-sep">·</span>
+      <span class="sr-lede-k">Fading now:</span> <b data-draw="names" data-list="fading" data-source="metrics">—</b><span class="sr-sep">·</span>
+      <span class="sr-lede-k">Turning up:</span> <b data-draw="names" data-list="turning" data-source="metrics">—</b>
+    </p>
+    <p class="sr-meta">Daily candles from eToro through <span data-draw="asof" data-source="settings" data-field="asof" data-row="0">—</span>. Signals are mechanical rules on daily closes, not investment advice.</p>
+  </header>
+
+  <section class="sr-regime" id="regime" aria-label="Market regime">
+    <div class="sr-regime-k">Market regime</div>
+    <div class="sr-regime-head">
+      <span class="sr-regime-label" data-draw="rv" data-fmt="text" data-source="regime" data-field="label" data-row="0">—</span>
+      <span class="sr-regime-since" data-draw="rv" data-fmt="since" data-source="regime" data-of="label_before" data-row="0">—</span>
+    </div>
+    <p class="sr-regime-stance" data-draw="rv" data-fmt="text" data-source="regime" data-field="stance" data-row="0">—</p>
+    <div class="sr-chips">
+      <span class="sr-chip"><b>S&amp;P 500</b> <span data-draw="rv" data-fmt="abs1" data-source="regime" data-of="spy_vs_ma200" data-row="0">—</span> <span data-draw="rv" data-fmt="side" data-source="regime" data-of="spy_vs_ma200" data-row="0">—</span> its 200-day average and <span data-draw="rv" data-fmt="abs1" data-source="regime" data-of="spy_vs_ma50" data-row="0">—</span> <span data-draw="rv" data-fmt="side" data-source="regime" data-of="spy_vs_ma50" data-row="0">—</span> its 50-day; <span data-draw="rv" data-fmt="abs1" data-source="regime" data-of="spy_dd" data-row="0">—</span> off its 52-week high</span>
+      <span class="sr-chip"><b>Breadth</b> <span data-draw="rv" data-fmt="int" data-source="regime" data-field="breadth50" data-row="0">—</span> of <span data-draw="rv" data-fmt="int" data-source="regime" data-field="sectors" data-row="0">—</span> sectors above their 50-day average (<span data-draw="rv" data-fmt="int" data-source="regime" data-field="breadth50_before" data-row="0">—</span> a week ago)</span>
+      <span class="sr-chip"><b>Risk appetite</b> <span data-draw="rv" data-fmt="lead" data-source="regime" data-of="cyc_def" data-row="0">—</span> by <span data-draw="rv" data-fmt="pts" data-source="regime" data-of="cyc_def" data-row="0">—</span> points over the month; small caps <span data-draw="rv" data-fmt="sgn1" data-source="regime" data-field="iwm_vs_spy" data-row="0">—</span> vs SPY</span>
+      <span class="sr-chip"><b>Safe havens</b> long Treasuries <span data-draw="rv" data-fmt="sgn1" data-source="regime" data-field="tlt_vs_spy" data-row="0">—</span> and gold <span data-draw="rv" data-fmt="sgn1" data-source="regime" data-field="gld_vs_spy" data-row="0">—</span> vs SPY over the month</span>
+      <span class="sr-chip"><b>Volatility</b> <span data-draw="rv" data-fmt="pct0" data-source="regime" data-field="vol20" data-row="0">—</span> a year on recent daily moves, <span data-draw="rv" data-fmt="volrank" data-source="regime" data-of="vol_pct" data-row="0">—</span></span>
+    </div>
+  </section>
+
+  <section class="sr-kpis" id="headline" aria-label="Headline figures">
+    <div class="sr-kpi">
+      <div class="sr-kpi-label">Best sector, last month</div>
+      <div class="sr-kpi-val"><span data-draw="kpi" data-fmt="text" data-source="summary" data-field="best" data-row="0">—</span><span data-draw="kpi" data-fmt="pct" data-source="summary" data-field="best_r1m" data-row="0">—</span></div>
+      <div class="sr-kpi-sub" data-draw="kpi" data-fmt="text" data-source="summary" data-field="best_name" data-row="0">—</div>
+    </div>
+    <div class="sr-kpi">
+      <div class="sr-kpi-label">Worst sector, last month</div>
+      <div class="sr-kpi-val"><span data-draw="kpi" data-fmt="text" data-source="summary" data-field="worst" data-row="0">—</span><span data-draw="kpi" data-fmt="pct" data-source="summary" data-field="worst_r1m" data-row="0">—</span></div>
+      <div class="sr-kpi-sub" data-draw="kpi" data-fmt="text" data-source="summary" data-field="worst_name" data-row="0">—</div>
+    </div>
+    <div class="sr-kpi">
+      <div class="sr-kpi-label">S&amp;P 500 (SPY), last month</div>
+      <div class="sr-kpi-val"><span data-draw="kpi" data-fmt="pct" data-source="summary" data-field="spy_r1m" data-row="0">—</span></div>
+      <div class="sr-kpi-sub">The benchmark every phase is measured against</div>
+    </div>
+    <div class="sr-kpi">
+      <div class="sr-kpi-label">Sectors by phase</div>
+      <div class="sr-phases">
+        <span class="is-lead"><b data-draw="kpi" data-fmt="int" data-source="summary" data-field="leading" data-row="0">—</b>Leading</span>
+        <span class="is-weak"><b data-draw="kpi" data-fmt="int" data-source="summary" data-field="weakening" data-row="0">—</b>Weakening</span>
+        <span class="is-imp"><b data-draw="kpi" data-fmt="int" data-source="summary" data-field="improving" data-row="0">—</b>Improving</span>
+        <span class="is-lag"><b data-draw="kpi" data-fmt="int" data-source="summary" data-field="lagging" data-row="0">—</b>Lagging</span>
+      </div>
+      <div class="sr-kpi-sub">Relative to SPY: in a falling market a sector can lead while still down.</div>
+    </div>
+    <div class="sr-kpi">
+      <div class="sr-kpi-label">Sectors above their <span data-draw="k" data-source="settings" data-field="maMid" data-row="0">—</span>-day average</div>
+      <div class="sr-kpi-val"><span data-draw="kpi" data-fmt="int" data-source="summary" data-field="above_ma50" data-row="0">—</span><span class="sr-kpi-sub">of <span data-draw="kpi" data-fmt="int" data-source="summary" data-field="sectors" data-row="0">—</span></span></div>
+      <div class="sr-kpi-sub">Breadth of the sector uptrends</div>
+    </div>
+  </section>
+
+  <section class="sr-card" id="rule">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">Rotation rule</h2>
+        <p class="sr-note">Every Friday close, rank the 11 sectors by their 12-month return, leaving out the latest month (moves over the last few weeks tend to reverse). The top <span data-draw="k" data-source="settings" data-field="ruleTop" data-row="0">—</span> are that Friday's picks, in equal parts. Move a quarter of the money you rotate each Friday, so the target split is the average of the last four Fridays and no single week decides it. Volatility and the 200-day trend are shown for context, not used: in the 15-year test below, keeping only sectors above their 200-day average gave a smaller worst drop but a lower return.</p>
+      </div>
+    </div>
+    <p class="sr-rule-sum"><b>Target split:</b> <span data-draw="rulesplit" data-source="rule">—</span></p>
+    <p class="sr-rule-sum"><span data-draw="rulechg" data-source="rule">—</span></p>
+    <div class="sr-tablewrap">
+      <table class="sr-table sr-ruletab" data-source="rule" data-row-key="symbol">
+        <thead>
+          <tr>
+            <th data-field="symbol">Sector</th>
+            <th data-field="rank" class="num">Rank</th>
+            <th data-field="score" class="num">12 months, without the last</th>
+            <th data-field="hist">Last 4 Fridays</th>
+            <th data-field="target" class="num">Target</th>
+            <th data-field="vol12m" class="num">Volatility</th>
+            <th data-field="per_risk" class="num">Return ÷ volatility</th>
+            <th data-field="vs_ma200" class="num">vs 200-day</th>
+            <th data-field="revolut">On Revolut</th>
+          </tr>
+        </thead>
+        <tbody data-draw="ruletab"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sr-card" id="portfolio">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">Your holdings</h2>
+        <p class="sr-note">Each holding read through the US fund or stock it follows (a European semiconductor ETF through SMH, for example), with the rotation rule's yardstick: its 12-month return without the latest month. As strong as the weakest of the rule's picks: Hold, strong. Weaker: Hold, lagging, with the rule's strongest pick as the alternative. Down over the year: Reduce. Long-term holds are never told to sell, only when adding looks timely. Returns are converted to euros. Click a row to open its chart.</p>
+      </div>
+    </div>
+    <p class="sr-folio-sum"><b>Reduce:</b> <span data-draw="foliolist" data-kind="out" data-source="portfolio">—</span>. <b>Lagging the rule's picks:</b> <span data-draw="foliolist" data-kind="lag" data-source="portfolio">—</span>. <b>Good time to add:</b> <span data-draw="foliolist" data-kind="add" data-source="portfolio">—</span>. <span data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</span></p>
+    <div class="sr-tablewrap">
+      <table class="sr-table sr-folio" data-source="portfolio" data-row-key="ticker">
+        <thead>
+          <tr>
+            <th data-field="ticker">Holding</th>
+            <th data-field="name">Name</th>
+            <th data-field="tracks">Follows</th>
+            <th data-field="match">Match</th>
+            <th data-field="r1m_eur" class="num">1M in €</th>
+            <th data-field="r3m_eur" class="num">3M in €</th>
+            <th data-field="score" class="num">12 months, without the last</th>
+            <th data-field="vs_ma200" class="num">vs 200-day</th>
+            <th data-field="phase">Daily</th>
+            <th data-field="phase_w">Weekly</th>
+            <th data-field="verdict">Verdict</th>
+            <th data-field="into">Rotate into</th>
+            <th data-field="into_revolut">On Revolut</th>
+          </tr>
+        </thead>
+        <tbody data-draw="folio"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sr-card" id="ranking">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">Ranking, last month</h2>
+        <p class="sr-note">Sorted by the last month's return; click a header to sort, a row to open its chart. Phase is the daily rotation phase, Weekly the same on weekly closes. Exit and entry prices are underlined once they have fired.</p>
+      </div>
+      <div class="sr-seg sr-tgrp" role="group" aria-label="Show in the ranking">
+        <button type="button" data-tgrp="all">All</button>
+        <button type="button" data-tgrp="Sector">Sectors</button>
+        <button type="button" data-tgrp="Industry">Industries</button>
+        <button type="button" data-tgrp="Commodity">Miners</button>
+        <button type="button" data-tgrp="Cross-asset">Cross-asset</button>
+        <button type="button" data-tgrp="Stock">Stocks</button>
+        <button type="button" data-tgrp="Market">Indices</button>
+      </div>
+    </div>
+    <div class="sr-tablewrap">
+      <table class="sr-table sr-rank" data-source="metrics" data-row-key="symbol">
+        <thead>
+          <tr>
+            <th data-field="symbol"><button type="button" data-sort="symbol">ETF</button></th>
+            <th data-field="name"><button type="button" data-sort="name">Name</button></th>
+            <th data-field="close" class="num"><button type="button" data-sort="close">Price</button></th>
+            <th data-field="r1d" class="num"><button type="button" data-sort="r1d">1D</button></th>
+            <th data-field="r1w" class="num"><button type="button" data-sort="r1w">1W</button></th>
+            <th data-field="r1m" class="num"><button type="button" data-sort="r1m">1M</button></th>
+            <th data-field="r3m" class="num"><button type="button" data-sort="r3m">3M</button></th>
+            <th data-field="vs_spy_1m" class="num"><button type="button" data-sort="vs_spy_1m">vs SPY</button></th>
+            <th data-field="pace_shift" class="num"><button type="button" data-sort="pace_shift">Pace shift</button></th>
+            <th data-field="rsi" class="num"><button type="button" data-sort="rsi">RSI</button></th>
+            <th data-field="phase"><button type="button" data-sort="phase">Phase</button></th>
+            <th data-field="phase_w"><button type="button" data-sort="phase_w">Weekly</button></th>
+            <th data-field="action"><button type="button" data-sort="action">Action</button></th>
+            <th data-field="exit" class="num"><button type="button" data-sort="exit_gap">Exit below</button></th>
+            <th data-field="entry" class="num"><button type="button" data-sort="entry_gap">Entry above</button></th>
+          </tr>
+        </thead>
+        <tbody data-draw="rank"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sr-card" id="chart">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">Price chart</h2>
+        <p class="sr-note">Daily candles with moving averages, support (green, dashed), resistance (red, dashed), and the exit and entry triggers (solid). The shaded band is the last month.</p>
+      </div>
+      <div class="sr-controls">
+        <select class="dash-select sr-sym" data-draw="sympick" data-source="metrics" aria-label="ETF"></select>
+        <div class="sr-seg sr-range" role="group" aria-label="Range">
+          <button type="button" data-range="1M">1M</button>
+          <button type="button" data-range="3M">3M</button>
+          <button type="button" data-range="6M">6M</button>
+          <button type="button" data-range="1Y">1Y</button>
+        </div>
+      </div>
+    </div>
+    <div class="sr-chart sr-tv dash-skeleton" data-draw="tv" data-source="panel levels metrics settings revolut"></div>
+  </section>
+
+  <section class="sr-card" id="map">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">Rotation map</h2>
+        <p class="sr-note">Daily and Weekly: each ETF against SPY. Right means stronger than the market, up means that strength is growing; ETFs usually travel clockwise, Improving → Leading → Weakening → Lagging. Daily tails step a week at a time over six weeks; Weekly uses weekly closes, slower and steadier, better for judging a trend than for timing it. Return vs risk: the rule's yardstick (12-month return without the latest month) against volatility over the year, so strong and steady sits high and to the left; dotted lines join points with the same return per unit of volatility, the grey diamond is SPY, hollow dots are below their 200-day average and rings mark the rule's picks. Click a dot to open its chart.</p>
+      </div>
+      <div class="sr-controls">
+        <div class="sr-seg sr-tf" role="group" aria-label="Timeframe">
+          <button type="button" data-tf="D">Daily</button>
+          <button type="button" data-tf="W">Weekly</button>
+          <button type="button" data-tf="R">Return vs risk</button>
+        </div>
+        <div class="sr-seg sr-view" role="group" aria-label="Show in the charts below">
+          <button type="button" data-view="Sector">Sectors</button>
+          <button type="button" data-view="Industry">Industries</button>
+          <button type="button" data-view="Commodity">Miners</button>
+          <button type="button" data-view="Cross-asset">Cross-asset</button>
+          <button type="button" data-view="Stock">Stocks</button>
+        </div>
+      </div>
+    </div>
+    <div class="sr-chart sr-rrg dash-skeleton" data-draw="rrg" data-source="rrg rrg_w metrics rule"></div>
+  </section>
+
+  <div class="sr-grid">
+    <section class="sr-card" id="month">
+      <div class="sr-card-head">
+        <div>
+          <h2 class="sr-h2">The last month, day by day</h2>
+          <p class="sr-note">Change since the close before the window, for the group picked on the rotation map.</p>
+        </div>
+      </div>
+      <div class="sr-chart sr-race dash-skeleton" data-draw="race" data-source="race metrics"></div>
+    </section>
+    <section class="sr-card" id="weeks">
+      <div class="sr-card-head">
+        <div>
+          <h2 class="sr-h2">Week by week</h2>
+          <p class="sr-note">Return of each calendar week (the latest may be partial). A row going from green to red is a leader rolling over.</p>
+        </div>
+      </div>
+      <div class="sr-chart sr-heat dash-skeleton" data-draw="heat" data-source="heat metrics"></div>
+    </section>
+  </div>
+
+  <section class="sr-card" id="backtest">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">15 years of the rule, and the best sector split in hindsight</h2>
+        <p class="sr-note">Weekly eToro closes from <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="from">—</span> to <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="to">—</span>, prices only (dividends left out for every line). Decisions on Friday closes, trades at the next week's open at 0.1% per trade, each monthly switch spread over four weeks. Materials, Real estate and Communication have eToro history only from 2019, so the early years rank 8 sectors. A fixed study, not refreshed with the page: it shows how the rule behaved, not what comes next.</p>
+      </div>
+    </div>
+    <div class="sr-bt-tiles">
+      <div class="sr-bt-tile">
+        <div class="sr-kpi-label"><i class="sr-key" data-key="rule"></i>The rule</div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=rule" data-field="cagr">—</span> <small>a year</small></div>
+        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=rule" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=rule" data-field="max_dd">—</span></div>
+      </div>
+      <div class="sr-bt-tile">
+        <div class="sr-kpi-label"><i class="sr-key" data-key="equal"></i>All sectors, equal parts</div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=equal" data-field="cagr">—</span> <small>a year</small></div>
+        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=equal" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=equal" data-field="max_dd">—</span></div>
+      </div>
+      <div class="sr-bt-tile">
+        <div class="sr-kpi-label"><i class="sr-key" data-key="spy"></i>S&amp;P 500 (SPY), just held</div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=spy" data-field="cagr">—</span> <small>a year</small></div>
+        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=spy" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=spy" data-field="max_dd">—</span></div>
+      </div>
+    </div>
+    <div class="sr-chart sr-bt dash-skeleton" data-draw="bt" data-source="study_curve"></div>
+    <div class="sr-tablewrap">
+      <table class="sr-table sr-bts" data-source="study_rules" data-row-key="key">
+        <thead>
+          <tr>
+            <th data-field="label">Strategy</th>
+            <th data-field="cagr" class="num">Per year</th>
+            <th data-field="vol" class="num">Volatility</th>
+            <th data-field="ratio" class="num">Return ÷ volatility</th>
+            <th data-field="max_dd" class="num">Worst drop</th>
+            <th data-field="cagr_2011_18" class="num">Per year to 2018</th>
+            <th data-field="cagr_2019_26" class="num">Per year from 2019</th>
+          </tr>
+        </thead>
+        <tbody data-draw="bts"></tbody>
+      </table>
+    </div>
+    <h3 class="sr-h3">Best fixed split in hindsight</h3>
+    <p class="sr-note">For each period, the split among the sectors that earned the most for its volatility, reset to target every 4 weeks, next to the S&amp;P 500 over the same weeks. Tech and health care sit in every one; the rest changes from period to period. The last two rows are the honest test of following such a split: each January, buy the best split of the years before and hold it for the year.</p>
+    <div class="sr-tablewrap">
+      <table class="sr-table sr-splits" data-source="study_splits" data-row-key="key">
+        <thead>
+          <tr>
+            <th data-field="period">Period</th>
+            <th data-field="split">Split</th>
+            <th data-field="cagr" class="num">Per year</th>
+            <th data-field="vol" class="num">Volatility</th>
+            <th data-field="max_dd" class="num">Worst drop</th>
+            <th data-field="spy_cagr" class="num">S&amp;P 500 per year</th>
+            <th data-field="spy_max_dd" class="num">S&amp;P 500 worst drop</th>
+          </tr>
+        </thead>
+        <tbody data-draw="splits"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sr-card" id="revolut">
+    <div class="sr-card-head">
+      <div>
+        <h2 class="sr-h2">Buying these on Revolut (France)</h2>
+        <p class="sr-note">US-listed ETFs aren't sold to EU retail investors, so the signals above use the US funds' prices and this table names the European (UCITS) version to trade. Same-index versions follow the signals closely; substitutes only roughly.</p>
+      </div>
+    </div>
+    <div class="sr-tablewrap">
+      <table class="sr-table sr-rev" data-source="revolut" data-row-key="us">
+        <thead>
+          <tr>
+            <th data-field="us">US ETF</th>
+            <th data-field="ucits_name">European equivalent</th>
+            <th data-field="revolut_ticker">Ticker</th>
+            <th data-field="exchange">Exchange</th>
+            <th data-field="isin">ISIN</th>
+            <th data-field="ter" class="num">Yearly fee</th>
+            <th data-field="match">Match</th>
+            <th data-field="revolut">On Revolut</th>
+            <th data-field="you_hold">You hold</th>
+          </tr>
+        </thead>
+        <tbody data-draw="rev"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <details class="sr-notes" id="method">
+    <summary>How the numbers and signals are worked out</summary>
+    <dl>
+      <dt>Last month</dt>
+      <dd>The last <span data-draw="k" data-source="settings" data-field="monthDays" data-row="0">—</span> calendar days, close to close. 1W, 3M and 6M work the same way.</dd>
+      <dt>vs SPY</dt>
+      <dd>How much the ETF beat or trailed SPY over the last month.</dd>
+      <dt>Pace shift</dt>
+      <dd>Last week's return minus the average weekly return of the weeks before it in the month. Negative means the move is slowing, the first sign of a leader rolling over.</dd>
+      <dt>Phase</dt>
+      <dd>From a relative rotation graph. Relative strength is the ETF's price divided by SPY's, smoothed over <span data-draw="k" data-source="settings" data-field="rsSmooth" data-row="0">—</span> sessions. RS-Ratio compares it with its own average over <span data-draw="k" data-source="settings" data-field="rsBase" data-row="0">—</span> sessions (above 100: beating the market). RS-Momentum is the change in RS-Ratio over <span data-draw="k" data-source="settings" data-field="rsLag" data-row="0">—</span> sessions (above 100: getting stronger). Leading = both above, Weakening = ratio above but momentum below, Lagging = both below, Improving = ratio below but momentum above.</dd>
+      <dt>Fading</dt>
+      <dd>Weakening; or Leading with RS-Momentum at least <span data-draw="k" data-source="settings" data-field="momFadePts" data-row="0">—</span> points below its recent peak; or Lagging after leading or weakening a couple of weeks ago.</dd>
+      <dt>Support and resistance</dt>
+      <dd>Swing highs and lows (the extreme of <span data-draw="k" data-source="settings" data-field="pivotSpan" data-row="0">—</span> sessions either side) over the last <span data-draw="k" data-source="settings" data-field="levelLookback" data-row="0">—</span> sessions, grouped when they sit within a fraction of the average daily range. The nearest below is support, the nearest above resistance; with none, the one-year low or high.</dd>
+      <dt>Exit and entry triggers</dt>
+      <dd>Exit is the latest swing low and entry the latest swing high within <span data-draw="k" data-source="settings" data-field="swingLookback" data-row="0">—</span> sessions. A daily close below the exit says the up-move has broken; a close above the entry confirms a new one.</dd>
+      <dt>Actions</dt>
+      <dd>Hold: leading and healthy. Hold, overbought: RSI at <span data-draw="k" data-source="settings" data-field="rsiHigh" data-row="0">—</span> or more. Hold, tighten stop: momentum fading or price under the <span data-draw="k" data-source="settings" data-field="maFast" data-row="0">—</span>-day average. Trim: weakening but still above that average. Rotate out: weakening and below it, or the exit fired. Accumulate: improving and above the average, or the entry fired. Watch and Avoid otherwise.</dd>
+      <dt>Weekly view</dt>
+      <dd>The same RS-Ratio and RS-Momentum on weekly closes: smoothed over <span data-draw="k" data-source="settings" data-field="wkSmooth" data-row="0">—</span> weeks, compared with its <span data-draw="k" data-source="settings" data-field="wkBase" data-row="0">—</span>-week average, momentum over <span data-draw="k" data-source="settings" data-field="wkLag" data-row="0">—</span> weeks, tails of <span data-draw="k" data-source="settings" data-field="wkTrail" data-row="0">—</span> weeks. The current week counts up to the last close. When the daily and weekly phases agree, the move is broader.</dd>
+      <dt>Market regime</dt>
+      <dd>From SPY against its 50- and 200-day averages, how many of the 11 sectors close above their 50-day average (at least <span data-draw="k" data-source="settings" data-field="breadthGood" data-row="0">—</span> is broad, <span data-draw="k" data-source="settings" data-field="breadthWeak" data-row="0">—</span> or fewer is narrow), and whether defensive sectors (staples, utilities, health care) beat cyclical ones (discretionary, financials, industrials, materials, technology) by 3 points or more over the month, or discretionary is falling behind staples. Volatility is the annualized spread of SPY's last <span data-draw="k" data-source="settings" data-field="volLen" data-row="0">—</span> daily moves, ranked against the last year.</dd>
+      <dt>Rotation rule</dt>
+      <dd>Each sector's 12-month return leaving out the latest month: the close <span data-draw="k" data-source="settings" data-field="ruleSkip" data-row="0">—</span> sessions ago against the close <span data-draw="k" data-source="settings" data-field="ruleLong" data-row="0">—</span> sessions ago, taken on the same SPY sessions for every fund. Every Friday close the top <span data-draw="k" data-source="settings" data-field="ruleTop" data-row="0">—</span> are the picks; the target split averages the last <span data-draw="k" data-source="settings" data-field="ruleSteps" data-row="0">—</span> Fridays' picks, a quarter each. Volatility is the yearly-scaled spread of daily returns over the last <span data-draw="k" data-source="settings" data-field="ruleVol" data-row="0">—</span> sessions; return ÷ volatility divides the two.</dd>
+      <dt>15-year study</dt>
+      <dd>The rule replayed on weekly eToro closes with only what was known at each Friday close, trading at the next week's open; the monthly switch is run as four sleeves, each reset every four weeks one week apart. Prices only: dividends would add roughly one to three points a year to every line, a bit more for utilities, energy, staples and real estate. The best split in hindsight is the long-only mix with the highest return per unit of volatility over the period, found after the fact. Sector rankings have shifted a lot from period to period, which is why copying the past best split is shown as its own test.</dd>
+      <dt>Your holdings</dt>
+      <dd>Each holding is mapped to the US fund or stock it follows. Its 12-month return without the latest month is compared with the weakest of the rule's current top sectors: as strong or stronger is Hold, strong; weaker is Hold, lagging; below zero is Reduce. Rotate into names the strongest of the rule's picks you don't already hold. Returns in euros add the euro's move against the dollar over the same days.</dd>
+      <dt>Data</dt>
+      <dd>Daily candles for the US-listed ETFs from eToro (your API keys) or Yahoo Finance, refreshed when you open the app and about every hour in the background. The background check uses completed daily closes only and notifies you when something changes. Volumes and prices are the data source's.</dd>
+      <dt>Left out</dt>
+      <dd>Dividends, fees, currency (the UCITS versions trade in euros or dollars on European exchanges) and taxes. This is a timing aid, not advice.</dd>
+    </dl>
+  </details>
+</div>
+</main>
+<section class="sheet" id="settings" hidden aria-label="Settings">
+  <div class="sheet-head"><h2>Settings</h2><button class="app-icon" id="btn-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="sheet-body">
+    <h3>Data</h3>
+    <label class="opt"><input type="radio" name="source" value="etoro"><span><b>eToro</b> with your own API keys: the same data as your Claude dashboard.</span></label>
+    <label class="opt"><input type="radio" name="source" value="yahoo"><span><b>Yahoo Finance</b>, no key needed: an unofficial feed that can be rate-limited.</span></label>
+    <div id="keys">
+      <label class="field"><span>Public API key (x-api-key)</span><input id="cfg-api" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <label class="field"><span>User key (x-user-key)</span><input id="cfg-user" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <label class="opt sub"><input type="checkbox" id="show-user"><span>Show the user key</span></label>
+      <div class="keys-test"><button id="btn-testkeys" class="btn" type="button">Test keys</button><span class="hint" id="keys-result" aria-live="polite"></span></div>
+      <p class="hint">In eToro: Settings → Trading → API Key Management → Create key, confirm with the SMS code, then copy both keys. They stay on this phone and are sent only to public-api.etoro.com.</p>
+    </div>
+    <h3>Your holdings</h3>
+    <label class="field"><span>One per line: Revolut ticker, then = and the US ticker it follows (if different), and "long" for long-term holds</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
+    <p class="hint">The US ticker must be one of the funds or stocks in the ranking. Leave empty to use the default list shown in grey.</p>
+    <h3>Alerts</h3>
+    <label class="opt"><input type="checkbox" id="cfg-notify"><span>Notify me when something changes (checked about every hour, on completed daily closes)</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-holdon"><span>One of my holdings gets a new verdict, e.g. Hold → Rotate out</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-regime"><span>The market regime changes</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-go"><span>The rotation rule's Friday picks change</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-phase"><span>An ETF changes phase, e.g. Leading → Weakening</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-watchon"><span>An exit or entry level fires for my watchlist</span></label>
+    <label class="field sub"><span>Watchlist (US tickers)</span><input id="cfg-watch" autocapitalize="characters" spellcheck="false"></label>
+    <div class="row"><button id="notify-perm" class="btn" type="button">Allow notifications</button><button id="notify-test" class="btn" type="button">Send a test notification</button></div>
+    <p class="hint" id="bg-status"></p>
+    <p class="hint">Samsung can delay background checks to save battery. For on-time alerts: Settings → Apps → Sector Rotation → Battery → Unrestricted.</p>
+    <h3>About</h3>
+    <p class="hint">The same calculations as your Claude dashboard, running on the phone. <a href="https://claude.ai/artifact/CRz7cdnRQwsBc6vpZLqPLJ">Open the dashboard in Claude</a>. A timing aid, not investment advice.</p>
+    <p class="hint" id="app-version"></p>
+    <div class="row"><button id="btn-update" class="btn" type="button">Check for updates</button></div>
+    <p class="hint" id="update-status" aria-live="polite"></p>
+  </div>
+  <div class="sheet-foot"><button id="btn-save" class="btn primary" type="button">Save and refresh</button></div>
+</section>
+<script src="d3.min.js"></script>
+<script src="revolut.js"></script>
+<script src="holdings.js"></script>
+<script src="study.js"></script>
+<script src="runtime.js"></script>
+<script src="calc.js"></script>
+<script src="ui.js"></script>
+<script src="draw-text.js"></script>
+<script src="draw-tv.js"></script>
+<script src="draw-rrg.js"></script>
+<script src="draw-race-heat.js"></script>
+<script src="draw-extra.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
