@@ -253,8 +253,8 @@
   <section class="sr-card" id="backtest">
     <div class="sr-card-head">
       <div>
-        <h2 class="sr-h2">15 years: the two plans against the S&amp;P 500</h2>
-        <p class="sr-note">Weekly eToro closes from <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="from">—</span> to <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="to">—</span>, prices only, no dividends for any line. Friday decisions, trades at the next week's open, 0.1% per trade. <b>Semis on trend + defensive:</b> half in SMH, moved to cash after a 15% fall from its 52-week high and back when it closes above its 20-week average (with gold miners instead of cash: higher return, more volatility than the S&amp;P 500); half in staples, utilities and health care. <b>Nasdaq + defensive:</b> 60% Nasdaq-100, 40% staples, utilities and health care, reset every 6 months. <b>Rule:</b> the earlier 8-sector rule, for reference. Choosing semiconductors is itself hindsight: they were the strongest sector of these 15 years. A fixed study: how these behaved, not what comes next.</p>
+        <h2 class="sr-h2">25 years: the two plans against the S&amp;P 500</h2>
+        <p class="sr-note">Weekly closes June 2000 – October 2026 with dividends reinvested, before tax (Yahoo Finance history, research only; the app's prices stay live from eToro). Friday decisions, trades at the next week's open, 0.1% per trade, cash earning the US T-bill rate. Every rule was fixed using 2011–2026 only, then run once on 2000–2011, which nothing was tuned on (the blind test). <b>Semis on trend + defensive:</b> half in SMH, in cash after a 15% fall from its 52-week high, back when it closes above its 30-week average; half in staples, utilities and health care. <b>Nasdaq + defensive:</b> 50% Nasdaq-100, 50% the same defensives, reset every 6 months. The reliable gain is lower volatility and smaller drops; beating the S&amp;P 500's return held in some periods and not others. After French tax (31.4% on each sale), the semis plan earned about what the S&amp;P 500 did.</p>
       </div>
     </div>
     <div class="sr-bt-tiles">
@@ -264,7 +264,7 @@
         <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=smhplan" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=smhplan" data-field="max_dd">—</span></div>
       </div>
       <div class="sr-bt-tile">
-        <div class="sr-kpi-label"><i class="sr-key" data-key="qqqdef"></i>Nasdaq + defensive 60/40</div>
+        <div class="sr-kpi-label"><i class="sr-key" data-key="qqqdef"></i>Nasdaq + defensive 50/50</div>
         <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=qqqdef" data-field="cagr">—</span> <small>a year</small></div>
         <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="max_dd">—</span></div>
       </div>
@@ -284,31 +284,14 @@
             <th data-field="vol" class="num">Volatility</th>
             <th data-field="ratio" class="num">Return ÷ volatility</th>
             <th data-field="max_dd" class="num">Worst drop</th>
-            <th data-field="cagr_2011_18" class="num">Per year to 2018</th>
-            <th data-field="cagr_2019_26" class="num">Per year from 2019</th>
+            <th data-field="cagr_2011_18" class="num">Blind test 2000–11</th>
+            <th data-field="cagr_2019_26" class="num">2011–26</th>
           </tr>
         </thead>
         <tbody data-draw="bts"></tbody>
       </table>
     </div>
-    <h3 class="sr-h3">Best fixed split in hindsight</h3>
-    <p class="sr-note">For each period, the split among the sectors that earned the most for its volatility, reset to target every 4 weeks, next to the S&amp;P 500 over the same weeks. Tech and health care sit in every one; the rest changes from period to period. The last two rows are the honest test of following such a split: each January, buy the best split of the years before and hold it for the year.</p>
-    <div class="sr-tablewrap">
-      <table class="sr-table sr-splits" data-source="study_splits" data-row-key="key">
-        <thead>
-          <tr>
-            <th data-field="period">Period</th>
-            <th data-field="split">Split</th>
-            <th data-field="cagr" class="num">Per year</th>
-            <th data-field="vol" class="num">Volatility</th>
-            <th data-field="max_dd" class="num">Worst drop</th>
-            <th data-field="spy_cagr" class="num">S&amp;P 500 per year</th>
-            <th data-field="spy_max_dd" class="num">S&amp;P 500 worst drop</th>
-          </tr>
-        </thead>
-        <tbody data-draw="splits"></tbody>
-      </table>
-    </div>
+    
   </section>
 
   <section class="sr-card" id="revolut">

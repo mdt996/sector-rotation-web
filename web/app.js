@@ -179,7 +179,7 @@
     today: [['', ['today']]],
     portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']]],
     markets: [['Ranking', ['rotboard']], ['Heatmap', ['rotheat']], ['Map', ['map']], ['All funds', ['ranking']]],
-    plan: [['Plan', ['plan']], ['15 years', ['backtest']]],
+    plan: [['Plan', ['plan']], ['25 years', ['backtest']]],
   };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
   const blocks = [...document.querySelectorAll('#dash-root .sr > *')];

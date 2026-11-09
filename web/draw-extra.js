@@ -136,7 +136,7 @@ dash.draw('bt', (el) => {
   const x = d3.scaleUtc().domain(d3.extent(B, (r) => r.d)).range([ml, ml + iw]);
   const lo = d3.min(B, (r) => d3.min(keys, ([k]) => r[k])), hi = d3.max(B, (r) => d3.max(keys, ([k]) => r[k]));
   const y = d3.scaleLog().domain([Math.min(lo, 100) * 0.95, hi * 1.05]).range([mt + ih, mt]); // log scale: equal heights are equal percentage moves
-  const yt = [50, 75, 100, 150, 200, 300, 400, 600, 800, 1200].filter((v) => v >= y.domain()[0] && v <= y.domain()[1]);
+  const yt = [50, 75, 100, 150, 200, 300, 400, 600, 800, 1200, 1600].filter((v) => v >= y.domain()[0] && v <= y.domain()[1]);
   svg.append('g').selectAll('line').data(yt).join('line').attr('class', 'sr-grid-line').attr('x1', ml).attr('x2', ml + iw).attr('y1', y).attr('y2', y);
   svg.append('g').selectAll('text').data(yt).join('text').attr('x', ml - 6).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end').text((v) => String(v));
   svg.append('line').style('stroke', 'var(--cds-chart-reference)').attr('x1', ml).attr('x2', ml + iw).attr('y1', y(100)).attr('y2', y(100));
@@ -175,8 +175,8 @@ dash.draw('bts', (tbody) => {
     cell(f1(s.vol), '', true, 'Volatility');
     cell(d3.format('.2f')(s.ratio), '', true, 'Return ÷ volatility');
     cell(f1(s.max_dd), 'neg', true, 'Worst drop');
-    cell(SR.pct(s.cagr_2011_18), SR.signCls(s.cagr_2011_18), true, 'To 2018');
-    cell(SR.pct(s.cagr_2019_26), SR.signCls(s.cagr_2019_26), true, 'From 2019');
+    cell(SR.pct(s.cagr_2011_18), SR.signCls(s.cagr_2011_18), true, 'Blind test 2000–11');
+    cell(SR.pct(s.cagr_2019_26), SR.signCls(s.cagr_2019_26), true, '2011–26');
   }
 });
 dash.draw('splits', (tbody) => {
