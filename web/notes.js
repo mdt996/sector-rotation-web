@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 22, "text": "Today starts with What to do: at most three direct lines (tonight, this week, later) with tickers and euros. The exact numbered orders follow; the by-theme view is one tap away."};
+window.SR_NOTES = {"build": 23, "text": "Charts now show support and resistance lines (from the last year's turning points) and the app's own action levels: the swing buy/sell line and, on SMH, the semis trend line. Your phone is notified when an action is due: semis trend switch, swing buy, and swing sell for funds you hold."};

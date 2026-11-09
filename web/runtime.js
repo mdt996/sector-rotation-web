@@ -97,7 +97,7 @@
     return { ok: r.status === 200, status: r.status, reason: r.status === 200 ? '' : reasonOf(r.body) };
   }
   async function fetchEtoro(sym, iid, cfg) {
-    const url = `https://public-api.etoro.com/api/v1/market-data/instruments/${iid}/history/candles/desc/OneDay/400`;
+    const url = `https://public-api.etoro.com/api/v1/market-data/instruments/${iid}/history/candles/desc/OneDay/${sym === 'SMH' ? 1000 : 400}`; // SMH: enough weeks for the plan's trend rule
     const r = await httpGet(url, etoroHeaders(cfg.apiKey, cfg.userKey));
     if (r.status !== 200) throw httpError('eToro', sym, r);
     const L = loaders[sym];
@@ -300,6 +300,22 @@
       sellAbove: inn ? sma4 : null, // a close above this is above the 5-day average
     };
   }
+  // the plan's semis trend on Friday closes: OUT when a weekly close is >15% below the 52-week high, back IN above the 30-week average
+  function trendOf(rows) {
+    if (!rows || rows.length < 300) return null;
+    const wk = [], key = (d) => { const t = Date.parse(d + 'T00:00:00Z'); return t - ((new Date(t).getUTCDay() + 6) % 7) * 864e5; };
+    for (const r of rows) { const k = key(r.date); if (wk.length && wk[wk.length - 1].k === k) wk[wk.length - 1] = { k, date: r.date, close: r.close }; else wk.push({ k, date: r.date, close: r.close }); }
+    const last = rows[rows.length - 1], lastDow = new Date(Date.parse(last.date + 'T00:00:00Z')).getUTCDay();
+    if (lastDow !== 5 && wk.length) wk.pop(); // the current week is not finished
+    if (wk.length < 60) return null;
+    let inn = true, since = wk[51].date;
+    for (let i = 51; i < wk.length; i++) {
+      let hi = 0, sm = 0; for (let j = i - 51; j <= i; j++) hi = Math.max(hi, wk[j].close); for (let j = i - 29; j <= i; j++) sm += wk[j].close; sm /= 30;
+      const c = wk[i].close;
+      if (inn && c < 0.85 * hi) { inn = false; since = wk[i].date; } else if (!inn && c > sm) { inn = true; since = wk[i].date; }
+    }
+    return { inn, since, date: wk[wk.length - 1].date, close: wk[wk.length - 1].close };
+  }
   function swing() {
     return SWING.map(([us, t, name]) => { const d = store[us]; const s = d && d.status === 'ok' ? swingOf(d.data) : null; return s ? { us, t, name, ...s } : null; }).filter(Boolean);
   }
@@ -313,6 +329,7 @@
       asof: spy.date || null, at: Date.now(), rule: { friday: (RU.find((r) => r.last_friday) || {}).last_friday || null, picks: RU.filter((r) => r.pick).map((r) => r.symbol).sort() }, etfs,
       regime: G ? { label: G.label, stance: G.stance } : null,
       holdings: P.map((h) => ({ ticker: h.ticker, tracks: h.tracks, verdict: h.verdict, into: h.into || null })),
+      trend: store.SMH && store.SMH.status === 'ok' ? trendOf(store.SMH.data) : null,
       swing: swing().map((x) => ({ us: x.us, t: x.t, date: x.date, inTrade: x.inTrade, sig: x.signal ? x.signal.type : null, price: x.close, rsi2: x.rsi2, gain: x.signal && x.signal.gain })),
     };
   }
@@ -340,10 +357,15 @@
     if (cfg.notifyRegime !== false && cur.regime && prev.regime && cur.regime.label !== prev.regime.label) {
       ev.push(`Market regime: ${prev.regime.label} → ${cur.regime.label}. ${cur.regime.stance}`);
     }
+    if (cfg.notifyGo !== false && cur.trend && prev.trend && cur.trend.inn !== prev.trend.inn && cur.trend.date !== prev.trend.date) {
+      ev.push(cur.trend.inn ? `Semis back IN trend (SMH closed the week at ${f2(cur.trend.close)}): buy SEC0 with the cash waiting for semis.` : `Semis OUT of trend (SMH closed the week 15% below its high): sell SEC0, keep that money in cash for swing trades.`);
+    }
     if (cfg.notifySwing !== false && cur.swing) {
+      const held = new Set((cur.holdings || []).flatMap((h) => [h.ticker, h.tracks]));
       for (const x of cur.swing) {
         const p = (prev.swing || []).find((y) => y.us === x.us);
         if (!x.sig || (p && p.date === x.date)) continue; // only a signal from a new close
+        if (x.sig === 'sell' && !held.has(x.t) && !held.has(x.us)) continue; // a sell only matters if you hold it
         if (x.sig === 'buy') ev.push(`Swing BUY ${x.t}: ${x.us} dropped sharply (RSI-2 ${Math.round(x.rsi2)}). Buy at the open; sell at the first close above its 5-day average.`);
         else ev.push(`Swing SELL ${x.t}: ${x.us} closed above its 5-day average${x.gain != null ? ` (trade ${(x.gain >= 0 ? '+' : '') + (x.gain * 100).toFixed(1)}%)` : ''}. Sell at the open.`);
       }
@@ -414,5 +436,5 @@
   }
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { DATASETS, state, config, swing, swingOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
+  window.SRApp = { DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();

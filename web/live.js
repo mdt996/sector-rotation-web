@@ -189,10 +189,35 @@
       return rows.map((r) => ({ time: Math.floor(r.t / 1000), open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume || 0 }));
     }
     const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || null;
+    // support / resistance from the last year's turning points (daily highs and lows that are the extreme of +/-5 days),
+    // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
+    function srLevels() {
+      const rows = daily.slice(-260), n = rows.length, out = [];
+      if (n < 30) return out;
+      const piv = [];
+      for (let i = 5; i < n - 5; i++) {
+        let isH = true, isL = true;
+        for (let j = i - 5; j <= i + 5; j++) { if (rows[j].high > rows[i].high) isH = false; if (rows[j].low < rows[i].low) isL = false; }
+        if (isH) piv.push(rows[i].high); if (isL) piv.push(rows[i].low);
+      }
+      const q = live(), px = q ? q.price : rows[n - 1].close;
+      const groups = [];
+      for (const p of piv.sort((a, b) => a - b)) { const g = groups[groups.length - 1]; if (g && p / g.lo - 1 < 0.03) { g.sum += p; g.n++; } else groups.push({ lo: p, sum: p, n: 1 }); }
+      const lv = groups.map((g) => ({ p: g.sum / g.n, n: g.n }));
+      const above = lv.filter((x) => x.p > px * 1.005).sort((a, b) => a.p - b.p).slice(0, 2), below = lv.filter((x) => x.p < px * 0.995).sort((a, b) => b.p - a.p).slice(0, 2);
+      for (const x of above) out.push({ p: x.p, kind: 'res', label: 'Resistance' + (x.n > 1 ? ` ×${x.n}` : '') });
+      for (const x of below) out.push({ p: x.p, kind: 'sup', label: 'Support' + (x.n > 1 ? ` ×${x.n}` : '') });
+      const sw = SRApp.swing ? SRApp.swing().find((x) => x.us === inst.symbol) : null;
+      if (sw && sw.inTrade && sw.sellAbove) out.push({ p: sw.sellAbove, kind: 'act', label: 'Swing: sell on a close above' });
+      else if (sw && sw.bear && sw.buyBelow && sw.buyBelow > px * 0.92) out.push({ p: sw.buyBelow, kind: 'act', label: 'Swing: buy on a close below' });
+      const g = inst.symbol === 'SMH' && window.SRGuide && window.SRGuide.signal ? window.SRGuide.signal() : null;
+      if (g && !g.error) out.push(g.inn ? { p: g.exitAt, kind: 'act', label: 'Plan: semis OUT below (Friday close)' } : { p: g.backAt, kind: 'act', label: 'Plan: semis back IN above (Friday close)' });
+      return out;
+    }
     function paint(fit) {
       if (dead) return;
       for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
-      ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf());
+      ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf()); ch.setLevels(srLevels());
     }
     // the live price moves the newest candle, or opens the next one
     function liveCandle() {

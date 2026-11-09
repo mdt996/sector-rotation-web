@@ -60,7 +60,7 @@
   }
   function openHolding(h) {
     const l = window.SRLive && window.SRLive.liveOf ? window.SRLive.liveOf(h) : null;
-    if (l && window.SRLive.openAsset) window.SRLive.openAsset({ id: l.id, symbol: l.symbol, name: h.name || h.ticker, exchange: '' });
+    if (l && window.SRLive.openAsset) window.SRLive.openAsset({ id: l.id, symbol: l.symbol, name: l.symbol === h.ticker ? h.name || '' : `Your ${h.ticker}, shown through its US twin ${l.symbol}`, exchange: '' });
     else if (SR.open) SR.open(h.tracks);
   }
   function totals(H) {

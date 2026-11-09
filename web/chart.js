@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: false, macd: false, vol: true, zones: false, fair: true };
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: false, macd: false, vol: true, zones: false, fair: true, sr: true };
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -37,7 +37,7 @@
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
-    let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind2', {})), zones = null, fair = null, dead = false;
+    let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind2', {})), zones = null, fair = null, levels = [], dead = false;
 
     const root = container.appendChild(el('div', 'ch'));
     const tools = root.appendChild(el('div', 'ch-tools'));
@@ -50,7 +50,7 @@
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
-    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value' };
+    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels' };
     for (const k of Object.keys(IND_LABEL)) {
       const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
@@ -116,6 +116,23 @@
           ctx.fillStyle = color; ctx.fillRect(0, Math.round(y1 * r), W, Math.max(1, Math.round((y2 - y1) * r)));
           if (y2 - y1 > 16) { ctx.fillStyle = 'rgba(120,125,135,0.85)'; ctx.fillText(label, Math.round(6 * hr), Math.round((y1 + 12) * r)); }
         }
+      }
+      if (ind.sr && levels.length) {
+        const COL = { res: 'rgba(220,60,60,0.85)', sup: 'rgba(22,150,70,0.9)', act: 'rgba(41,98,255,0.95)' };
+        const used = [];
+        for (const lv of [...levels].sort((a, b) => (a.kind === 'act' ? -1 : 0) - (b.kind === 'act' ? -1 : 0))) {
+          const y = yOf(lv.p); if (y == null) continue;
+          const ly = y, clash = used.some((u) => Math.abs(u - ly) < 14); if (!clash) used.push(ly);
+          ctx.strokeStyle = COL[lv.kind] || COL.act; ctx.lineWidth = Math.max(1, (lv.kind === 'act' ? 1.6 : 1.1) * r);
+          ctx.setLineDash(lv.kind === 'act' ? [] : [3 * hr, 3 * hr]);
+          ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
+          const txt = `${lv.label} ${fmtP(lv.p)}`, tw = ctx.measureText(txt).width, x = W - tw - Math.round(70 * hr);
+          if (!clash) { // a label that would overlap another is left out; the line stays
+            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(x - 3 * hr, Math.round((ly - 13) * r), tw + 6 * hr, Math.round(12 * r));
+            ctx.fillStyle = COL[lv.kind] || COL.act; ctx.fillText(txt, x, Math.round((ly - 3) * r));
+          }
+        }
+        ctx.setLineDash([]);
       }
       if (ind.fair && fair) {
         const y1 = yOf(fair.bull), y2 = yOf(fair.bear), yb = yOf(fair.base);
@@ -299,6 +316,7 @@
       },
       setZones(L) { zones = L; redraw(); },
       setFair(f) { fair = f && f.bear > 0 && f.bull > 0 ? f : null; redraw(); },
+      setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
