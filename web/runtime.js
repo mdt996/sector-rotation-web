@@ -272,6 +272,37 @@
   function isStale() { const c = loadCache(); return !c || Date.now() - c.at > STALE_MS || c.source !== (config().source === 'yahoo' ? 'yahoo' : 'etoro'); }
 
   // ---- what the background check compares ---------------------------------------------
+  // ---- swing trades in bear markets (tested 2000-2026 on daily data): buy after a very sharp drop (RSI-2 below 5 at
+  // the close) while the fund is below its 200-day average; sell at the first close above the 5-day average, or after
+  // 10 trading days. Only on the funds where this held up in both halves of the test (broad, tech-heavy markets).
+  const SWING = [['SMH', 'SEC0', 'Semiconductors'], ['QQQ', 'SXRV', 'Nasdaq-100'], ['XLK', 'ZPDT', 'Technology'], ['XLY', 'ZPDD', 'Consumer discretionary'],
+    ['XLF', 'ZPDF', 'Financials'], ['SPY', 'VUAA', 'S&P 500'], ['XLP', 'ZPDS', 'Consumer staples']];
+  function swingOf(rows) {
+    if (!rows || rows.length < 230) return null;
+    const c = rows.map((r) => r.close), n = c.length;
+    let up = 0, dn = 0, inn = false, entry = null, days = 0, last = null;
+    const sma = (k, i) => { let x = 0; for (let j = i - k + 1; j <= i; j++) x += c[j]; return x / k; };
+    for (let i = 1; i < n; i++) {
+      const d = c[i] - c[i - 1];
+      up = i === 1 ? Math.max(d, 0) : 0.5 * up + 0.5 * Math.max(d, 0); dn = i === 1 ? Math.max(-d, 0) : 0.5 * dn + 0.5 * Math.max(-d, 0);
+      if (i < 200) continue;
+      const rsi2 = dn === 0 ? 100 : 100 - 100 / (1 + up / dn), bear = c[i] < sma(200, i);
+      let ev = null;
+      if (inn) { days++; if (!bear || c[i] > sma(5, i) || days >= 10) { inn = false; ev = { type: 'sell', date: rows[i].date, price: c[i], gain: c[i] / entry.price - 1 }; } }
+      else if (bear && rsi2 < 5) { inn = true; days = 0; entry = { date: rows[i].date, price: c[i] }; ev = { type: 'buy', date: rows[i].date, price: c[i], rsi2 }; }
+      if (i === n - 1) last = { rsi2, bear, ev };
+    }
+    const L = n - 1, sma4 = (c[L] + c[L - 1] + c[L - 2] + c[L - 3]) / 4;
+    return {
+      date: rows[L].date, close: c[L], rsi2: last.rsi2, bear: last.bear, sma200: sma(200, L), inTrade: inn, entry: inn ? entry : null, days: inn ? days : 0,
+      signal: last.ev, // an entry or exit decided at the latest close: act at the next open
+      buyBelow: !inn && last.bear ? Math.min(c[L], c[L] + dn - 19 * up) : null, // a close below this gives RSI-2 < 5
+      sellAbove: inn ? sma4 : null, // a close above this is above the 5-day average
+    };
+  }
+  function swing() {
+    return SWING.map(([us, t, name]) => { const d = store[us]; const s = d && d.status === 'ok' ? swingOf(d.data) : null; return s ? { us, t, name, ...s } : null; }).filter(Boolean);
+  }
   function summarize() {
     const M = (store.metrics && store.metrics.data) || [], RU = (store.rule && store.rule.data) || [];
     const etfs = {};
@@ -282,6 +313,7 @@
       asof: spy.date || null, at: Date.now(), rule: { friday: (RU.find((r) => r.last_friday) || {}).last_friday || null, picks: RU.filter((r) => r.pick).map((r) => r.symbol).sort() }, etfs,
       regime: G ? { label: G.label, stance: G.stance } : null,
       holdings: P.map((h) => ({ ticker: h.ticker, tracks: h.tracks, verdict: h.verdict, into: h.into || null })),
+      swing: swing().map((x) => ({ us: x.us, t: x.t, date: x.date, inTrade: x.inTrade, sig: x.signal ? x.signal.type : null, price: x.close, rsi2: x.rsi2, gain: x.signal && x.signal.gain })),
     };
   }
   const TRANSITIONS = {
@@ -307,6 +339,14 @@
     }
     if (cfg.notifyRegime !== false && cur.regime && prev.regime && cur.regime.label !== prev.regime.label) {
       ev.push(`Market regime: ${prev.regime.label} → ${cur.regime.label}. ${cur.regime.stance}`);
+    }
+    if (cfg.notifySwing !== false && cur.swing) {
+      for (const x of cur.swing) {
+        const p = (prev.swing || []).find((y) => y.us === x.us);
+        if (!x.sig || (p && p.date === x.date)) continue; // only a signal from a new close
+        if (x.sig === 'buy') ev.push(`Swing BUY ${x.t}: ${x.us} dropped sharply (RSI-2 ${Math.round(x.rsi2)}). Buy at the open; sell at the first close above its 5-day average.`);
+        else ev.push(`Swing SELL ${x.t}: ${x.us} closed above its 5-day average${x.gain != null ? ` (trade ${(x.gain >= 0 ? '+' : '') + (x.gain * 100).toFixed(1)}%)` : ''}. Sell at the open.`);
+      }
     }
     if (cfg.notifyHoldings !== false && cur.holdings && prev.holdings) {
       for (const h of cur.holdings) {
@@ -374,5 +414,5 @@
   }
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { DATASETS, state, config, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
+  window.SRApp = { DATASETS, state, config, swing, swingOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();

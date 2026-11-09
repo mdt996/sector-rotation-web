@@ -35,6 +35,9 @@
   };
   const NAME = { SXRV: 'Nasdaq-100', SEC0: 'Semiconductors', IS0E: 'Gold miners', CASH: 'Cash (Revolut)', ZPDS: 'Consumer staples', ZPDU: 'Utilities', ZPDH: 'Health care' };
   const planTickers = (p) => { const P = PLANS[p.id]; return P ? new Set([...P.targets(true, p), ...P.targets(false, p)].map((x) => x.t)) : new Set(); };
+  const planLines = (p) => { const P = PLANS[p.id]; return P ? [...P.targets(true, p), ...P.targets(false, p)] : []; };
+  const lineFor = (h, lines) => lines.find((l) => l.t === h.ticker) || lines.find((l) => l.us && h.tracks === l.us) || null;
+  const inPlanAny = (h, p) => !!lineFor(h, planLines(p));
   const keepSet = (p, H) => new Set(Array.isArray(p.keep) ? p.keep : H.filter((h) => h.long_term).map((h) => h.ticker));
 
   // ---- themes: what each holding is exposed to, so the rotation reads in percentages ----
@@ -107,14 +110,21 @@
     if (!P) return st;
     st.inn = p.id === 'smh' ? (sig && !sig.error ? sig.inn : null) : true;
     if (st.inn == null) return st;
-    const keep = keepSet(p, H), PT = planTickers(p), T = P.targets(st.inn, p); st.T = T; st.keep = keep;
+    // semis out of trend but a swing trade is on (bought a sharp dip): that half stays in SEC0 until the swing sells
+    const sw = p.id === 'smh' && st.inn === false && SRApp.swing ? SRApp.swing().find((y) => y.us === 'SMH') : null;
+    st.swing = sw && sw.inTrade ? sw : null;
+    const keep = keepSet(p, H), PT = planTickers(p);
+    let T = P.targets(st.inn || !!st.swing, p);
+    if (st.swing) T = T.map((l) => (l.t === 'SEC0' ? { ...l, name: 'Semiconductors (swing trade)' } : l));
+    st.T = T; st.keep = keep;
     const scope = H.filter((h) => !keep.has(h.ticker) && h.value > 0);
-    for (const h of scope) st.cur[h.ticker] = (st.cur[h.ticker] || 0) + h.value;
+    const other = {}; // holdings not on a current line, by ticker
+    for (const h of scope) { const l = lineFor(h, T); if (l) st.cur[l.t] = (st.cur[l.t] || 0) + h.value; else other[h.ticker] = (other[h.ticker] || 0) + h.value; }
     st.size = scope.reduce((x, h) => x + h.value, 0) + (p.add > 0 ? p.add : 0);
     st.inPlan = T.reduce((x, l) => x + (st.cur[l.t] || 0), 0);
     if (st.size < 50) return st;
-    const others = Object.keys(st.cur).filter((t) => !T.some((l) => l.t === t));
-    const outside = others.filter((t) => !PT.has(t));
+    const others = Object.keys(other);
+    const outside = scope.filter((h) => other[h.ticker] && !inPlanAny(h, p)).map((h) => h.ticker);
     const drift = Math.max(...T.map((l) => Math.abs((st.cur[l.t] || 0) / st.size - l.w)));
     const now = new Date(), m = now.getUTCMonth(), key = `reset-${now.getUTCFullYear()}-${m + 1}`;
     const window_ = (m === 0 || m === 6) && now.getUTCDate() <= 15 && !p.done[key] && P === PLANS.core;
@@ -126,7 +136,7 @@
     else if (drift > 0.10) title = 'Back to target (a line drifted 10 points)';
     if (!title) return st;
     const round = (x) => Math.round(x / 10) * 10, minOrder = Math.max(25, st.size * 0.01);
-    const orders = others.map((t) => ({ side: 'sell', t, eur: round(st.cur[t]), all: true }));
+    const orders = others.map((t) => ({ side: 'sell', t, eur: round(other[t]), all: true }));
     for (const l of T) {
       const d = st.size * l.w - (st.cur[l.t] || 0);
       if (Math.abs(d) >= minOrder) orders.push({ side: d > 0 ? 'buy' : 'sell', t: l.t, eur: round(Math.abs(d)), all: d < 0 && st.size * l.w < 1 });
@@ -161,35 +171,26 @@
     c.appendChild(el('div', 'g-card-t', title));
     return c;
   }
-  function orderList(c, a) {
-    const groups = [['sell', 'Sell'], ['buy', 'Buy']];
-    for (const [side, label] of groups) {
-      const os = a.orders.filter((o) => o.side === side && o.t !== 'CASH');
-      const cash = a.orders.find((o) => o.side === side && o.t === 'CASH');
-      if (!os.length && !cash) continue;
-      const g = c.appendChild(el('div', 'g-group'));
-      const tot = os.reduce((x, o) => x + o.eur, 0);
-      g.appendChild(el('div', 'g-group-h', `${label}${os.length ? ' · ' + eur(tot) : ''}`));
-      const ul = g.appendChild(el('div', 'g-orders'));
-      for (const o of os) {
-        const r = ul.appendChild(el('div', 'g-order'));
-        r.appendChild(el('span', 'g-side g-' + o.side, o.side === 'buy' ? 'Buy' : 'Sell'));
-        r.appendChild(el('span', 'g-amt', (o.all ? 'all ' : '') + eur(o.eur)));
-        r.appendChild(el('b', '', o.t));
-        r.appendChild(el('span', 'g-muted', NAME[o.t] || ''));
-      }
-      if (cash) {
-        const r = ul.appendChild(el('div', 'g-order'));
-        r.appendChild(el('span', 'g-side g-cash', side === 'buy' ? 'Keep' : 'Use'));
-        r.appendChild(el('span', 'g-amt', eur(cash.eur)));
-        r.appendChild(el('b', '', 'Cash'));
-        r.appendChild(el('span', 'g-muted', side === 'buy' ? 'stays in Revolut' : 'from Revolut cash'));
-      }
-    }
+  function orderList(c, a, total) {
+    const sells = a.orders.filter((o) => o.side === 'sell' && o.t !== 'CASH'), buys = a.orders.filter((o) => o.side === 'buy' && o.t !== 'CASH');
+    const keepCash = a.orders.find((o) => o.side === 'buy' && o.t === 'CASH'), useCash = a.orders.find((o) => o.side === 'sell' && o.t === 'CASH');
+    const ol = c.appendChild(el('ol', 'g-steps'));
+    let n = 0;
+    const step = (side, label, t, name, amt, all) => {
+      const li = ol.appendChild(el('li', 'g-step'));
+      li.appendChild(el('span', 'g-step-n', String(++n)));
+      li.appendChild(el('span', 'g-side g-' + side, label));
+      const w = li.appendChild(el('span', 'g-step-w')); w.appendChild(el('b', '', t)); if (name) w.appendChild(el('span', 'g-muted', name));
+      const v = li.appendChild(el('span', 'g-step-v')); v.appendChild(el('b', '', (all ? 'all · ' : '') + eur(amt)));
+      if (total) v.appendChild(el('span', 'g-muted', d3.format('.0%')(amt / total) + ' of portfolio'));
+    };
+    for (const o of sells) step('sell', 'Sell', o.t, NAME[o.t] || '', o.eur, o.all);
+    if (useCash) step('cash', 'Use', 'Cash', 'from Revolut', useCash.eur);
+    for (const o of buys) step('buy', 'Buy', o.t, NAME[o.t] || '', o.eur);
+    if (keepCash) step('cash', 'Keep', 'Cash', 'stays in Revolut', keepCash.eur);
     if (a.keep && a.keep.length) {
       const k = c.appendChild(el('div', 'g-keep'));
-      k.appendChild(el('span', 'g-muted', 'Keep as they are: '));
-      k.appendChild(el('b', '', a.keep.join(', ')));
+      k.appendChild(el('span', 'g-muted', 'Don\'t touch: ')); k.appendChild(el('b', '', a.keep.join(', ')));
       const ch = k.appendChild(el('button', 'g-link', 'change')); ch.type = 'button'; ch.addEventListener('click', () => go('plan', 0));
     }
   }
@@ -254,7 +255,7 @@
     if (!st.P) verdict = 'Your live mix by theme. Choose a plan to see where it should go.';
     else if (!st.T) verdict = 'Checking the semis signal…';
     else if (R.moved < 0.03) verdict = '✓ On target. Nothing to rotate.';
-    else verdict = `${sgn ? (sig.inn ? 'Semis are in trend. ' : `Semis are out of trend (${pct(sig.close / Math.max(...sig.hist.map((x) => x.close)) - 1, 0)} from their high). `) : ''}Rotate ${d3.format('.0%')(R.moved)} of your portfolio.`;
+    else verdict = `${sgn ? (sig.inn ? 'Semis are in trend. ' : st.swing ? `Semis are out of trend, but a swing trade is on: keep SEC0 until SMH closes above ${d3.format(',.0f')(st.swing.sellAbove)}. ` : `Semis are out of trend (${pct(sig.close / Math.max(...sig.hist.map((x) => x.close)) - 1, 0)} from their high). `) : ''}Rotate ${d3.format('.0%')(R.moved)} of your portfolio.`;
     c.appendChild(el('div', 'g-verdict' + (R.moved < 0.03 && st.T ? ' g-good' : ''), verdict));
     stackBar(c, 'Now', R.rows, 'now');
     if (st.T) stackBar(c, 'Target', R.rows, 'tgt');
@@ -272,12 +273,9 @@
       if (same.length) c.appendChild(el('div', 'g-hint', 'Unchanged: ' + same.map((r) => `${r.th} ${d3.format('.0%')(r.now)}`).join(' · ')));
     }
     if (st.actions.length) {
-      const more = c.appendChild(el('button', 'g-link g-more', 'Show the exact orders')); more.type = 'button';
-      const box2 = c.appendChild(el('div', 'g-exact')); box2.hidden = !openOrders;
-      if (openOrders) more.textContent = 'Hide the orders';
-      orderList(box2, st.actions[0]);
-      box2.appendChild(el('div', 'g-hint', 'After trading, send Claude a screenshot of Revolut. Selling realises gains (31.4% flat tax in a compte-titres).'));
-      more.addEventListener('click', () => { openOrders = !openOrders; box2.hidden = !openOrders; more.textContent = openOrders ? 'Hide the orders' : 'Show the exact orders'; });
+      c.appendChild(el('div', 'g-sec', 'Orders on Revolut, in this order'));
+      orderList(c, st.actions[0], R.total);
+      c.appendChild(el('div', 'g-hint', 'Sell first, then buy with the proceeds. After trading, send Claude a screenshot of Revolut. Selling realises gains (31.4% flat tax in a compte-titres).'));
     }
     if (!st.P) {
       const list = c.appendChild(el('div', 'g-moves'));
@@ -358,7 +356,39 @@
     c.appendChild(el('div', 'g-hint', `From the last 12 months of daily moves of what you hold.${hot.length ? ' Skipped as overheated: ' + hot.map((r) => r.t).join(', ') + '.' : ''} Lower volatility is the reliable part; past returns don't predict.`));
   }
 
-  let openOrders = false;
+  // ---- swing trades in bear markets (runtime.js SRApp.swing: the tested 2000-2026 rule) ----
+  function swingCard(box, st) {
+    const S = SRApp.swing ? SRApp.swing() : []; if (!S.length) return;
+    if (window.SRLive && window.SRLive.want) window.SRLive.want('swing', S.map((x) => SRApp.idOf(x.us)).filter(Boolean));
+    const c = card(box, 'swing', 'Swing trades');
+    const live = (x) => { const q = window.SRLive && window.SRLive.quotes.get(SRApp.idOf(x.us)); return q ? q.price : null; };
+    const day = (d) => d3.utcFormat('%a %-d %b')(new Date(d + 'T00:00:00Z'));
+    const rows = [], calm = [];
+    for (const x of S) {
+      const px = live(x) || x.close, f = (v) => d3.format(',.2f')(v);
+      if (x.signal && x.signal.type === 'buy') rows.push([0, 'BUY', 'g-buy', x, `Buy at the open: sharp drop on ${day(x.date)} (RSI-2 ${Math.round(x.signal.rsi2)}).`]);
+      else if (x.signal && x.signal.type === 'sell') rows.push([0, 'SELL', 'g-sell', x, `Sell at the open: closed above its 5-day average on ${day(x.date)} (trade ${pct(x.signal.gain)}).`]);
+      else if (x.inTrade) {
+        const hit = px > x.sellAbove;
+        rows.push([1, 'IN', 'g-in', x, `Bought ${day(x.entry.date)} at ${f(x.entry.price)}, now ${pct(px / x.entry.price - 1)}. Sells at a close above ${f(x.sellAbove)}${hit ? ' (above it now: sells if it closes here)' : ` (${pct(x.sellAbove / px - 1)})`}. Day ${x.days + 1} of 10.`]);
+      } else if (x.bear && x.buyBelow) {
+        const hit = px < x.buyBelow;
+        if (!hit && x.buyBelow < 0.92 * px) calm.push(x.name + ' (bear market, no sharp drop yet)');
+        else rows.push([2, 'WATCH', 'g-watch', x, `Buys after a close below ${f(x.buyBelow)}${hit ? ' (below it now: buys if it closes here)' : ` (${pct(x.buyBelow / px - 1)})`}.`]);
+      } else calm.push(x.name);
+    }
+    rows.sort((u, v) => u[0] - v[0]);
+    for (const [, pill, cls, x, text] of rows) {
+      const r = c.appendChild(el('button', 'g-swrow')); r.type = 'button'; r.addEventListener('click', () => SR.open && SR.open(x.us));
+      const h = r.appendChild(el('div', 'g-swh'));
+      h.appendChild(el('span', 'g-pill ' + cls, pill)); h.appendChild(el('b', '', x.t)); h.appendChild(el('span', 'g-muted', x.name));
+      r.appendChild(el('div', 'g-swt', text));
+    }
+    if (!rows.length) c.appendChild(el('div', 'g-line g-muted', 'No swing setups: none of these funds is in a bear market.'));
+    if (calm.length) c.appendChild(el('div', 'g-hint', 'No setup now: ' + calm.join(', ') + '.'));
+    const waiting = st.P && st.p.id === 'smh' && st.inn === false ? (st.cur.CASH || 0) : 0;
+    c.appendChild(el('div', 'g-hint', (waiting > 50 ? `Size: up to the ${eur(waiting)} waiting in cash for semis. ` : '') + 'Rule from the 2000–2026 test: while a fund is below its 200-day average, buy after a very sharp drop (RSI-2 below 5); sell at the first close above the 5-day average, or after 10 days. Signals come after the US close (22:00 Paris); act at the next open.'));
+  }
   function signalRow(box) {
     if (!sig || sig.error) return;
     const now = smhNow(), ref = now || sig.close, lvl = sig.inn ? sig.exitAt : sig.backAt, gap = lvl / ref - 1;
@@ -378,6 +408,7 @@
       c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings()));
     }
     if (st.P && st.p.id === 'smh') { if (!sig) loadSignal(); signalRow(box); }
+    swingCard(box, st);
     rotationCard(box, H, st);
     addCard(box, H, st);
     const PT = planTickers(st.p), KS = st.keep || new Set();
@@ -424,7 +455,7 @@
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
       if (pst.P) {
         if (pst.keep && pst.keep.has(h.ticker)) tags.appendChild(el('span', 'g-chip', 'Keep'));
-        else if (PTs.has(h.ticker) && (!pst.T || pst.T.some((l) => l.t === h.ticker))) tags.appendChild(el('span', 'g-chip g-chip-plan', 'Plan'));
+        else if (pst.T ? lineFor(h, pst.T) : PTs.has(h.ticker)) tags.appendChild(el('span', 'g-chip g-chip-plan', 'Plan'));
         else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Sell'));
       }
       tags.appendChild(el('span', 'g-muted', T.total ? d3.format('.0%')(h.value / T.total) : ''));
