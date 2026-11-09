@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 10, "text": "Chart tools like TradingView: measure, Fibonacci retracement, trend and horizontal lines (saved per asset), indicators (moving averages, Bollinger bands, RSI, MACD) and fullscreen. The price zones are renamed to what they are: below trend, normal range, stretched."};
+window.SR_NOTES = {"build": 11, "text": "New Rotation tab: a board ranking the sectors (who leads, who is coming, who is fading, where your money is), a 6-month rotation heatmap and a market phase gauge (cyclicals vs defensives). The rule, the map and Revolut funds are there too."};

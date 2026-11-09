@@ -175,8 +175,8 @@
   // ---- tabs and sub-tabs: each block of the dashboard page belongs to one of them; only what's open is drawn ----
   const TABS = {
     holdings: [['', ['portfolio']]],
-    rule: [['This week', ['rule']], ['On Revolut', ['revolut']]],
-    market: [['Overview', ['top', 'regime', 'headline']], ['Ranking', ['ranking']], ['Map', ['map']], ['Trends', ['sr-grid']]],
+    rule: [['Board', ['rotboard']], ['Heatmap', ['rotheat']], ['Map', ['map']], ['This week', ['rule']], ['On Revolut', ['revolut']]],
+    market: [['Overview', ['top', 'regime', 'headline']], ['Ranking', ['ranking']], ['Trends', ['sr-grid']]],
     chart: [['Price', ['quote']], ['Technical', ['chart']]],
     study: [['15 years', ['backtest']], ['Method', ['method']]],
   };
