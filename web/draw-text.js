@@ -42,22 +42,17 @@ dash.draw('rulesplit', (el) => {
   const parts = R.filter((r) => r.target > 0).sort((a, b) => b.target - a.target || (a.rank || 99) - (b.rank || 99));
   const any = R.find((r) => r.last_friday) || {};
   el.textContent = parts.length
-    ? parts.map((r) => `${r.symbol} ${d3.format('.0%')(r.target)}`).join(' · ') + ` (Fridays ${SR.day(any.first_friday)} to ${SR.day(any.last_friday)})`
-    : 'no sector has a full year of history yet';
+    ? parts.map((r) => `${r.symbol} ${d3.format('.1%')(r.target)}`).join(' · ') + ` (Friday ${SR.day(any.last_friday)})`
+    : 'no sector has enough history yet';
 });
 dash.draw('rulechg', (el) => {
   const R = SR.ruleRows();
   if (!R) { el.textContent = '—'; return; }
-  const sec = R.filter((r) => r.sector).sort((a, b) => (a.rank || 99) - (b.rank || 99));
-  const last = (R.find((r) => r.last_friday) || {}).last_friday, asof = (sec[0] || {}).date;
-  const picks = sec.filter((r) => r.pick).map((r) => r.symbol), now = sec.filter((r) => r.now).map((r) => r.symbol);
-  const added = sec.filter((r) => r.new_pick).map((r) => r.symbol), dropped = sec.filter((r) => r.dropped).map((r) => r.symbol);
-  let t = `Picks on Friday ${SR.day(last)}: ${picks.join(', ') || 'none'}`;
-  t += added.length || dropped.length ? ` (in: ${added.join(', ') || 'none'}; out: ${dropped.join(', ') || 'none'}).` : ', the same as the Friday before.';
-  if (asof && last && asof !== last) {
-    const ins = now.filter((s) => !picks.includes(s)), outs = picks.filter((s) => !now.includes(s));
-    t += ins.length ? ` If the week ended on ${SR.day(asof)}, ${ins.join(', ')} would replace ${outs.join(', ')}.` : ` On ${SR.day(asof)} the ranking still gives the same picks.`;
-  }
+  const rule = R.filter((r) => r.in_rule), last = (R.find((r) => r.last_friday) || {}).last_friday;
+  const hot = rule.filter((r) => r.overheated).map((r) => `${r.symbol} (RSI ${Math.round(r.rsi_w)})`);
+  const back = rule.filter((r) => r.new_pick).map((r) => r.symbol), trim = rule.filter((r) => r.dropped).map((r) => r.symbol);
+  let t = `Friday ${SR.day(last)}: ${hot.length ? 'overheated, in cash: ' + hot.join(', ') : 'no sector overheated, all 8 held'}.`;
+  t += back.length || trim.length ? ` Changes: ${trim.length ? 'move ' + trim.join(', ') + ' to cash' : ''}${trim.length && back.length ? '; ' : ''}${back.length ? 'buy back ' + back.join(', ') : ''}.` : ' No change from the Friday before.';
   el.textContent = t;
 });
 dash.draw('ruletab', (tbody) => {
@@ -65,7 +60,8 @@ dash.draw('ruletab', (tbody) => {
   const R = SR.ruleRows();
   if (!R) return;
   const f0 = d3.format('.0%');
-  for (const r of R.filter((q) => q.sector).sort((a, b) => (a.rank || 99) - (b.rank || 99))) {
+  const order = (r) => (r.in_rule ? 0 : 1) * 100 + (r.rank || 99);
+  for (const r of R.filter((q) => q.sector).sort((a, b) => order(a) - order(b))) {
     const tr = tbody.appendChild(document.createElement('tr'));
     tr.setAttribute('data-key', r.symbol);
     if (r.pick) tr.classList.add('sr-pick');
@@ -73,16 +69,15 @@ dash.draw('ruletab', (tbody) => {
     const cell = (text, cls, num) => { const c = tr.appendChild(document.createElement('td')); if (num) c.className = 'num'; if (cls) { const s = c.appendChild(document.createElement('span')); s.className = cls; s.textContent = text; } else c.textContent = text; return c; };
     const first = tr.appendChild(document.createElement('td'));
     first.appendChild(document.createElement('b')).textContent = r.symbol;
-    const sub = first.appendChild(document.createElement('span')); sub.className = 'sr-sub'; sub.textContent = r.name;
-    cell(r.rank == null ? '—' : String(r.rank), r.now ? 'sr-top' : 'sr-muted', true);
-    cell(SR.pct(r.score), SR.signCls(r.score), true);
+    const sub = first.appendChild(document.createElement('span')); sub.className = 'sr-sub'; sub.textContent = r.name + (r.in_rule ? '' : ' (not in the rule)');
+    cell(r.rsi_w == null ? '—' : d3.format('.0f')(r.rsi_w), r.overheated ? 'sr-hot' : 'sr-muted', true);
     const dots = tr.appendChild(document.createElement('td'));
     dots.className = 'sr-dots';
-    dots.setAttribute('aria-label', r.hist ? `${r.weeks} of the last ${r.hist.length} Fridays, oldest first` : 'not ranked');
+    dots.setAttribute('aria-label', r.hist ? `held on ${r.weeks} of the last ${r.hist.length} Fridays, oldest first` : 'not in the rule');
     for (const ch of r.hist || '') { const i = dots.appendChild(document.createElement('i')); if (ch === '1') i.className = 'on'; }
-    cell(r.target == null ? '—' : f0(r.target), r.target > 0 ? 'sr-top' : 'sr-muted', true);
+    cell(r.target == null ? '—' : d3.format('.1%')(r.target), r.target > 0 ? 'sr-top' : 'sr-muted', true);
+    cell(SR.pct(r.score), SR.signCls(r.score), true);
     cell(r.vol12m == null ? '—' : f0(r.vol12m), '', true);
-    cell(r.per_risk == null ? '—' : d3.format('.2f')(r.per_risk), SR.signCls(r.per_risk), true);
     cell(r.vs_ma200 == null ? '—' : SR.pct(r.vs_ma200), SR.signCls(r.vs_ma200), true);
     cell(r.revolut || '—');
   }

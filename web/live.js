@@ -100,17 +100,30 @@
   }
   function zoneOf(price, L) {
     if (price == null || !L) return null;
-    if (price < L.acc[0]) return { key: 'deep', label: 'Far below trend' };
-    if (price < L.acc[1]) return { key: 'acc', label: 'Below trend' };
-    if (price <= L.fair[1]) return { key: 'fair', label: 'Normal range' };
-    if (price <= L.tp[1]) return { key: 'tp', label: 'Stretched' };
-    return { key: 'hot', label: 'Very stretched' };
+    if (price < L.acc[0]) return { key: 'deep', label: 'Bottom of its 2-year range' };
+    if (price < L.acc[1]) return { key: 'acc', label: 'Low in its 2-year range' };
+    if (price <= L.fair[1]) return { key: 'fair', label: 'Middle of its 2-year range' };
+    if (price <= L.tp[1]) return { key: 'tp', label: 'High in its 2-year range' };
+    return { key: 'hot', label: 'Top of its 2-year range' };
   }
   function zonesFrom(id, rows) { const z = computeZones(rows); zcache[id] = Object.assign({ day: todayET() }, z || { none: true }); lsSet('sr.zones', zcache); return zcache[id]; }
   async function zones(id) {
     const hit = zcache[id];
     if (hit && hit.day === todayET()) return hit;
     return zonesFrom(id, await candles(id, 'OneDay', 1000));
+  }
+  // weekly RSI (14, Wilder) on completed weeks (a week counts once its Friday has closed)
+  function weeklyRsi(rows) {
+    if (!rows || rows.length < 80) return null;
+    const mon = (d) => { const t = Date.parse(d + 'T00:00:00Z'); return t - ((new Date(t).getUTCDay() + 6) % 7) * 864e5; };
+    const w = [];
+    for (let i = 0; i < rows.length; i++) { const n = rows[i + 1]; if (n ? mon(n.date) !== mon(rows[i].date) : new Date(rows[i].date + 'T00:00:00Z').getUTCDay() === 5 && rows[i].date < todayET()) w.push(rows[i].close); }
+    let g = 0, l = 0, v = null;
+    for (let i = 1; i < w.length; i++) {
+      const d = w[i] - w[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0);
+      if (i <= 14) { g += up / 14; l += dn / 14; if (i === 14) v = l === 0 ? 100 : 100 - 100 / (1 + g / l); } else { g = (g * 13 + up) / 14; l = (l * 13 + dn) / 14; v = l === 0 ? 100 : 100 - 100 / (1 + g / l); }
+    }
+    return v;
   }
   const zonesSync = (id) => { const z = zcache[id]; return z && z.day === todayET() ? z : null; };
 
@@ -147,9 +160,10 @@
     const stats = wrap.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
-    const sAcc = stat('Below-trend zone', 'z-acc'), sFair = stat('Normal range', 'z-fair'), sTp = stat('Stretched zone', 'z-tp'), sFv = stat('Fundamental fair value', 'z-fv');
-    const how = wrap.appendChild(el('button', 'sr-more av-how', 'What the zones and fair value mean')); how.type = 'button';
-    const howText = wrap.appendChild(el('p', 'av-note', 'Trend zones: where the price sat against its 200-day average over the last 2 years (below trend = its lowest 10–25% of the time, normal = the middle half, stretched = its highest 75–90%). They describe the price, not the value, and are being tested against 15 years of returns. Fundamental fair value (blue): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
+    const sRsi = stat('Weekly RSI (14)'), sFv = stat('Fundamental fair value', 'z-fv');
+    const sAcc = stat('Low part of 2-year range', 'z-acc'), sFair = stat('Middle', 'z-fair'), sTp = stat('High part', 'z-tp');
+    const how = wrap.appendChild(el('button', 'sr-more av-how', 'What these mean')); how.type = 'button';
+    const howText = wrap.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated: in a 15-year test of the sectors, the next 3 months averaged about −0.2% against +2.7% for a normal week, so it is a reason not to add (trimming is optional). It is the only signal that held up. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
     howText.hidden = true;
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; });
 
@@ -164,8 +178,8 @@
       const c = price != null && prev ? price / prev - 1 : null;
       chg.textContent = c == null ? '' : `${fmtPct(c)}  ${price - prev >= 0 ? '+' : '−'}${fmtP(Math.abs(price - prev))} today`;
       chg.className = 'av-chg ' + cls(c);
-      const z = zoneOf(price, L);
-      badge.textContent = z ? z.label : ''; badge.className = 'av-zone' + (z ? ' z-' + z.key : '');
+      const wr = weeklyRsi(daily);
+      badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
       if (hovering) return;
       sub.textContent = q ? `Live · ${hhmm(q.at)}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
@@ -200,6 +214,9 @@
       const y1 = yr.length ? yr[0].close : null, now = price || (daily.length ? daily[daily.length - 1].close : null);
       const c = y1 && now ? now / y1 - 1 : null;
       s1y.textContent = fmtPct(c); s1y.className = cls(c);
+      const wr = weeklyRsi(daily);
+      sRsi.textContent = wr == null ? '—' : Math.round(wr) + (wr > 70 ? ' · overheated: don\'t add' : '');
+      sRsi.className = wr > 70 ? 'sr-hot' : '';
       sAcc.textContent = L ? `${fmtP(L.acc[0])} – ${fmtP(L.acc[1])}` : 'Not enough history';
       sFair.textContent = L ? `${fmtP(L.fair[0])} – ${fmtP(L.fair[1])}` : '—';
       sTp.textContent = L ? `${fmtP(L.tp[0])} – ${fmtP(L.tp[1])}` : '—';

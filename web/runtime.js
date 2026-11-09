@@ -293,7 +293,7 @@
     if (cfg.notifyGo !== false && cur.rule && prev.rule && cur.rule.friday && prev.rule.friday && cur.rule.friday !== prev.rule.friday) {
       const was = prev.rule.picks || [], now = cur.rule.picks || [];
       const ins = now.filter((s) => !was.includes(s)), outs = was.filter((s) => !now.includes(s));
-      if (ins.length || outs.length) ev.push(`Rotation rule, Friday ${cur.rule.friday}: picks ${now.join(', ') || 'none'} (in: ${ins.join(', ') || 'none'}; out: ${outs.join(', ') || 'none'}). Move a quarter of your rotation money.`);
+      if (ins.length || outs.length) ev.push(`Rotation rule, Friday ${cur.rule.friday}: ${outs.length ? 'overheated, move to cash: ' + outs.join(', ') : ''}${outs.length && ins.length ? '; ' : ''}${ins.length ? 'cooled down, buy back: ' + ins.join(', ') : ''}.`);
     }
     if (cfg.notifyPhase !== false) {
       for (const [s, e] of Object.entries(cur.etfs)) {

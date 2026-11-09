@@ -82,7 +82,7 @@
     <div class="sr-card-head">
       <div>
         <h2 class="sr-h2">Rotation rule</h2>
-        <p class="sr-note">Every Friday close, rank the 11 sectors by their 12-month return, leaving out the latest month (moves over the last few weeks tend to reverse). The top <span data-draw="k" data-source="settings" data-field="ruleTop" data-row="0">—</span> are that Friday's picks, in equal parts. Move a quarter of the money you rotate each Friday, so the target split is the average of the last four Fridays and no single week decides it. Volatility and the 200-day trend are shown for context, not used: in the 15-year test below, keeping only sectors above their 200-day average gave a smaller worst drop but a lower return.</p>
+        <p class="sr-note">The rule that held up when 15 years of weekly data were tested: hold the 8 long-standing sectors in equal parts, and when a sector's weekly RSI (14) closes above 70 on a Friday, move it to cash at the next open; buy it back once its weekly RSI closes at or below 70. From 2011 to 2026 it made about 12.0% a year with 14.2% volatility, against 11.9% and 14.9% for the same sectors held all the time, and 13.0% and 15.8% for the S&amp;P 500: smoother, not higher. The 12-month return ranking, zones, momentum picks and 200-day filters were tested too and showed no reliable edge, so they are shown only as a description. Materials, real estate and communication are listed but not in the rule (their history is too short for the test).</p>
       </div>
     </div>
     <p class="sr-rule-sum"><b>Target split:</b> <span data-draw="rulesplit" data-source="rule">—</span></p>
@@ -92,12 +92,11 @@
         <thead>
           <tr>
             <th data-field="symbol">Sector</th>
-            <th data-field="rank" class="num">Rank</th>
-            <th data-field="score" class="num">12 months, without the last</th>
-            <th data-field="hist">Last 4 Fridays</th>
+            <th data-field="rsi_w" class="num">Weekly RSI</th>
+            <th data-field="hist">Held, last 4 Fridays</th>
             <th data-field="target" class="num">Target</th>
+            <th data-field="score" class="num">12 months, without the last</th>
             <th data-field="vol12m" class="num">Volatility</th>
-            <th data-field="per_risk" class="num">Return ÷ volatility</th>
             <th data-field="vs_ma200" class="num">vs 200-day</th>
             <th data-field="revolut">On Revolut</th>
           </tr>
@@ -114,7 +113,7 @@
         <p class="sr-note">Each holding read through the US fund or stock it follows (a European semiconductor ETF through SMH, for example), with the rotation rule's yardstick: its 12-month return without the latest month. As strong as the weakest of the rule's picks: Hold, strong. Weaker: Hold, lagging, with the rule's strongest pick as the alternative. Down over the year: Reduce. Long-term holds are never told to sell, only when adding looks timely. Returns are converted to euros. With euro amounts (typed in the app's Settings), each holding shows its share of the total, and a suggested move shows the euros to shift each week, a quarter at a time. Click a row to open its chart.</p>
       </div>
     </div>
-    <div class="sr-folio-sum app-sum"><div data-draw="foliototal" data-source="portfolio"></div><div><b>Reduce:</b> <span data-draw="foliolist" data-kind="out" data-source="portfolio">—</span></div><div><b>Lagging the rule's picks:</b> <span data-draw="foliolist" data-kind="lag" data-source="portfolio">—</span></div><div><b>Good time to add:</b> <span data-draw="foliolist" data-kind="add" data-source="portfolio">—</span></div><div class="app-muted" data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</div></div>
+    <div class="sr-folio-sum app-sum"><div data-draw="foliototal" data-source="portfolio"></div><div><b>Overheated (weekly RSI above 70, don't add):</b> <span data-draw="foliolist" data-kind="hot" data-source="portfolio">—</span></div><div class="app-muted" data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</div></div>
     <div class="sr-tablewrap">
       <table class="sr-table sr-folio" data-source="portfolio" data-row-key="ticker">
         <thead>
@@ -122,7 +121,7 @@
             <th data-field="ticker">Holding</th>
             <th data-field="name">Name</th>
             <th data-field="amount" class="num sr-amt">Value</th>
-            <th class="sr-zone">Zone</th>
+            <th class="sr-zone">2-year range</th>
             <th class="num sr-today">Today</th>
             <th data-field="tracks">Follows</th>
             <th data-field="match" class="sr-c-match">Match</th>
@@ -133,8 +132,7 @@
             <th data-field="phase">Daily</th>
             <th data-field="phase_w">Weekly</th>
             <th data-field="verdict">Verdict</th>
-            <th data-field="into">Rotate into</th>
-            <th data-field="into_revolut">On Revolut</th>
+            <th data-field="rsi_w" class="num">Weekly RSI</th>
           </tr>
         </thead>
         <tbody data-draw="folio"></tbody>
@@ -252,8 +250,8 @@
   <section class="sr-card" id="backtest">
     <div class="sr-card-head">
       <div>
-        <h2 class="sr-h2">15 years of the rule, and the best sector split in hindsight</h2>
-        <p class="sr-note">Weekly eToro closes from <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="from">—</span> to <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="to">—</span>, prices only (dividends left out for every line). Decisions on Friday closes, trades at the next week's open at 0.1% per trade, each monthly switch spread over four weeks. Materials, Real estate and Communication have eToro history only from 2019, so the early years rank 8 sectors. A fixed study, not refreshed with the page: it shows how the rule behaved, not what comes next.</p>
+        <h2 class="sr-h2">15 years of the rule, against holding everything and the S&amp;P 500</h2>
+        <p class="sr-note">Weekly eToro closes from <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="from">—</span> to <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="to">—</span>, prices only (dividends left out for every line). Decisions on Friday closes, trades at the next week's open at 0.1% per trade. The rule holds the 8 sectors with history since 2010 in equal parts and parks any sector whose weekly RSI closed above 70 in cash until it cools down; it is compared with the same sectors always held, the old momentum rule (top 4 by 12-month return) and the S&amp;P 500. None beat the S&amp;P 500's return; the rule's gain is lower volatility and a smaller worst drop. A fixed study, not refreshed with the page: it shows how the rules behaved, not what comes next.</p>
       </div>
     </div>
     <div class="sr-bt-tiles">

@@ -226,8 +226,8 @@
 
   // ---- short notes: one line on what a card is for; the full explanation behind "How to read this" ----
   const SHORT = {
-    rule: 'The 4 sectors to hold, picked every Friday by their 12-month return (leaving out the last month). Move a quarter of the rotation money each week.',
-    portfolio: 'Each of your holdings against the rule\'s picks, and what to do with it. Tap a row for its chart.',
+    rule: 'The rule that held up in the 15-year test: the 8 long-standing sectors in equal parts; one whose weekly RSI closes above 70 waits in cash until it cools down. Smoother than holding them all, not higher-returning than the S&P 500.',
+    portfolio: 'Your holdings with live values. The only tested flag is Overheated (weekly RSI above 70): don\'t add. Tap a row for its chart.',
     ranking: 'Funds sorted by last month\'s return, with their rotation phase. Tap a row for its chart.',
     chart: 'Daily candles with moving averages, support, resistance and the exit and entry levels.',
     map: 'Each fund against the S&P 500: right is stronger than the market, up is getting stronger. Rings mark the rule\'s picks.',

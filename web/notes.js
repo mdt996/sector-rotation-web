@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 11, "text": "New Rotation tab: a board ranking the sectors (who leads, who is coming, who is fading, where your money is), a 6-month rotation heatmap and a market phase gauge (cyclicals vs defensives). The rule, the map and Revolut funds are there too."};
+window.SR_NOTES = {"build": 12, "text": "Guidance now follows only what held up in a 15-year test: an Overheated flag (weekly RSI above 70: don't add, trimming optional) on holdings, charts and the rotation board. The rule is now the 8 sectors in equal parts with overheated ones in cash; the ranking, map and 2-year range bands are shown as description only."};

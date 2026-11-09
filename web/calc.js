@@ -67,7 +67,7 @@ dash.calc('settings', {
   swingLookback: 40, // exit/entry triggers: the latest swing low/high within this many sessions
   heatWeeks: 8,
   wkSmooth: 4, wkBase: 26, wkLag: 4, wkTrail: 8, // weekly rotation map: the same recipe on weekly closes
-  ruleLong: 252, ruleSkip: 21, ruleTop: 4, ruleSteps: 4, ruleVol: 252, // rotation rule: 12-month return without the latest month (sessions), sectors held, weekly steps, volatility window
+  ruleLong: 252, ruleSkip: 21, ruleTop: 4, ruleSteps: 4, ruleVol: 252, ruleRsi: 70, // 12-month return without the latest month (sessions, descriptive), Fridays shown, volatility window; the rule: weekly RSI above which a sector waits in cash
   volLen: 20, breadthGood: 6, breadthWeak: 4, defGap: -0.03, // regime: volatility window, sector breadth thresholds, cyclicals-minus-defensives gap
 }],
 });
@@ -302,10 +302,11 @@ dash.calc('summary', {
 });
 dash.calc('rule', {
   title: "Rotation rule",
-  description: "Each fund's 12-month return without the latest month, its volatility and 200-day trend; the sectors' ranks, the last four Fridays' picks and the target split.",
+  description: "The rule that held up in the 15-year test: the 8 long-standing sectors in equal parts, and a sector whose weekly RSI (14) closed above 70 waits in cash until it closes at or below 70. Also each fund's weekly RSI, 12-month return (descriptive) and 200-day trend.",
   inputs: ["settings","panel","metrics","revolut"],
   fn: (settings, panel, metrics, revolut) => {
   const S = settings[0];
+  const RULE = ['XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU'], HOT = S.ruleRsi || 70;
   const rev = new Map((revolut || []).filter((r) => r.revolut_ticker).map((r) => [r.us, r.revolut_ticker]));
   const r4 = (x) => (x == null || !isFinite(x) ? null : Math.round(x * 1e4) / 1e4);
   const info = new Map(metrics.map((m) => [m.symbol, m]));
@@ -314,7 +315,8 @@ dash.calc('rule', {
   // Friday closes on the benchmark's calendar: the last session of each week (this week counts once Friday has closed)
   const cal = (groups[S.benchmark] || []).map((r) => r.date);
   const monday = (d) => { const t = Date.parse(d + 'T00:00:00Z'); return t - ((new Date(t).getUTCDay() + 6) % 7) * 864e5; };
-  const fridays = cal.filter((d, i) => (i + 1 < cal.length ? monday(cal[i + 1]) !== monday(d) : new Date(d + 'T00:00:00Z').getUTCDay() === 5)).slice(-S.ruleSteps);
+  const isLast = (dates, i) => (i + 1 < dates.length ? monday(dates[i + 1]) !== monday(dates[i]) : new Date(dates[i] + 'T00:00:00Z').getUTCDay() === 5);
+  const fridays = cal.filter((d, i) => isLast(cal, i)).slice(-S.ruleSteps);
   const at = (rows, d) => { let i = rows.length - 1; while (i >= 0 && rows[i].date > d) i--; return i; };
   const vol = (rows, i, h) => { // annualised volatility of daily returns over h sessions
     if (i < h) return null;
@@ -322,7 +324,7 @@ dash.calc('rule', {
     for (let k = i - h + 1; k <= i; k++) { const x = Math.log(rows[k].close / rows[k - 1].close); s += x; s2 += x * x; }
     return Math.sqrt(Math.max((s2 - (s * s) / h) / (h - 1), 0) * 252);
   };
-  // every fund is measured between the same two benchmark sessions, so a missing day in one series can't shift its window
+  // 12-month return without the latest month, on the benchmark's sessions (descriptive: it showed no edge in the test)
   const calIdx = new Map(cal.map((d, k) => [d, k]));
   const score = (rows, d) => {
     const k = calIdx.get(d);
@@ -330,30 +332,45 @@ dash.calc('rule', {
     const a = at(rows, cal[k - S.ruleSkip]), b = at(rows, cal[k - S.ruleLong]);
     return a >= 0 && b >= 0 ? rows[a].close / rows[b].close - 1 : null;
   };
+  // weekly RSI (14, Wilder) on completed weeks' closes
+  const rsiByWeek = (rows) => {
+    const dates = rows.map((r) => r.date), w = [];
+    for (let i = 0; i < rows.length; i++) if (isLast(dates, i)) w.push({ week: monday(dates[i]), close: rows[i].close });
+    const out = new Map(); let g = 0, l = 0;
+    for (let i = 1; i < w.length; i++) {
+      const d = w[i].close - w[i - 1].close, up = Math.max(d, 0), dn = Math.max(-d, 0);
+      if (i <= 14) { g += up / 14; l += dn / 14; if (i < 14) continue; } else { g = (g * 13 + up) / 14; l = (l * 13 + dn) / 14; }
+      out.set(w[i].week, l === 0 ? 100 : 100 - 100 / (1 + g / l));
+    }
+    return out;
+  };
   const sectors = Object.keys(groups).filter((s) => (info.get(s) || {}).group === 'Sector');
-  const ranked = (d) => sectors.map((s) => ({ s, v: score(groups[s], d) })).filter((x) => x.v != null).sort((a, b) => b.v - a.v);
-  const picks = fridays.map((d) => ranked(d).slice(0, S.ruleTop).map((x) => x.s));
-  const RANK = new Map(ranked(cal[cal.length - 1]).map((x, k) => [x.s, k + 1]));
-  const slots = S.ruleSteps * S.ruleTop, lastPicks = picks[picks.length - 1] || [], prevPicks = picks[picks.length - 2] || [];
+  const ranked = sectors.map((s) => ({ s, v: score(groups[s], cal[cal.length - 1]) })).filter((x) => x.v != null).sort((a, b) => b.v - a.v);
+  const RANK = new Map(ranked.map((x, k) => [x.s, k + 1]));
+  const fw = fridays.map(monday), K = fw.length - 1;
+  let held = 0;
   const out = Object.entries(groups).map(([symbol, rows]) => {
-    const i = rows.length - 1, L = rows[i], meta = info.get(symbol) || {}, isSec = sectors.includes(symbol);
+    const i = rows.length - 1, L = rows[i], meta = info.get(symbol) || {}, isSec = sectors.includes(symbol), inRule = RULE.includes(symbol);
+    const R = rsiByWeek(rows), rsi = K >= 0 ? R.get(fw[K]) : null, hot = (k) => { const v = R.get(fw[k]); return v != null && v > HOT; };
     const sc = score(rows, cal[cal.length - 1]), v12 = vol(rows, i, S.ruleVol);
-    const hist = isSec ? picks.map((p) => (p.includes(symbol) ? '1' : '0')).join('') : null;
-    const weeks = hist ? hist.split('').filter((x) => x === '1').length : null;
+    const pick = inRule && rsi != null && rsi <= HOT, wasHot = K > 0 && hot(K - 1);
+    if (pick) held++;
+    const hist = inRule ? fw.map((_, k) => (R.get(fw[k]) != null && !hot(k) ? '1' : '0')).join('') : null;
     return {
-      symbol, name: meta.name || symbol, group: meta.group || 'Other', date: L.date, close: L.close, sector: isSec, revolut: rev.get(symbol) || null,
+      symbol, name: meta.name || symbol, group: meta.group || 'Other', date: L.date, close: L.close, sector: isSec, in_rule: inRule, revolut: rev.get(symbol) || null,
       score: r4(sc), r1m: meta.r1m == null ? null : meta.r1m, vol12m: r4(v12), vol3m: r4(vol(rows, i, 63)),
       per_risk: r4(sc != null && v12 ? sc / v12 : null),
       ma200: L.maSlow, vs_ma200: r4(L.maSlow ? L.close / L.maSlow - 1 : null), above: L.maSlow == null ? null : L.close > L.maSlow,
-      rank: isSec ? RANK.get(symbol) || null : null, now: isSec && (RANK.get(symbol) || 99) <= S.ruleTop,
-      pick: lastPicks.includes(symbol), new_pick: lastPicks.includes(symbol) && !prevPicks.includes(symbol), dropped: !lastPicks.includes(symbol) && prevPicks.includes(symbol),
-      hist, weeks, target: weeks == null ? null : r4(weeks / slots),
-      last_friday: fridays[fridays.length - 1] || null, first_friday: fridays[0] || null,
+      rsi_w: rsi == null ? null : Math.round(rsi * 10) / 10, overheated: rsi != null && rsi > HOT,
+      rank: isSec ? RANK.get(symbol) || null : null, now: pick,
+      pick, new_pick: pick && wasHot, dropped: inRule && rsi != null && rsi > HOT && K > 0 && !wasHot,
+      hist, weeks: hist ? hist.split('').filter((x) => x === '1').length : null, target: inRule ? (pick ? r4(1 / RULE.length) : 0) : null,
+      last_friday: fridays[K] || null, first_friday: fridays[0] || null,
     };
   });
-  // a Friday with fewer than 4 sectors that have a year of history leaves its empty slots in cash
-  const cash = 1 - picks.reduce((s, p) => s + p.length, 0) / slots;
-  return cash > 1e-9 ? [...out, { symbol: 'CASH', name: 'Cash', group: 'Cash', sector: false, target: r4(cash), last_friday: fridays[fridays.length - 1] || null }] : out;
+  // overheated sectors (or ones without data) wait in cash
+  const cash = 1 - held / RULE.length;
+  return cash > 1e-9 ? [...out, { symbol: 'CASH', name: 'Cash', group: 'Cash', sector: false, target: r4(cash), last_friday: fridays[K] || null }] : out;
 },
 });
 dash.calc('heat', {
@@ -476,7 +493,7 @@ dash.calc('regime', {
 });
 dash.calc('portfolio', {
   title: "Your holdings",
-  description: "Each holding through the fund or stock it follows: its 12-month return against the rule's picks, verdict, euro returns, and its share of the portfolio when amounts are given.",
+  description: "Each holding through the fund or stock it follows: weekly RSI and the overheated flag (the one signal that held up in the test), euro returns, and its share of the portfolio when amounts are given.",
   inputs: ["settings","metrics","rule","holdings","EURUSD","revolut"],
   fn: (settings, metrics, rule, holdings, EURUSD, revolut) => {
   const S = settings[0];
@@ -491,26 +508,22 @@ dash.calc('portfolio', {
   const followed = new Set(holdings.map((h) => h.tracks));
   // euro amounts are optional (typed in the app's Settings): each holding's share of the total, and the weekly step of a move
   const total = holdings.reduce((a, h) => a + (h.amount > 0 ? h.amount : 0), 0);
-  const top = rule.filter((r) => r.now).sort((a, b) => b.score - a.score);
-  const cut = top.length ? top[top.length - 1].score : Infinity; // the weakest of today's top 4
-  const into = (top.find((r) => !followed.has(r.symbol)) || {}).symbol || null;
-  const intoRev = ((revolut || []).find((r) => r.us === into) || {}).revolut_ticker || null;
   return holdings.map((h) => {
     const m = M.get(h.tracks), r = R.get(h.tracks), lt = !!h.long_term;
     const amt = h.amount > 0 ? h.amount : null;
     const base = { ticker: h.ticker, name: h.name, tracks: h.tracks, match: h.match || null, long_term: lt, note: h.note || '', amount: amt, share: amt && total ? r4(amt / total) : null };
     if (!m || !r) return { ...base, verdict: 'No data', into: null, into_revolut: null };
-    const sc = r.score;
+    const sc = r.score, hot = !!r.overheated;
+    // the only signal that held up in the 15-year test: weekly RSI above 70 (don't add; trimming is optional)
     let verdict;
-    if (sc == null) verdict = lt ? 'Long term: hold' : 'Too new to judge';
-    else if (lt) verdict = sc >= cut ? 'Long term: a good time to add' : sc < 0 ? 'Long term: hold, don\'t add yet' : 'Long term: hold';
-    else verdict = sc >= cut ? 'Hold, strong' : sc < 0 ? 'Reduce' : 'Hold, lagging';
-    const move = verdict === 'Reduce' || verdict === 'Hold, lagging';
+    if (r.rsi_w == null) verdict = lt ? 'Long term: hold' : 'Too new to judge';
+    else if (hot) verdict = lt ? 'Long term: overheated, don\'t add' : 'Overheated: don\'t add, trim optional';
+    else verdict = lt ? 'Long term: hold' : 'No signal';
     const fxEnd = rateOn(m.date), fxStart = rateOn(back(m.date, S.monthDays));
     return {
       ...base, tracks_name: m.name, date: m.date, close: m.close, r1m: m.r1m, r1m_eur: r4(inEur(m.r1m, S.monthDays, m.date)), r3m_eur: r4(inEur(m.r3m, S.quarterDays, m.date)),
       phase: m.phase, phase_w: m.phase_w, score: sc, vol12m: r.vol12m, ma200: r.ma200, vs_ma200: r.vs_ma200, above: r.above,
-      verdict, into: move ? into : null, into_revolut: move ? intoRev : null, step: move && amt ? Math.round(amt / (S.ruleSteps || 4)) : null, eurusd_1m: r4(fxEnd && fxStart ? fxEnd / fxStart - 1 : null),
+      rsi_w: r.rsi_w, overheated: hot, verdict, into: null, into_revolut: null, step: null, eurusd_1m: r4(fxEnd && fxStart ? fxEnd / fxStart - 1 : null),
     };
   });
 },

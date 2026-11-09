@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: false, macd: false, vol: true, zones: true, fair: true };
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: false, macd: false, vol: true, zones: false, fair: true };
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -37,7 +37,7 @@
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
-    let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind', {})), zones = null, fair = null, dead = false;
+    let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind2', {})), zones = null, fair = null, dead = false;
 
     const root = container.appendChild(el('div', 'ch'));
     const tools = root.appendChild(el('div', 'ch-tools'));
@@ -50,11 +50,11 @@
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
-    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: 'Trend zones', fair: 'Fundamental fair value' };
+    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value' };
     for (const k of Object.keys(IND_LABEL)) {
       const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
-      c.addEventListener('change', () => { ind[k] = c.checked; lsSet('sr.ind', ind); applyIndicators(); });
+      c.addEventListener('change', () => { ind[k] = c.checked; lsSet('sr.ind2', ind); applyIndicators(); });
     }
 
     const up = css('--av-up', '#089981'), down = css('--av-down', '#f23645');
@@ -111,7 +111,7 @@
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10 * r)}px system-ui, sans-serif`;
       if (ind.zones && zones) {
-        for (const [[lo, hi], color, label] of [[zones.tp, 'rgba(230,140,20,0.11)', 'Stretched'], [zones.fair, 'rgba(110,120,140,0.08)', 'Normal range'], [zones.acc, 'rgba(26,160,70,0.11)', 'Below trend']]) {
+        for (const [[lo, hi], color, label] of [[zones.tp, 'rgba(230,140,20,0.10)', 'High part'], [zones.fair, 'rgba(110,120,140,0.07)', 'Middle'], [zones.acc, 'rgba(26,160,70,0.10)', 'Low part']]) {
           const y1 = yOf(hi), y2 = yOf(lo); if (y1 == null || y2 == null) continue;
           ctx.fillStyle = color; ctx.fillRect(0, Math.round(y1 * r), W, Math.max(1, Math.round((y2 - y1) * r)));
           if (y2 - y1 > 16) { ctx.fillStyle = 'rgba(120,125,135,0.85)'; ctx.fillText(label, Math.round(6 * hr), Math.round((y1 + 12) * r)); }

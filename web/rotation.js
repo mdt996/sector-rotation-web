@@ -8,7 +8,7 @@
   const CYCLICAL = ['XLK', 'XLY', 'XLF', 'XLI', 'XLC', 'XLB'], DEFENSIVE = ['XLP', 'XLV', 'XLU'];
   // which sector a fund or stock you hold belongs to
   const SECTOR_OF = { SMH: 'XLK', IGV: 'XLK', QQQ: 'XLK', MRVL: 'XLK', AAOI: 'XLK', XBI: 'XLV', KRE: 'XLF', ITA: 'XLI', SPCX: 'XLI', GDX: 'XLB', SIL: 'XLB', COPX: 'XLB', AG: 'XLB', URA: 'XLE', CCJ: 'XLE', NXE: 'XLE' };
-  const TOP = 4, LONG = 252, SKIP = 21;
+  const LONG = 252, SKIP = 21;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const pct = (x, d) => (x == null || !isFinite(x) ? '—' : (x > 0 ? '+' : x < 0 ? '−' : '') + (Math.abs(x) * 100).toFixed(d == null ? 1 : d) + '%');
   const eur = (x) => '€' + Math.round(x).toLocaleString('en');
@@ -80,15 +80,16 @@
     if (!h || h.weeks.length < 5) { box.textContent = 'Waiting for data…'; return; }
     const w = h.weeks, now = w[w.length - 1], back4 = w[w.length - 5], ex = exposure();
     const order = Object.keys(now.rank).sort((a, b) => now.rank[a] - now.rank[b]);
+    const RD = dash.data('rule'), RULE = new Map(RD.status === 'ok' ? RD.data.map((x) => [x.symbol, x]) : []);
     for (const s of order) {
       const r = now.rank[s], r4 = back4.rank[s] || r, move = r4 - r;
+      // the one tested signal first (weekly RSI above 70); the ranking itself is only a description
+      const ru = RULE.get(s), hot = ru && ru.overheated;
       let badge = null;
-      if (r <= TOP && r4 > TOP) badge = ['NEW', 'new'];
-      else if (r <= TOP && move <= -2) badge = ['LEAVING', 'out'];
-      else if (r <= TOP) badge = ['IN', 'in'];
-      else if (r4 <= TOP) badge = ['OUT', 'out'];
-      else if (r <= TOP + 2 && move >= 2) badge = ['ENTERING', 'new'];
-      const row = box.appendChild(el('button', 'rot-row' + (r <= TOP ? ' is-top' : ''))); row.type = 'button';
+      if (hot) badge = [`OVERHEATED · RSI ${Math.round(ru.rsi_w)}`, 'out'];
+      else if (move >= 3) badge = ['RISING', 'new'];
+      else if (move <= -3) badge = ['FADING', 'in'];
+      const row = box.appendChild(el('button', 'rot-row' + (hot ? ' is-hot' : ''))); row.type = 'button';
       row.addEventListener('click', () => SR.open(s));
       row.appendChild(el('span', 'rot-rank', String(r)));
       const mid = row.appendChild(el('span', 'rot-mid'));
@@ -101,14 +102,13 @@
       const last = w.slice(-12).map((x) => x.rank[s] || null);
       const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); sv.setAttribute('viewBox', '0 0 72 26'); sv.setAttribute('class', 'rot-spark');
       const N = now.n || 11, X = (i) => (i / (last.length - 1)) * 70 + 1, Y = (k) => 2 + ((k - 1) / (N - 1)) * 22;
-      const band = document.createElementNS(sv.namespaceURI, 'rect'); band.setAttribute('x', 0); band.setAttribute('y', 0); band.setAttribute('width', 72); band.setAttribute('height', Y(TOP + 0.5)); band.setAttribute('class', 'rot-spark-top'); sv.appendChild(band);
       const path = document.createElementNS(sv.namespaceURI, 'path');
       path.setAttribute('d', last.map((k, i) => (k == null ? '' : (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(k).toFixed(1))).join(''));
       path.setAttribute('class', 'rot-spark-line ' + (move > 0 ? 'up' : move < 0 ? 'down' : '')); sv.appendChild(path);
       row.appendChild(sv);
       row.appendChild(el('span', 'rot-move ' + (move > 0 ? 'up' : move < 0 ? 'down' : ''), move > 0 ? `↑${move}` : move < 0 ? `↓${-move}` : '·'));
     }
-    box.appendChild(el('p', 'rot-foot', 'Rank by the rule\'s score; arrows compare with 4 weeks ago; the shaded band in each line is the top 4 (the rule\'s picks). Tap a sector for its chart.'));
+    box.appendChild(el('p', 'rot-foot', 'Ranked by 12-month return (leaving out the last month); arrows and lines show the rank over recent weeks. This shows where money has been moving, but the ranking did not predict returns in the 15-year test. The flag that did hold up is OVERHEATED: weekly RSI above 70. Tap a sector for its chart.'));
   });
 
   // ---- the rotation heatmap ----
@@ -118,16 +118,16 @@
     const w = h.weeks.slice(-26), now = w[w.length - 1];
     const order = Object.keys(now.rank).sort((a, b) => now.rank[a] - now.rank[b]), N = now.n || 11;
     const grid = box.appendChild(el('div', 'rot-heat')); grid.style.gridTemplateColumns = `56px repeat(${w.length}, 1fr)`;
-    const color = (k) => { const t = (k - 1) / (N - 1); const hue = 140 - t * 140; return `hsl(${hue}, 55%, ${k <= TOP ? 42 : 55}%)`; };
+    const color = (k) => { const t = (k - 1) / (N - 1); const hue = 140 - t * 140; return `hsl(${hue}, 55%, 48%)`; };
     for (const s of order) {
       const lab = grid.appendChild(el('button', 'rot-heat-lab', s)); lab.type = 'button'; lab.title = NAME[s]; lab.addEventListener('click', () => SR.open(s));
       for (const wk of w) {
-        const k = wk.rank[s], c = grid.appendChild(el('span', 'rot-cell' + (k && k <= TOP ? ' is-top' : '')));
+        const k = wk.rank[s], c = grid.appendChild(el('span', 'rot-cell'));
         if (k) { c.style.background = color(k); c.title = `${NAME[s]}: rank ${k} on ${wk.date}`; c.textContent = String(k); }
       }
     }
     grid.appendChild(el('span', ''));
     w.forEach((wk, i) => { const d = grid.appendChild(el('span', 'rot-heat-date', i % 4 === 0 || i === w.length - 1 ? new Date(wk.date + 'T00:00:00Z').toLocaleDateString([], { day: 'numeric', month: 'short' }) : '')); d.title = wk.date; });
-    box.appendChild(el('p', 'rot-foot', 'Each row is a sector, each column a week (oldest left); green = top of the ranking, red = bottom; bold cells are the rule\'s top 4. Money rotating shows as colour moving between rows.'));
+    box.appendChild(el('p', 'rot-foot', 'Each row is a sector, each column a week (oldest left); green = top of the 12-month ranking, red = bottom. Money rotating shows as colour moving between rows. A description of the past, not a forecast.'));
   });
 })();

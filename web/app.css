@@ -203,9 +203,9 @@ body.chart-full .tabbar { display: none; }
 .rot-meter-dot { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--color-panel, #fff); border: 3px solid var(--color-fg); box-sizing: border-box; }
 .rot-meter-lab { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-fg-muted); }
 .rot-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--color-border-line); background: none; color: var(--color-fg); font: inherit; text-align: left; cursor: pointer; }
-.rot-row.is-top { background: linear-gradient(90deg, rgba(41,98,255,.06), transparent 70%); }
+.rot-row.is-hot { background: linear-gradient(90deg, rgba(209,36,47,.07), transparent 70%); }
 .rot-rank { flex: none; width: 26px; font-size: 20px; font-weight: 600; text-align: center; color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
-.rot-row.is-top .rot-rank { color: #2962ff; }
+
 .rot-mid { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .rot-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .rot-title b { font-weight: 600; font-size: 15px; }
@@ -227,6 +227,8 @@ body.chart-full .tabbar { display: none; }
 .rot-cell.is-top { font-weight: 700; outline: 1px solid rgba(0,0,0,.25); }
 .rot-heat-date { font-size: 9px; color: var(--color-fg-muted); white-space: nowrap; overflow: visible; }
 @media (max-width: 480px) { .rot-cell { font-size: 0; height: 20px; } }
+
+.sr-hot { color: var(--av-down); font-weight: 600; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
@@ -342,6 +344,7 @@ body.chart-full .tabbar { display: none; }
   .sr-folio tbody tr { cursor: pointer; }
   .sr-folio tbody tr:hover { background: var(--color-bg); }
   .sr-folio td:first-child b { font-weight: var(--cds-font-weight-medium); }
+  .sr .sr-hot { color: var(--sr-down); font-weight: 600; }
   .sr-folio.sr-noamt .sr-amt, .sr-folio.sr-nolive .sr-today, .sr-folio.sr-nozone .sr-zone { display: none; }
   .sr-verdict-out { color: var(--color-bad); font-weight: var(--cds-font-weight-medium); }
   .sr-verdict-in { color: var(--color-ok); font-weight: var(--cds-font-weight-medium); }

@@ -48,12 +48,12 @@ SR.revTicker = (sym) => {
   const x = R.status === 'ok' ? R.data.find((q) => q.us === sym) : null;
   return x && x.revolut_ticker ? x.revolut_ticker : null;
 };
-SR.verdictCls = (v) => (/^(Rotate out|Trim|Reduce)/.test(v || '') ? 'sr-verdict-out' : v === 'Hold, strong' || /good time to add/.test(v || '') ? 'sr-verdict-in' : '');
+SR.verdictCls = (v) => (/overheated|^(Rotate out|Trim|Reduce)/i.test(v || '') ? 'sr-verdict-out' : v === 'Hold, strong' || /good time to add/.test(v || '') ? 'sr-verdict-in' : v === 'No signal' ? 'sr-muted' : '');
 
 dash.draw('foliolist', (el) => {
   const d = dash.data('portfolio');
   if (d.status !== 'ok') { el.textContent = '—'; return; }
-  const test = { out: (v) => v === 'Reduce', lag: (v) => v === 'Hold, lagging', add: (v) => /good time to add/.test(v) }[el.getAttribute('data-kind')] || (() => false);
+  const test = { hot: (v) => /overheated/i.test(v), out: (v) => v === 'Reduce', lag: (v) => v === 'Hold, lagging', add: (v) => /good time to add/.test(v) }[el.getAttribute('data-kind')] || (() => false);
   const rows = d.data.filter((r) => test(r.verdict || ''));
   el.textContent = rows.length ? rows.map((r) => r.ticker + (r.amount ? ' ' + SR.eur(r.amount) : '') + (r.into ? ` (or ${r.into}${r.into_revolut ? ' / ' + r.into_revolut : ''}${r.step ? ', ' + SR.eur(r.step) + ' a week' : ''})` : '')).join(', ') : 'none';
 });
@@ -101,7 +101,7 @@ dash.draw('folio', (tbody) => {
     const L = SR.liveFolio ? SR.liveFolio(h) : null, val = L && L.value != null ? L.value : h.amount, share = L && L.share != null ? L.share : h.share;
     txt('sr-f sr-amt', 'Value', val ? SR.eur(val) + (share != null ? ' · ' + d3.format('.1%')(share) : '') : '—', '', true);
     const Z = SR.zoneFolio ? SR.zoneFolio(h) : null;
-    txt('sr-f sr-zone', 'Zone', Z ? Z.label : '—', Z ? 'sr-z z-' + Z.key : '');
+    txt('sr-f sr-zone', '2-year range', Z ? Z.label : '—', Z ? 'sr-z z-' + Z.key : '');
     txt('sr-f sr-today', 'Today', L && L.chg != null ? SR.fmtPctLive(L.chg) + (L.chgEur != null ? ' · ' + SR.fmtEurLive(L.chgEur, true) : '') : '—', L ? SR.signCls(L.chg) : '', true);
     txt('sr-f', 'Follows', h.tracks || '—');
     txt('sr-f sr-c-match', 'Match', h.match || '—');
@@ -113,8 +113,7 @@ dash.draw('folio', (tbody) => {
     txt('sr-f', 'Daily', h.phase || '—', SR.phaseCls(h.phase));
     txt('sr-f', 'Weekly', h.phase_w || '—', SR.phaseCls(h.phase_w));
     txt('sr-v', '', h.verdict || '—', SR.verdictCls(h.verdict));
-    txt('sr-f', 'Rotate into', h.into ? h.into + (h.step ? ', ' + SR.eur(h.step) + ' a week' : '') : '—');
-    txt('sr-f', 'On Revolut', h.into_revolut || '—');
+    txt('sr-f', 'Weekly RSI', h.rsi_w == null ? '—' : d3.format('.0f')(h.rsi_w), h.overheated ? 'sr-hot' : '', true);
   }
 });
 
