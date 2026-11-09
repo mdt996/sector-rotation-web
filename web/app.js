@@ -3,6 +3,7 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const native = () => (typeof window.Native !== 'undefined' ? window.Native : null);
+  const N = native(); // the app's bridge (null in a plain browser), used by the update code below
   const fmtTime = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
   const fmtDay = (d) => (d ? new Date(d + 'T00:00:00Z').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '—');
   const sheet = $('settings');
@@ -75,6 +76,7 @@
   };
   // a new build arrived while the app is open: switch at once during start-up, otherwise offer it
   function offerReload(build) {
+    if (!N || !N.reloadPage) return;
     if (performance.now() < 8000 && sheet.hidden) { N.reloadPage(); return; }
     let bar = document.getElementById('update-bar');
     if (!bar) {

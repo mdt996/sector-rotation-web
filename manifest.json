@@ -1,11 +1,11 @@
 {
- "build": 2,
+ "build": 3,
  "min_native": 1,
- "published": "2026-11-09T08:01:57Z",
+ "published": "2026-11-09T08:06:44Z",
  "files": {
   "app.css": "f4334562a8d4e97393bc707417d392394d603b4d80631c5bdc6df941680f52d5",
-  "app.js": "3a4dc6ebb7e41ea2e82005a1992e1d3ac1bf76f08530589a0816cd2194bee50a",
-  "build.json": "ccb83045138123dafb89013372a567375c001966cc851f417f0ac1e1ae19eb7b",
+  "app.js": "b679e910206eb0c4a66fe99f7e5002b3bd89c4066d3734ced75a01b8bc4a9108",
+  "build.json": "da56ced3e52ffcf34526bb437cc4ae418d1f64e21d989d1dff35534df960f0be",
   "calc.js": "61d0957cc954d5e35fcb435dd32a485f94c91f847dea5bce76a567a6a58f4423",
   "d3.min.js": "912111098ea99503a6f4967361d2bbdc9dbf58cf9c678c8e27e5b02d1a07f0c1",
   "draw-extra.js": "36cc89d879c252d0f10dee5acffc15ce0ceb26e700d064592603f2fcedd0473d",
