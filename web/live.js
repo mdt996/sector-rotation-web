@@ -100,11 +100,11 @@
   }
   function zoneOf(price, L) {
     if (price == null || !L) return null;
-    if (price < L.acc[0]) return { key: 'deep', label: 'Below accumulation' };
-    if (price < L.acc[1]) return { key: 'acc', label: 'Accumulation zone' };
-    if (price <= L.fair[1]) return { key: 'fair', label: 'Fair value range' };
-    if (price <= L.tp[1]) return { key: 'tp', label: 'Take-profit zone' };
-    return { key: 'hot', label: 'Above take-profit' };
+    if (price < L.acc[0]) return { key: 'deep', label: 'Far below trend' };
+    if (price < L.acc[1]) return { key: 'acc', label: 'Below trend' };
+    if (price <= L.fair[1]) return { key: 'fair', label: 'Normal range' };
+    if (price <= L.tp[1]) return { key: 'tp', label: 'Stretched' };
+    return { key: 'hot', label: 'Very stretched' };
   }
   function zonesFrom(id, rows) { const z = computeZones(rows); zcache[id] = Object.assign({ day: todayET() }, z || { none: true }); lsSet('sr.zones', zcache); return zcache[id]; }
   async function zones(id) {
@@ -113,40 +113,6 @@
     return zonesFrom(id, await candles(id, 'OneDay', 1000));
   }
   const zonesSync = (id) => { const z = zcache[id]; return z && z.day === todayET() ? z : null; };
-
-  // shaded zone bands drawn under the candles (a Lightweight Charts series primitive)
-  class ZoneBands {
-    constructor() { this.levels = null; this.series = null; this.req = null; }
-    set(levels) { this.levels = levels; if (this.req) this.req(); }
-    attached(p) { this.series = p.series; this.req = p.requestUpdate; }
-    detached() { this.series = null; this.req = null; }
-    updateAllViews() {}
-    paneViews() {
-      const self = this;
-      return [{
-        zOrder: () => 'bottom',
-        renderer: () => ({
-          draw: () => {},
-          drawBackground: (target) => {
-            const L = self.levels, s = self.series;
-            if (!L || !s) return;
-            target.useBitmapCoordinateSpace((sc) => {
-              const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio;
-              const bands = [[L.tp, 'rgba(230, 140, 20, 0.13)', 'Take profit'], [L.fair, 'rgba(110, 120, 140, 0.10)', 'Fair value'], [L.acc, 'rgba(26, 160, 70, 0.13)', 'Accumulate']];
-              ctx.font = `${Math.round(10 * r)}px system-ui, sans-serif`;
-              for (const [[lo, hi], color, label] of bands) {
-                const y1 = s.priceToCoordinate(hi), y2 = s.priceToCoordinate(lo);
-                if (y1 == null || y2 == null) continue;
-                ctx.fillStyle = color;
-                ctx.fillRect(0, Math.round(y1 * r), W, Math.max(1, Math.round((y2 - y1) * r)));
-                if (y2 - y1 > 16) { ctx.fillStyle = 'rgba(120, 125, 135, 0.9)'; ctx.fillText(label, Math.round(6 * sc.horizontalPixelRatio), Math.round((y1 + 12) * r)); }
-              }
-            });
-          },
-        }),
-      }];
-    }
-  }
 
   // ---- the asset page: live price, an eToro-style candle chart, zones and a few facts ----
   const FRAMES = [
@@ -157,9 +123,8 @@
     { k: '1D', iv: 'OneDay', n: 1000, sec: 86400, show: 160 },
     { k: '1W', iv: 'OneWeek', n: 1000, sec: 604800, show: 160 },
   ];
-  const cssVar = (name, fb) => (getComputedStyle(document.documentElement).getPropertyValue(name) || '').trim() || fb;
-  const dark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   let vid = 0;
+  const views = new Set(); // open asset pages, for Back (fullscreen, drawing mode)
   function assetView(root, inst, opts) {
     opts = opts || {};
     const who = 'view' + (++vid);
@@ -182,36 +147,14 @@
     const stats = wrap.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
-    const sAcc = stat('Accumulation zone', 'z-acc'), sFair = stat('Fair value range', 'z-fair'), sTp = stat('Take-profit zone', 'z-tp');
-    const how = wrap.appendChild(el('button', 'sr-more av-how', 'How the zones work')); how.type = 'button';
-    const howText = wrap.appendChild(el('p', 'av-note', 'Each zone is where the price sat against its 200-day average over the last 2 years: accumulation = its cheapest 10–25% of the time, fair value = the middle half, take profit = its most stretched 75–90%. Statistics on the price alone, not a valuation or a forecast.'));
+    const sAcc = stat('Below-trend zone', 'z-acc'), sFair = stat('Normal range', 'z-fair'), sTp = stat('Stretched zone', 'z-tp'), sFv = stat('Fundamental fair value', 'z-fv');
+    const how = wrap.appendChild(el('button', 'sr-more av-how', 'What the zones and fair value mean')); how.type = 'button';
+    const howText = wrap.appendChild(el('p', 'av-note', 'Trend zones: where the price sat against its 200-day average over the last 2 years (below trend = its lowest 10–25% of the time, normal = the middle half, stretched = its highest 75–90%). They describe the price, not the value, and are being tested against 15 years of returns. Fundamental fair value (blue): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
     howText.hidden = true;
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; });
 
-    // the chart (TradingView Lightweight Charts): drag to move, pinch or scroll to zoom
-    const LW = window.LightweightCharts;
-    const up = cssVar('--av-up', '#1a7f37'), down = cssVar('--av-down', '#d1242f');
-    const chart = LW.createChart(box, {
-      autoSize: true, height: 340,
-      layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, attributionLogo: true },
-      grid: { vertLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.22 } },
-      timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
-      crosshair: { mode: LW.CrosshairMode.Normal },
-      localization: { timeFormatter: (t) => new Date(t * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), priceFormatter: fmtP },
-      handleScroll: true, handleScale: true,
-    });
-    const candlesS = chart.addSeries(LW.CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down, priceLineStyle: 2 });
-    const volS = chart.addSeries(LW.HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
-    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
-    const bands = new ZoneBands();
-    candlesS.attachPrimitive(bands);
-    const legend = (b) => `O ${fmtP(b.open)}  H ${fmtP(b.high)}  L ${fmtP(b.low)}  C ${fmtP(b.close)}  · ${new Date(b.time * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
-    chart.subscribeCrosshairMove((p) => {
-      const b = p && p.time != null ? p.seriesData.get(candlesS) : null;
-      hovering = !!b;
-      if (b) { sub.textContent = legend({ ...b, time: p.time }); sub.className = 'av-sub'; } else header();
-    });
+    // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     const live = () => quotes.get(inst.id);
     function header() {
@@ -230,14 +173,11 @@
     function toBars(rows) {
       return rows.map((r) => ({ time: Math.floor(r.t / 1000), open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume || 0 }));
     }
+    const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || null;
     function paint(fit) {
       if (dead) return;
       for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
-      candlesS.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-      volS.setData(bars.map((b) => ({ time: b.time, value: b.volume, color: b.close >= b.open ? 'rgba(26,160,70,0.35)' : 'rgba(209,36,47,0.35)' })));
-      chart.applyOptions({ timeScale: { timeVisible: frame.sec < 86400 } });
-      if (fit && bars.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - frame.show), to: bars.length + 3 });
-      bands.set(L);
+      ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf());
     }
     // the live price moves the newest candle, or opens the next one
     function liveCandle() {
@@ -247,14 +187,8 @@
       let bucket = Math.floor(now / frame.sec) * frame.sec;
       if (frame.sec === 604800) bucket = lastBar.time; // a week: the current candle
       if (frame.sec === 86400 && new Date(lastBar.time * 1000).toISOString().slice(0, 10) === new Date(q.at).toISOString().slice(0, 10)) bucket = lastBar.time;
-      if (bucket <= lastBar.time) {
-        Object.assign(lastBar, { close: q.price, high: Math.max(lastBar.high, q.price), low: Math.min(lastBar.low, q.price) });
-        candlesS.update({ time: lastBar.time, open: lastBar.open, high: lastBar.high, low: lastBar.low, close: lastBar.close });
-      } else if (q.at > (lastBar.time + frame.sec) * 1000 - frame.sec * 1000) {
-        const nb = { time: bucket, open: q.price, high: q.price, low: q.price, close: q.price, volume: 0 };
-        bars.push(nb);
-        candlesS.update({ time: nb.time, open: nb.open, high: nb.high, low: nb.low, close: nb.close });
-      }
+      if (bucket <= lastBar.time) ch.update({ time: lastBar.time, open: lastBar.open, high: Math.max(lastBar.high, q.price), low: Math.min(lastBar.low, q.price), close: q.price, volume: lastBar.volume }, false);
+      else if (q.at >= bucket * 1000) ch.update({ time: bucket, open: q.price, high: q.price, low: q.price, close: q.price, volume: 0 }, true);
     }
     function facts() {
       const q = live(), price = q ? q.price : null;
@@ -269,6 +203,9 @@
       sAcc.textContent = L ? `${fmtP(L.acc[0])} – ${fmtP(L.acc[1])}` : 'Not enough history';
       sFair.textContent = L ? `${fmtP(L.fair[0])} – ${fmtP(L.fair[1])}` : '—';
       sTp.textContent = L ? `${fmtP(L.tp[0])} – ${fmtP(L.tp[1])}` : '—';
+      const fv = fairOf();
+      sFv.textContent = fv ? `${fmtP(fv.bear)} · ${fmtP(fv.base)} · ${fmtP(fv.bull)}` : 'Not valued yet';
+      sFv.parentElement.title = fv && fv.method ? fv.method : '';
     }
     async function load(fit) {
       if (!hasKeys()) { header(); return; }
@@ -288,7 +225,9 @@
     ticks.add(tick);
     want(who, [inst.id]);
     load(true);
-    return { id: inst.id, destroy() { dead = true; ticks.delete(tick); want(who, []); try { chart.remove(); } catch (e) { /* gone */ } } };
+    const api = { id: inst.id, back: () => ch.back(), destroy() { dead = true; ticks.delete(tick); want(who, []); views.delete(api); ch.destroy(); } };
+    views.add(api);
+    return api;
   }
 
   // ---- search over every eToro asset ------------------------------------------------
@@ -325,7 +264,7 @@
   function close() { closeDetail(); want('search', []); sheet().hidden = true; document.body.classList.remove('sheet-open'); }
   function showResults() { $('search-detail').hidden = true; $('search-results').hidden = false; }
   function closeDetail() { if (view) { view.destroy(); view = null; } showResults(); want('search', results.map((r) => r.id)); }
-  function back() { if (sheet().hidden) return false; if (!$('search-detail').hidden) closeDetail(); else close(); return true; }
+  function back() { for (const v of views) if (v.back()) return true; if (sheet().hidden) return false; if (!$('search-detail').hidden) closeDetail(); else close(); return true; }
   function openDetail(r) {
     const recent = lsGet('sr.recent', []).filter((x) => x.id !== r.id);
     recent.unshift({ id: r.id, symbol: r.symbol, name: r.name, exchange: r.exchange, type: r.type });

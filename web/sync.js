@@ -78,7 +78,8 @@
     if (got.none || (cfg.syncDirty && (!got.doc || cfg.syncDirty > (got.doc.at || 0)))) return pushNow(t);
     const doc = got.doc;
     if ((doc.at || 0) > (cfg.syncAt || 0)) apply(doc);
-    setStatus(`Synced at ${hhmm(Date.now())}: last change from the ${doc.device || 'other device'}, ${new Date(doc.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`);
+    const who = doc.device === 'phone' || doc.device === 'Mac' ? 'the ' + doc.device : doc.device || 'the other device';
+    setStatus(`Synced at ${hhmm(Date.now())}: last change from ${who}, ${new Date(doc.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`);
   }
   const once = (fn) => () => { if (!busy) busy = fn().catch((e) => setStatus('Sync failed: ' + (e && e.message ? e.message : e))).finally(() => { busy = null; }); return busy; };
   const pullOnce = once(pull);
