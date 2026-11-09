@@ -393,6 +393,7 @@
     <h3>Your holdings</h3>
     <label class="field"><span>One per line: Revolut ticker, then = and the US ticker it follows (if different), "rough" if it only roughly follows it, "long" for long-term holds, and the amount in euros if you want each holding's share and moves in euros. Example: SEC0 = SMH 500</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
     <p class="hint">The US ticker must be one of the funds or stocks in the ranking. Leave empty to use the default list shown in grey.</p>
+    <div id="alerts-block">
     <h3>Alerts</h3>
     <label class="opt"><input type="checkbox" id="cfg-notify"><span>Notify me when something changes (checked about every hour, on completed daily closes)</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-holdon"><span>One of my holdings gets a new verdict, e.g. Hold → Rotate out</span></label>
@@ -404,6 +405,7 @@
     <div class="row"><button id="notify-perm" class="btn" type="button">Allow notifications</button><button id="notify-test" class="btn" type="button">Send a test notification</button></div>
     <p class="hint" id="bg-status"></p>
     <p class="hint">Samsung can delay background checks to save battery. For on-time alerts: Settings → Apps → Sector Rotation → Battery → Unrestricted.</p>
+    </div>
     <h3>About</h3>
     <p class="hint">The same calculations as your Claude dashboard, running on the phone. <a href="https://claude.ai/artifact/CRz7cdnRQwsBc6vpZLqPLJ">Open the dashboard in Claude</a>. A timing aid, not investment advice.</p>
     <p class="hint" id="app-version"></p>
