@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 23, "text": "Charts now show support and resistance lines (from the last year's turning points) and the app's own action levels: the swing buy/sell line and, on SMH, the semis trend line. Your phone is notified when an action is due: semis trend switch, swing buy, and swing sell for funds you hold."};
+window.SR_NOTES = {"build": 24, "text": "European lines that eToro lists without prices (like SEC0.DE) now say so and offer the US twin with live prices (SEC0 \u2192 SMH) instead of waiting forever. Charts show support/resistance and the app's action levels; your phone is notified when an action is due."};

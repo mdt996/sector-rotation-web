@@ -181,7 +181,7 @@
       chg.className = 'av-chg ' + cls(c);
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
-      if (hovering) return;
+      if (hovering || nodata) return;
       sub.textContent = q ? `Live · ${hhmm(q.at)}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
     }
@@ -254,13 +254,36 @@
       sVs.parentElement.hidden = !fv; sFv.parentElement.hidden = !fv;
       fvText.textContent = fv ? `Fair value for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}.` : '';
     }
+    // eToro lists some European lines (e.g. SEC0.DE) without serving any prices: say so, and offer the US twin
+    function twinOf() {
+      const base = String(inst.symbol || '').split('.')[0].toUpperCase();
+      const H = (S().holdings && S().holdings.data) || [];
+      const h = H.find((x) => x.ticker === base && x.tracks && x.tracks !== base);
+      const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === base);
+      const us = (h && h.tracks) || (r && r.us) || null;
+      const id = us ? SRApp.idOf(us) : null;
+      return id && id !== inst.id ? { id, symbol: us } : null;
+    }
+    let nodata = false;
+    function noData() {
+      last.textContent = '—'; chg.textContent = '';
+      nodata = true; sub.textContent = 'eToro lists this line but sends no prices for it.';
+      const t = twinOf();
+      if (t && !wrap.querySelector('.av-twin')) {
+        const b = el('button', 'btn primary av-twin', `Show ${t.symbol} instead (same holdings, live prices)`); b.type = 'button';
+        b.addEventListener('click', () => { if (window.SRLive && window.SRLive.openAsset) window.SRLive.openAsset({ id: t.id, symbol: t.symbol, name: `${inst.symbol} shown through its US twin ${t.symbol}`, exchange: '' }); });
+        sub.after(b);
+      }
+    }
     async function load(fit) {
       if (!hasKeys()) { header(); return; }
       box.classList.add('is-loading');
       try {
         const [d, pc] = await Promise.all([candles(inst.id, 'OneDay', 1000), prevClose(inst.id)]);
-        const rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n);
+        let rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n);
         if (dead) return;
+        if (!d.length && !rows.length) { noData(); return; }
+        if (!rows.length && d.length) { rows = d; frame = FRAMES[4]; sub.textContent = 'No intraday prices for this listing: showing daily candles.'; }
         daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
         bars = toBars(rows);
         paint(fit); liveCandle(); header(); facts();
