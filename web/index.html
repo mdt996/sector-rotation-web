@@ -250,8 +250,8 @@
   <section class="sr-card" id="backtest">
     <div class="sr-card-head">
       <div>
-        <h2 class="sr-h2">15 years of the rule, against holding everything and the S&amp;P 500</h2>
-        <p class="sr-note">Weekly eToro closes from <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="from">—</span> to <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="to">—</span>, prices only (dividends left out for every line). Decisions on Friday closes, trades at the next week's open at 0.1% per trade. The rule holds the 8 sectors with history since 2010 in equal parts and parks any sector whose weekly RSI closed above 70 in cash until it cools down; it is compared with the same sectors always held, the old momentum rule (top 4 by 12-month return) and the S&amp;P 500. None beat the S&amp;P 500's return; the rule's gain is lower volatility and a smaller worst drop. A fixed study, not refreshed with the page: it shows how the rules behaved, not what comes next.</p>
+        <h2 class="sr-h2">15 years: the rule, a Nasdaq + defensive mix and the S&amp;P 500</h2>
+        <p class="sr-note">Weekly eToro closes from <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="from">—</span> to <span data-draw="sv" data-fmt="month" data-source="study_rules" data-where="key=rule" data-field="to">—</span>, prices only, no dividends for any line. Friday decisions, trades at the next week's open, 0.1% per trade. <b>The rule:</b> the 8 sectors with history since 2010 in equal parts, any sector whose weekly RSI closed above 70 parked in cash until it cools; it beats holding them all on volatility, not on the S&amp;P 500's return. <b>Nasdaq + defensive:</b> 60% Nasdaq-100 and 40% split equally between consumer staples, utilities and health care, reset to target every 6 months (the line averages every possible reset week). Of about 200 mixes tested, it is the one that, picked on 2011–18 data alone, then beat the S&amp;P 500 on both return and volatility from 2019. The edge is small and rests on the Nasdaq-100 staying ahead of the S&amp;P 500. A fixed study: how these behaved, not what comes next.</p>
       </div>
     </div>
     <div class="sr-bt-tiles">
@@ -261,9 +261,9 @@
         <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=rule" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=rule" data-field="max_dd">—</span></div>
       </div>
       <div class="sr-bt-tile">
-        <div class="sr-kpi-label"><i class="sr-key" data-key="equal"></i>All sectors, equal parts</div>
-        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=equal" data-field="cagr">—</span> <small>a year</small></div>
-        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=equal" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=equal" data-field="max_dd">—</span></div>
+        <div class="sr-kpi-label"><i class="sr-key" data-key="qqqdef"></i>Nasdaq + defensive 60/40</div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=qqqdef" data-field="cagr">—</span> <small>a year</small></div>
+        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="max_dd">—</span></div>
       </div>
       <div class="sr-bt-tile">
         <div class="sr-kpi-label"><i class="sr-key" data-key="spy"></i>S&amp;P 500 (SPY), just held</div>
@@ -435,6 +435,7 @@
 <script src="app.js"></script>
 <script src="lightweight-charts.js"></script>
 <script src="chart.js"></script>
+<script src="fair.js"></script>
 <script src="live.js"></script>
 <script src="sync.js"></script>
 <script src="rotation.js"></script>

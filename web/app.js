@@ -231,7 +231,7 @@
     ranking: 'Funds sorted by last month\'s return, with their rotation phase. Tap a row for its chart.',
     chart: 'Daily candles with moving averages, support, resistance and the exit and entry levels.',
     map: 'Each fund against the S&P 500: right is stronger than the market, up is getting stronger. Rings mark the rule\'s picks.',
-    backtest: 'How the rule did over 15 years against the S&P 500 and equal-weight sectors.',
+    backtest: '15 years: the rule, a Nasdaq + defensive mix (the one that beat the S&P 500 on return and volatility out of sample) and the S&P 500.',
     revolut: 'The European (UCITS) version of each US fund, the one you can buy on Revolut.',
   };
   for (const note of document.querySelectorAll('#dash-root .sr-note')) {

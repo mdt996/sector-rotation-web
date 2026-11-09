@@ -160,12 +160,13 @@
     const stats = wrap.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
-    const sRsi = stat('Weekly RSI (14)'), sFv = stat('Fundamental fair value', 'z-fv');
+    const sRsi = stat('Weekly RSI (14)'), sFv = stat('Fair value: bear · base · bull', 'z-fv'), sVs = stat('Price vs base fair value', 'z-fv');
     const sAcc = stat('Low part of 2-year range', 'z-acc'), sFair = stat('Middle', 'z-fair'), sTp = stat('High part', 'z-tp');
     const how = wrap.appendChild(el('button', 'sr-more av-how', 'What these mean')); how.type = 'button';
     const howText = wrap.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated: in a 15-year test of the sectors, the next 3 months averaged about −0.2% against +2.7% for a normal week, so it is a reason not to add (trimming is optional). It is the only signal that held up. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
     howText.hidden = true;
-    how.addEventListener('click', () => { howText.hidden = !howText.hidden; });
+    const fvText = wrap.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
+    how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
 
     // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
     const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
@@ -223,6 +224,10 @@
       const fv = fairOf();
       sFv.textContent = fv ? `${fmtP(fv.bear)} · ${fmtP(fv.base)} · ${fmtP(fv.bull)}` : 'Not valued yet';
       sFv.parentElement.title = fv && fv.method ? fv.method : '';
+      const vs = fv && now ? now / fv.base - 1 : null;
+      sVs.textContent = vs == null ? '—' : `${Math.abs(vs) < 0.005 ? 'at' : d3.format('.0%')(Math.abs(vs)) + (vs > 0 ? ' above' : ' below')} · ${fv.confidence || 'low'} confidence`;
+      sVs.parentElement.hidden = !fv; sFv.parentElement.hidden = !fv;
+      fvText.textContent = fv ? `Fair value for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}. ${fv.implied || ''}` : '';
     }
     async function load(fit) {
       if (!hasKeys()) { header(); return; }

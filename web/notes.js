@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 12, "text": "Guidance now follows only what held up in a 15-year test: an Overheated flag (weekly RSI above 70: don't add, trimming optional) on holdings, charts and the rotation board. The rule is now the 8 sectors in equal parts with overheated ones in cash; the ranking, map and 2-year range bands are shown as description only."};
+window.SR_NOTES = {"build": 13, "text": "Fundamental fair values (bear / base / bull) for your holdings: dashed blue lines on the chart, plus price vs base value and how each was valued on the asset page. The Study tab adds the Nasdaq + defensive 60/40 mix, the one that beat the S&P 500 on return and volatility out of sample."};

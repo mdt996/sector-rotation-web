@@ -119,7 +119,7 @@
     document.querySelectorAll('.sr-tf button').forEach((b) => b.setAttribute('aria-pressed', String(b.getAttribute('data-tf') === SR.tf())));
     const G = dash.data('regime'), tone = G.status === 'ok' && G.data[0] ? G.data[0].tone : null;
     document.querySelectorAll('.sr-regime').forEach((el) => ['ok', 'warn', 'bad'].forEach((t) => el.classList.toggle('tone-' + t, t === tone)));
-    const keyColors = { rule: dash.colors[0], equal: dash.colors[2], spy: 'var(--color-fg-muted)' };
+    const keyColors = { rule: dash.colors[0], qqqdef: dash.colors[1], equal: dash.colors[2], spy: 'var(--color-fg-muted)' };
     document.querySelectorAll('.sr-key[data-key]').forEach((i) => { i.style.background = keyColors[i.getAttribute('data-key')] || ''; });
     const sort = p.sort || 'r1m', dir = p.dir || 'desc';
     document.querySelectorAll('.sr-rank th').forEach((th) => {
