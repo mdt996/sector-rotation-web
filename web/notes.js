@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 16, "text": "New layout: Today shows only what to do, Portfolio your live holdings, Markets the sector ranking, Plan the two tested plans. Pick a plan, enter the money, and Today lists the exact Revolut orders; tap Done and your holdings update."};
+window.SR_NOTES = {"build": 17, "text": "Today is simpler: your live mix by theme, the target mix of your plan, and the percentage points to move. Exact orders are one tap away. While semis are out, that half waits in cash (or gold miners, your choice in Plan)."};
