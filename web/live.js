@@ -227,7 +227,7 @@
       const vs = fv && now ? now / fv.base - 1 : null;
       sVs.textContent = vs == null ? '—' : `${Math.abs(vs) < 0.005 ? 'at' : d3.format('.0%')(Math.abs(vs)) + (vs > 0 ? ' above' : ' below')} · ${fv.confidence || 'low'} confidence`;
       sVs.parentElement.hidden = !fv; sFv.parentElement.hidden = !fv;
-      fvText.textContent = fv ? `Fair value for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}. ${fv.implied || ''}` : '';
+      fvText.textContent = fv ? `Fair value for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}.` : '';
     }
     async function load(fit) {
       if (!hasKeys()) { header(); return; }

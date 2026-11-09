@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 13, "text": "Fundamental fair values (bear / base / bull) for your holdings: dashed blue lines on the chart, plus price vs base value and how each was valued on the asset page. The Study tab adds the Nasdaq + defensive 60/40 mix, the one that beat the S&P 500 on return and volatility out of sample."};
+window.SR_NOTES = {"build": 14, "text": "Fundamental fair values (bear / base / bull) for your holdings: dashed blue lines on the chart, plus price vs base value and how each was valued on the asset page. The Study tab adds the Nasdaq + defensive 60/40 mix, the one that beat the S&P 500 on return and volatility out of sample."};
