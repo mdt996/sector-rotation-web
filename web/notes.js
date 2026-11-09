@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 21, "text": "Orders now come in two steps: Step 1 sells the most volatile holdings, where the swing rule also failed in the tests (gold and silver miners, uranium, quantum, AAOI), into defensives; Step 2 is the larger positions (VUAA, EXI2, MRVL) when you're ready. During a semis swing trade, SEC0 is kept and not added to."};
+window.SR_NOTES = {"build": 22, "text": "Today starts with What to do: at most three direct lines (tonight, this week, later) with tickers and euros. The exact numbered orders follow; the by-theme view is one tap away."};

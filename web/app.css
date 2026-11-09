@@ -378,6 +378,16 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .g-step-w { display: grid; min-width: 0; } .g-step-w b { font-size: 15px; } .g-step-w span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .g-step-v { display: grid; text-align: right; font-variant-numeric: tabular-nums; } .g-step-v b { font-size: 15px; } .g-step-v span { font-size: 11px; }
 .g-sub2 { margin: -2px 0 4px; }
+.g-do { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; gap: 10px; }
+.g-do-i { display: grid; grid-template-columns: 78px 1fr; gap: 10px; align-items: start; font-size: 15px; line-height: 1.45; }
+.g-do-t { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 4px 0; border-radius: 6px; text-align: center; }
+.g-do-now { background: var(--color-fg); color: var(--color-bg); }
+.g-do-tonight { background: color-mix(in srgb, var(--sr-c1) 16%, transparent); color: var(--sr-c1); }
+.g-do-week { background: color-mix(in srgb, var(--color-ok) 16%, transparent); color: var(--color-ok); }
+.g-do-later { background: color-mix(in srgb, var(--color-fg) 8%, transparent); color: var(--color-fg-muted); }
+.g-do { counter-reset: none; }
+.g-card.g-do { border-width: 2px; }
+.g-docard { border: 2px solid var(--color-fg); }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

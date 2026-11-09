@@ -179,6 +179,16 @@
   }
   // the weakest fits go first: the most volatile holdings, where the swing rule also failed in the tests
   const FIRST_THEMES = ['Uranium', 'Gold & silver', 'Quantum'], FIRST_TICKERS = ['AAOI'];
+  function splitOrders(a, H) {
+    const sells = a.orders.filter((o) => o.side === 'sell' && o.t !== 'CASH'), buys = a.orders.filter((o) => o.side === 'buy' && o.t !== 'CASH');
+    const keepCash = a.orders.find((o) => o.side === 'buy' && o.t === 'CASH');
+    const hOf = (t) => (H || []).find((h) => h.ticker === t);
+    const first = sells.filter((o) => FIRST_TICKERS.includes(o.t) || (hOf(o.t) && FIRST_THEMES.includes(themeOf(o.t, hOf(o.t).tracks))));
+    const later = sells.filter((o) => !first.includes(o));
+    const S = sells.reduce((x, o) => x + o.eur, 0) || 1, R10 = (x) => Math.round(x / 10) * 10;
+    const mk = (ss) => { const k = ss.reduce((x, o) => x + o.eur, 0) / S; return { sells: ss, total: ss.reduce((x, o) => x + o.eur, 0), buys: buys.map((o) => ({ ...o, eur: R10(o.eur * k) })).filter((o) => o.eur >= 10), cash: keepCash ? R10(keepCash.eur * k) : 0 }; };
+    return first.length && later.length ? [mk(first), mk(later)] : [mk(sells)];
+  }
   function orderList(c, a, total, H) {
     const sells = a.orders.filter((o) => o.side === 'sell' && o.t !== 'CASH'), buys = a.orders.filter((o) => o.side === 'buy' && o.t !== 'CASH');
     const keepCash = a.orders.find((o) => o.side === 'buy' && o.t === 'CASH'), useCash = a.orders.find((o) => o.side === 'sell' && o.t === 'CASH');
@@ -283,8 +293,11 @@
     stackBar(c, 'Now', R.rows, 'now');
     if (st.T) stackBar(c, 'Target', R.rows, 'tgt');
     if (st.T && R.moved >= 0.03) {
+      const tg = c.appendChild(el('button', 'g-link g-more', 'By theme: what rotates into what')); tg.type = 'button';
+      const fb = c.appendChild(el('div', 'g-flows')); fb.hidden = true;
+      tg.addEventListener('click', () => { fb.hidden = !fb.hidden; });
       for (const f of flows(R, st, H)) {
-        const m = c.appendChild(el('div', 'g-flow'));
+        const m = fb.appendChild(el('div', 'g-flow'));
         const top = m.appendChild(el('div', 'g-flow-t'));
         const from = top.appendChild(el('span', 'g-tag')); from.style.setProperty('--c', colorOf(f.from)); from.textContent = f.from;
         top.appendChild(el('b', 'g-flow-p', d3.format('.0%')(f.pct)));
@@ -293,7 +306,7 @@
         m.appendChild(el('div', 'g-flow-s', f.how));
       }
       const same = R.rows.filter((r) => Math.abs(r.d) < 0.02 && r.now >= 0.005);
-      if (same.length) c.appendChild(el('div', 'g-hint', 'Unchanged: ' + same.map((r) => `${r.th} ${d3.format('.0%')(r.now)}`).join(' · ')));
+      if (same.length) fb.appendChild(el('div', 'g-hint', 'Unchanged: ' + same.map((r) => `${r.th} ${d3.format('.0%')(r.now)}`).join(' · ')));
     }
     if (st.actions.length) {
       orderList(c, st.actions[0], R.total, H);
@@ -420,6 +433,35 @@
     r.appendChild(el('span', 'g-muted', 'Friday close · SMH'));
   }
 
+  // ---- "What to do": at most three direct lines ----
+  function actionCard(box, H, st) {
+    const items = [];
+    const S = SRApp.swing ? SRApp.swing() : [], f0 = (v) => d3.format(',.0f')(v);
+    const holds = (t) => H.some((h) => h.value > 0 && (h.ticker === t || (t === 'SEC0' && h.tracks === 'SMH')));
+    for (const x of S) {
+      if (x.signal && x.signal.type === 'sell' && holds(x.t)) items.push(['now', `<b>Sell ${x.t}</b> at tomorrow's open: the swing trade is over.`]);
+      else if (x.signal && x.signal.type === 'buy') items.push(['now', `<b>Buy ${x.t}</b> at tomorrow's open: sharp drop, swing entry.`]);
+      else if (x.inTrade && holds(x.t)) items.push(['tonight', `If ${x.us} closes <b>above ${f0(x.sellAbove)}</b> tonight, <b>sell ${x.t}</b> tomorrow. Otherwise keep it.`]);
+      else if (x.bear && x.buyBelow) { const q = window.SRLive && window.SRLive.quotes.get(SRApp.idOf(x.us)); if (q && q.price < x.buyBelow) items.push(['tonight', `If ${x.us} closes <b>below ${f0(x.buyBelow)}</b> tonight, <b>buy ${x.t}</b> tomorrow.`]); }
+    }
+    if (st.actions && st.actions.length) {
+      const steps = splitOrders(st.actions[0], H);
+      const line = (p) => `<b>Sell ${p.sells.map((o) => o.t).join(', ')}</b> (${eur(p.total)}) → <b>buy ${p.buys.map((o) => `${o.t} ${eur(o.eur)}`).join(', ')}</b>${p.cash ? `, keep ${eur(p.cash)} cash` : ''}.`;
+      items.push(['week', 'This week: ' + line(steps[0])]);
+      if (steps[1]) items.push(['later', 'Later, when ready: ' + line(steps[1])]);
+    } else if (!st.P) items.push(['week', 'Choose a plan in <b>Plan</b> to get your rotation steps.']);
+    const c = card(box, "do g-docard", items.length ? 'What to do' : '✓ Nothing to do today');
+    if (!items.length) { c.appendChild(el('div', 'g-line g-muted', 'No signal and no rotation step. The app notifies you when that changes.')); return; }
+    const ol = c.appendChild(el('ol', 'g-do'));
+    const TAG = { now: 'Now', tonight: 'Tonight', week: 'This week', later: 'Later' };
+    for (const [k, html] of items.slice(0, 4)) {
+      const li = ol.appendChild(el('li', 'g-do-i'));
+      li.appendChild(el('span', 'g-do-t g-do-' + k, TAG[k]));
+      const t = li.appendChild(el('span', 'g-do-x')); t.innerHTML = html.replace(/^This week: |^Later, when ready: /, '');
+    }
+    if (st.actions && st.actions.length) { const b = c.appendChild(el('button', 'g-link', 'Exact orders below ↓')); b.type = 'button'; b.addEventListener('click', () => { const e = box.querySelector('.g-steps'); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); }
+  }
+
   // ---- Today ----
   dash.draw('today', (box) => {
     const H = holdings(), st = planState(H), c0 = cfg();
@@ -429,9 +471,11 @@
       const c = card(box, 'warn', 'Connect eToro for live prices');
       c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings()));
     }
-    if (st.P && st.p.id === 'smh') { if (!sig) loadSignal(); signalRow(box); }
-    swingCard(box, st);
+    if (st.P && st.p.id === 'smh' && !sig) loadSignal();
+    actionCard(box, H, st);
     rotationCard(box, H, st);
+    swingCard(box, st);
+    if (st.P && st.p.id === 'smh') signalRow(box);
     addCard(box, H, st);
     const PT = planTickers(st.p), KS = st.keep || new Set();
     const hot = H.filter((h) => h.overheated && !(st.P && (PT.has(h.ticker) || !KS.has(h.ticker))));
