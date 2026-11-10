@@ -343,10 +343,10 @@
     for (const r of T) {
       const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button'; b.addEventListener('click', () => window.SRScreen.open(r));
       b.appendChild(el('span', 'g-pill g-buy', r.sym));
-      b.appendChild(el('span', 'g-wrow-t', `${window.SRScreen.SHORT[r.buy.id] || r.buy.name}, ${window.SRScreen.ago(r.buy)} · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
+      b.appendChild(el('span', 'g-wrow-t', `${window.SRScreen.SHORT[r.buy.id] || r.buy.name}, ${window.SRScreen.ago(r.buy)} · support ${pct(r.sup)}, resistance ${pct(r.res)}${r.rr ? ', reward/risk ' + Math.min(9.9, r.rr).toFixed(1) : ''}`));
       b.appendChild(el('b', 'g-wrow-g', p0(S[r.buy.id].win)));
     }
-    if (T.length) c.appendChild(el('div', 'g-hint', 'The percentage is how often that signal worked on 79 assets; buying on any day worked 54%. Tap for the chart, the levels and the asset\'s own test.'));
+    if (T.length) c.appendChild(el('div', 'g-hint', 'Fresh signals with at least 1.5 of reward for 1 of risk. The percentage is how often that signal worked on 79 assets; buying on any day worked 54%. Tap for the chart, the levels and the asset\'s own test.'));
     const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
     const l = c.appendChild(el('button', 'g-link', 'Open the screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
   }

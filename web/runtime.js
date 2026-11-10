@@ -320,6 +320,19 @@
   function swing() {
     return SWING.map(([us, t, name]) => { const d = store[us]; const s = d && d.status === 'ok' ? swingOf(d.data) : null; return s ? { us, t, name, ...s } : null; }).filter(Boolean);
   }
+  // fresh buy signals that passed the history test, on what you hold (ta.js is loaded in the app and in the background check)
+  function taSignals() {
+    const TA = window.SRTA, ST = window.SR_TASTATS && window.SR_TASTATS.by;
+    if (!TA || !ST) return [];
+    const out = [], seen = new Set();
+    for (const h of (store.holdings && store.holdings.data) || []) {
+      const d = store[h.tracks]; if (!d || d.status !== 'ok' || seen.has(h.tracks) || !d.data || d.data.length < 260) continue;
+      seen.add(h.tracks);
+      const A = TA.analyze(d.data); if (!A) continue;
+      for (const x of A.signals) if (x.ago === 0 && x.side > 0 && ST[x.id] && ST[x.id].ok) out.push({ sym: h.tracks, t: h.ticker, id: x.id, date: x.date, win: ST[x.id].win, name: x.name });
+    }
+    return out;
+  }
   function summarize() {
     const M = (store.metrics && store.metrics.data) || [], RU = (store.rule && store.rule.data) || [];
     const etfs = {};
@@ -331,6 +344,7 @@
       regime: G ? { label: G.label, stance: G.stance } : null,
       holdings: P.map((h) => ({ ticker: h.ticker, tracks: h.tracks, verdict: h.verdict, into: h.into || null })),
       trend: store.SMH && store.SMH.status === 'ok' ? trendOf(store.SMH.data) : null,
+      ta: taSignals(),
       swing: swing().map((x) => ({ us: x.us, t: x.t, date: x.date, inTrade: x.inTrade, sig: x.signal ? x.signal.type : null, price: x.close, rsi2: x.rsi2, gain: x.signal && x.signal.gain })),
     };
   }
@@ -360,6 +374,10 @@
     }
     if (cfg.notifyGo !== false && cur.trend && prev.trend && cur.trend.inn !== prev.trend.inn && cur.trend.date !== prev.trend.date) {
       ev.push(cur.trend.inn ? `Semis back IN trend (SMH closed the week at ${f2(cur.trend.close)}): buy SEC0 with the cash waiting for semis.` : `Semis OUT of trend (SMH closed the week 15% below its high): sell SEC0, keep that money in cash for swing trades.`);
+    }
+    if (cfg.notifySwing !== false && cur.ta) {
+      const old = new Set((prev.ta || []).map((x) => x.sym + x.id + x.date));
+      for (const x of cur.ta) if (!old.has(x.sym + x.id + x.date)) ev.push(`Buy signal on ${x.t}${x.t !== x.sym ? ' (' + x.sym + ')' : ''}: ${x.name}. In the test it worked ${Math.round(x.win * 100)}% of the time; buying on any day, 54%.`);
     }
     if (cfg.notifySwing !== false && cur.swing) {
       const held = new Set((cur.holdings || []).flatMap((h) => [h.ticker, h.tracks]));

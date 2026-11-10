@@ -222,6 +222,19 @@
       for (const z of A.above.slice(0, 3).reverse()) row(z);
       const now = lv.appendChild(el('div', 'ta-lvr is-now')); now.appendChild(el('span', 'ta-d', 'now')); now.appendChild(el('b', '', fmtP(px)));
       for (const z of A.below.slice(0, 3)) row(z);
+      if (A.sup && A.res) {
+        const stop = A.sup.p - 0.5 * A.atr, risk = px - stop, rew = A.res.p - px;
+        if (risk > 0 && rew > 0) {
+          const tp = taBox.appendChild(el('div', 'ta-plan'));
+          tp.appendChild(el('div', 'ta-ph', 'If you buy here'));
+          tp.appendChild(el('div', 'ta-line', `Wrong below ${fmtP(stop)} (${pc(stop / px - 1)}), just under the nearest support. First target ${fmtP(A.res.p)} (${pc(A.res.p / px - 1)}). Reward to risk: ${(rew / risk).toFixed(1)}.`));
+          const f = tp.appendChild(el('label', 'ta-size')); f.appendChild(el('span', '', 'I accept to lose €'));
+          const inp = f.appendChild(el('input')); inp.type = 'number'; inp.min = '5'; inp.step = '5'; inp.inputMode = 'decimal'; inp.value = lsGet('sr.risk', '30');
+          const outp = tp.appendChild(el('div', 'ta-line ta-sz'));
+          const calc = () => { const r = Math.max(0, parseFloat(inp.value) || 0), size = r / (risk / px); if (r) lsSet('sr.risk', String(r)); outp.textContent = r ? `Buy about €${Math.round(size / 10) * 10}. At ${fmtP(stop)} you lose about €${Math.round(r)}; at ${fmtP(A.res.p)} you gain about €${Math.round(size * rew / px)}. Fees not included (Revolut: €1 minimum per order).` : ''; };
+          inp.addEventListener('input', calc); calc();
+        }
+      }
       if (B) {
         const best = Object.entries(B.by).filter(([id, x]) => x.n >= 8 && G[id]).sort((u, v) => v[1].edge - u[1].edge);
         const t = taBox.appendChild(el('details', 'ta-bt')); t.appendChild(el('summary', '', `History test on this asset (${B.from.slice(0, 4)}–${B.to.slice(0, 4)}, ${B.days} days)`));

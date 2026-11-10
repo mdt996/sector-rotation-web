@@ -40,9 +40,12 @@
     wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
   }
   const wideRows = () => (wide ? wide.rows.filter((r) => r.buy).map((r) => ({ sym: r.s, id: r.id, name: r.n, group: r.g, buy: r.buy, sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, score: r.score, rsi: r.rsi, px: r.px, chg: r.c1, wide: true })) : []);
+  // the home page's shortlist: fresh (today or yesterday) and at least 1.5 of reward for 1 of risk; relaxed only if fewer than 3 qualify
   function top(n) {
-    const L = rows().filter((r) => r.buy), seen = new Set(L.map((r) => r.sym));
-    return [...L, ...wideRows().filter((r) => !seen.has(r.sym))].sort((a, b) => b.score - a.score || a.buy.ago - b.buy.ago || (b.rr || 0) - (a.rr || 0)).slice(0, n);
+    const L = rows().filter((r) => r.buy).map((r) => ({ ...r, rr: r.A.rr })), seen = new Set(L.map((r) => r.sym));
+    const all = [...L, ...wideRows().filter((r) => !seen.has(r.sym))], cap = (r) => Math.min(5, r.rr || 0), order = (a, b) => b.score - a.score || cap(b) - cap(a) || a.buy.ago - b.buy.ago;
+    const strict = all.filter((r) => r.buy.ago <= 1 && (r.rr || 0) >= 1.5).sort(order);
+    return (strict.length >= 3 ? strict : all.filter((r) => (r.rr || 0) >= 1).sort((a, b) => a.buy.ago - b.buy.ago || order(a, b))).slice(0, n);
   }
   function rows() {
     const S = stats(), out = [], today = new Date().toISOString().slice(0, 10);
