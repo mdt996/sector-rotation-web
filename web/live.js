@@ -85,10 +85,26 @@
     const list = (j.candles && j.candles[0] && j.candles[0].candles) || [];
     return list.map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 })).filter((r) => r.close > 0).sort((a, b) => a.t - b.t);
   }
-  const stats = { full: 0, delta: 0, fromDevice: 0 };   // how the candles were obtained this session
+  const stats = { full: 0, delta: 0, fromDevice: 0, pack: 0 };   // how the candles were obtained this session
+  // Packs: the scan job publishes the daily candles of every scanned asset as one small file in your private repository.
+  // A device that has never opened such an asset takes its history from there (one read, not counted by eToro), then asks
+  // eToro only for the latest candles.
+  const packTried = new Map();
+  async function fromPack(id) {
+    const has = window.SRScreen && window.SRScreen.packs ? window.SRScreen.packs() : null;
+    if (!has || !has.has(id) || !window.SRSync || !window.SRSync.getFile || Date.now() - (packTried.get(id) || 0) < 600000) return false;
+    packTried.set(id, Date.now());
+    try {
+      const p = await window.SRSync.getFile('packs/' + id + '.json'), cur = cache.get(id + '/OneDay');
+      if (!p || !Array.isArray(p.rows) || p.rows.length < 80 || (cur && cur.rows.length >= p.rows.length)) return false;
+      keep(id + '/OneDay', { at: p.at || 0, fullAt: p.at || 0, all: !!p.all, rows: unpack(p.rows) }); stats.pack++;
+      return true;
+    } catch (e) { return false; }
+  }
   async function candles(id, interval, count, prio) {
-    const key = id + '/' + interval, ttl = /Day|Week/.test(interval) ? 600000 : 60000, now = Date.now(), hit = await kept(id, interval);
-    const enough = hit && (hit.rows.length >= count || hit.all);
+    const key = id + '/' + interval, ttl = /Day|Week/.test(interval) ? 600000 : 60000, now = Date.now(); let hit = await kept(id, interval);
+    let enough = hit && (hit.rows.length >= count || hit.all);
+    if (!enough && interval === 'OneDay' && count > 20 && await fromPack(id)) { hit = cache.get(key); enough = hit && (hit.rows.length >= count || hit.all); }   // the published history first
     if (enough && now - hit.at < ttl) { stats.fromDevice++; return hit.rows.slice(-count); }
     const fkey = key + '/' + count;
     if (flying.has(fkey)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/`); return flying.get(fkey); }   // already on its way: the screen's need moves it to the front
@@ -484,7 +500,8 @@
       const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
       try {
         // 1. what the device already has: the chart appears at once
-        const kd = await kept(inst.id, 'OneDay'), kf = frame.iv === 'OneDay' ? kd : await kept(inst.id, frame.iv);
+        let kd = await kept(inst.id, 'OneDay'); if ((!kd || kd.rows.length < 300) && await fromPack(inst.id)) kd = await kept(inst.id, 'OneDay');   // nothing on the device: the published history, if this asset is scanned
+        const kf = frame.iv === 'OneDay' ? kd : await kept(inst.id, frame.iv);
         if (kd && kd.rows.length >= 80 && kf && kf.rows.length >= 60) { show(kd.rows.slice(-1000), kf.rows.slice(-frame.n), fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: true, ms: Date.now() - t0 }; }
         // 2. an asset never opened: 300 candles first, the rest of its history right after
         const first = !kd || (kd.rows.length < 1000 && !kd.all);

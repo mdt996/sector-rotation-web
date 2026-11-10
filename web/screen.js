@@ -38,10 +38,11 @@
   }
   // last night's wide scan (a job in the private sync repository writes scan.json; see scan.js there)
   let wide = null, wideAt = 0, wideBusy = false;
-  async function loadWide() {
-    if (wideBusy || !window.SRSync || !window.SRSync.getFile || Date.now() - wideAt < 20 * 60e3) return;
+  let packSet = new Set();
+  async function loadWide(force) {
+    if (wideBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - wideAt < 20 * 60e3)) return;
     wideBusy = true;
-    try { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) wide = j; } catch (e) { /* keeps the last one */ }
+    try { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) { wide = j; packSet = new Set(j.packs || []); } } catch (e) { /* keeps the last one */ }
     wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
   }
   const wideRows = () => (wide ? wide.rows.filter((r) => r.buy).map((r) => ({ sym: r.s, id: r.id, name: r.n, group: r.g, buy: r.buy, sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, score: r.score, rsi: r.rsi, px: r.px, chg: r.c1, wide: true })) : []);
@@ -140,5 +141,5 @@
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
   let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
-  window.SRScreen = { rows, load, open, ago, SHORT, top, loadWide, count: () => rows().filter((r) => r.A).length + (wide ? wide.scanned : 0), record: () => (wide ? wide.record : null) };
+  window.SRScreen = { packs: () => packSet, rows, load, open, ago, SHORT, top, loadWide, count: () => rows().filter((r) => r.A).length + (wide ? wide.scanned : 0), record: () => (wide ? wide.record : null) };
 })();
