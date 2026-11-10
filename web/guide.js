@@ -337,7 +337,7 @@
   // ---- Today: what the screener scouted (buy signals that passed the history test, last 3 days) ----
   function scoutCard(box) {
     if (!window.SRScreen || !window.SRTA) return;
-    window.SRScreen.load();
+    window.SRScreen.load(); window.SRScreen.loadWide();
     const T = window.SRScreen.top(4), S = (window.SR_TASTATS || {}).by || {}, c = card(box, 'scout', 'Scouted today');
     if (!T.length) c.appendChild(el('div', 'g-line g-muted', `No tested buy signal in the last 3 days among the ${window.SRScreen.count()} assets watched.`));
     for (const r of T) {
@@ -347,6 +347,7 @@
       b.appendChild(el('b', 'g-wrow-g', p0(S[r.buy.id].win)));
     }
     if (T.length) c.appendChild(el('div', 'g-hint', 'The percentage is how often that signal worked on 79 assets; buying on any day worked 54%. Tap for the chart, the levels and the asset\'s own test.'));
+    const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
     const l = c.appendChild(el('button', 'g-link', 'Open the screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
   }
 

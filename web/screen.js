@@ -31,6 +31,19 @@
     }
     busy = false; if (k) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
   }
+  // last night's wide scan (a job in the private sync repository writes scan.json; see scan.js there)
+  let wide = null, wideAt = 0, wideBusy = false;
+  async function loadWide() {
+    if (wideBusy || !window.SRSync || !window.SRSync.getFile || Date.now() - wideAt < 20 * 60e3) return;
+    wideBusy = true;
+    try { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) wide = j; } catch (e) { /* keeps the last one */ }
+    wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
+  }
+  const wideRows = () => (wide ? wide.rows.filter((r) => r.buy).map((r) => ({ sym: r.s, id: r.id, name: r.n, group: r.g, buy: r.buy, sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, score: r.score, rsi: r.rsi, px: r.px, chg: r.c1, wide: true })) : []);
+  function top(n) {
+    const L = rows().filter((r) => r.buy), seen = new Set(L.map((r) => r.sym));
+    return [...L, ...wideRows().filter((r) => !seen.has(r.sym))].sort((a, b) => b.score - a.score || a.buy.ago - b.buy.ago || (b.rr || 0) - (a.rr || 0)).slice(0, n);
+  }
   function rows() {
     const S = stats(), out = [], today = new Date().toISOString().slice(0, 10);
     for (const u of universe()) {
@@ -56,7 +69,7 @@
   dash.draw('screener', (box) => {
     box.replaceChildren();
     if (!window.SRTA) return;
-    load();
+    load(); loadWide();
     const R = rows(), S = stats(), live = R.filter((r) => r.A);
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', R.map((r) => r.id).filter(Boolean));
     box.appendChild(el('h2', 'g-h2', 'Screener'));
@@ -80,8 +93,21 @@
       y.appendChild(el('span', 'sc-t', `support ${pct(r.sup)} · resistance ${pct(r.res)} · RSI ${Math.round(r.A.rsi)}`));
       if (r.buy) b.appendChild(el('span', 'sc-rec', `This signal worked ${p0(S[r.buy.id].win)} of ${S[r.buy.id].n.toLocaleString('en-US')} times on 79 assets; buying on any day, ${p0(S[r.buy.id].base)}.`));
     }
+    if (wide) {
+      const W = wideRows(), rec = wide.record || {};
+      box.appendChild(el('h2', 'g-h2 sc-h', 'Last night\'s wide scan'));
+      box.appendChild(el('p', 'g-muted g-sub', `${wide.scanned} assets scanned on ${String(wide.made).slice(0, 10)}; ${W.length} with a tested buy signal in the last 3 days. Ideas graded so far: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.`));
+      const wl = box.appendChild(el('div', 'sc-list'));
+      for (const r of W.slice(0, 24)) {
+        const b = wl.appendChild(el('button', 'sc-row')); b.type = 'button'; b.addEventListener('click', () => open(r));
+        const a = b.appendChild(el('span', 'sc-a')); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group));
+        const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0 ? 'up' : r.chg < 0 ? 'down' : ''), pct(r.chg)));
+        const y = b.appendChild(el('span', 'sc-y')); y.appendChild(el('span', 'g-pill g-buy', (SHORT[r.buy.id] || r.buy.id) + ' · ' + ago(r.buy)));
+        y.appendChild(el('span', 'sc-t', `support ${pct(r.sup)} · resistance ${pct(r.res)}${r.rr ? ' · reward/risk ' + r.rr.toFixed(1) : ''} · RSI ${r.rsi}`));
+      }
+    }
     box.appendChild(el('p', 'g-hint', 'Support and resistance are the nearest zones made of averages, pivots, Fibonacci levels, trendlines and gaps. Only four buy signals passed the test (trendline break, RSI divergence, Fibonacci pullback, RSI below 30); the rest is context. Analysis, not advice.'));
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
-  window.SRScreen = { rows, load, open, ago, SHORT, top: (n) => rows().filter((r) => r.buy).sort((a, b) => b.score - a.score).slice(0, n), count: () => rows().filter((r) => r.A).length };
+  window.SRScreen = { rows, load, open, ago, SHORT, top, loadWide, count: () => rows().filter((r) => r.A).length + (wide ? wide.scanned : 0), record: () => (wide ? wide.record : null) };
 })();

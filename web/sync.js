@@ -100,7 +100,14 @@
     pushTimer = setTimeout(() => once(() => pushNow(token()))(), 4000);
   }
 
-  window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus };
+  // another file of the private repository (the nightly scan's ranking): read-only
+  async function getFile(name) {
+    const t = token(); if (!t) return null;
+    const r = await SRApp.request('GET', API.replace(/settings\.json$/, name) + '?t=' + Date.now(), headers(t));
+    if (r.status !== 200) return null;
+    return JSON.parse(b64d(JSON.parse(r.body).content));
+  }
+  window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus, getFile };
   // when the app opens, when you come back to it, and every 5 minutes while it is open
   setTimeout(pullOnce, 1500);
   setInterval(() => { if (!document.hidden) pullOnce(); }, 5 * 60 * 1000);
