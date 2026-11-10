@@ -5,6 +5,7 @@
 # Settings > Actions > Runners > New self-hosted runner of that repository (valid for one hour).
 set -euo pipefail
 REPO_URL="https://github.com/mdt996/sector-rotation-sync"
+if [ "$(uname -s)" != "Linux" ]; then echo "This machine runs $(uname -s): it is not the VM. Connect to the VM first (ssh ...), then run this line again there. Nothing was installed."; exit 1; fi
 if [ "$(id -u)" = "0" ]; then echo "Run this as your normal user, not as root (the script uses sudo where it must)."; exit 1; fi
 case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "Unsupported processor: $(uname -m)"; exit 1 ;; esac
 echo "== This machine: $(uname -m), $(nproc) processors, $(free -m | awk '/Mem:/{print $2}') MB of memory, $(df -BG --output=avail "$HOME" | tail -1 | tr -d ' ') free on disk"
