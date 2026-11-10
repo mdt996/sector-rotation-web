@@ -108,7 +108,7 @@
       row.appendChild(sv);
       row.appendChild(el('span', 'rot-move ' + (move > 0 ? 'up' : move < 0 ? 'down' : ''), move > 0 ? `↑${move}` : move < 0 ? `↓${-move}` : '·'));
     }
-    box.appendChild(el('p', 'rot-foot', 'Ranked by 12-month return (leaving out the last month); arrows and lines show the rank over recent weeks. This shows where money has been moving, but the ranking did not predict returns in the 15-year test. The flag that did hold up is OVERHEATED: weekly RSI above 70. Tap a sector for its chart.'));
+    box.appendChild(el('p', 'rot-foot', 'Context, not a signal. Ranked by 12-month return (leaving out the last month); arrows and lines show the rank over recent weeks. In the tests this ranking did not predict returns; the one flag that held, for sector funds, is OVERHEATED (weekly RSI above 70). Tap a sector for its chart.'));
   });
 
   // ---- the rotation heatmap ----

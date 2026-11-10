@@ -178,7 +178,7 @@
   const TABS = {
     today: [['', ['today']]],
     portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']]],
-    markets: [['Ranking', ['rotboard']], ['Heatmap', ['rotheat']], ['Map', ['map']], ['All funds', ['ranking']]],
+    markets: [['Sectors', ['rotboard']], ['Heatmap', ['rotheat']], ['All funds', ['ranking']]],
     plan: [['Plan', ['plan']], ['26-year test', ['backtest']]],
   };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');

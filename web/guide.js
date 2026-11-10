@@ -1,4 +1,7 @@
-// Today, Portfolio and Plan: the guided screens. One plan drives clear buy/sell steps; everything else is a tap away.
+// Today, Portfolio and Plan: the guided screens.
+// Today answers in five seconds: do I act, on what (ticker, buy or sell, euros, % of portfolio) and why, in one line.
+// Only tested rules create an "act": the plan's semis switch, the twice-yearly reset and, if kept on, swing trades.
+// Moving other holdings into the plan is shown apart, with its fees. Every order explains itself on tap.
 (function () {
   'use strict';
   if (typeof document === 'undefined') return;
@@ -6,48 +9,47 @@
   const btn = (label, cls, fn) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; };
   const eur = (x, sign) => (x == null || !isFinite(x) ? '—' : (sign && x > 0 ? '+' : x < 0 ? '−' : '') + '€' + d3.format(',.0f')(Math.abs(x)));
   const pct = (x, d = 1) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(`.${d}%`)(Math.abs(x)); return (/^0\.0*%$/.test(s) ? '' : x > 0 ? '+' : '−') + s; };
+  const p0 = (x) => (x > 0 && x < 0.005 ? '<1%' : d3.format('.0%')(x)), f0 = (v) => d3.format(',.0f')(v), f2 = (v) => d3.format(',.2f')(v);
   const day = (t) => d3.utcFormat(new Date(t).getUTCFullYear() === new Date().getUTCFullYear() ? '%a %-d %b' : '%-d %b %Y')(new Date(t));
   const cfg = () => SRApp.config();
-  const plan = () => Object.assign({ id: null, add: 0, done: {} }, cfg().plan || {});
+  const plan = () => Object.assign({ id: null, done: {} }, cfg().plan || {});
   function savePlan(p) { const c = cfg(); c.plan = p; SRApp.saveConfig(c); if (window.SRSync) window.SRSync.pushSoon(); redraw(); }
   const redraw = () => { for (const n of ['today', 'pfolio', 'plan']) SRApp.renderDraw(n); };
   const go = (tab, sub) => { if (window.appShowTab) window.appShowTab(tab, sub); };
+  // what stays as it is between two redraws (the screens are redrawn every 10 seconds with live prices)
+  const ui = { setupOpen: false, moneyOpen: false, add: 500, busy: false };
 
-  // ---- the two plans (tested on 2000-2026 and audited in Nov 2026, see the Plan tab's test) ----
+  // ---- the plans (tested on 2000-2026 and audited in Nov 2026, see the Plan tab's test) ----
   const DEFL = [['ZPDS', 'XLP', 'Consumer staples'], ['ZPDU', 'XLU', 'Utilities'], ['ZPDH', 'XLV', 'Health care']];
-  const HAVENS = { cash: { t: 'CASH', name: 'Cash (Revolut)', study: 'smhplan' } }; // gold miners failed the 2000-2026 test (more swings than the S&P 500)
+  const DEF_LINES = DEFL.map(([t, us, name]) => ({ t, us, name, w: 0.5 / 3 }));
   const PLANS = {
     smh: {
-      name: 'Semis on trend + defensive',
-      line: 'Half in semiconductors (SEC0) while they trend; after a 15% fall that half waits in cash until SEC0\'s US twin is back within 15% of its high and above its 30-week average. Half in staples, utilities and health care.',
+      name: 'Semis on trend + defensive', study: 'smhplan', signal: true,
+      line: 'Half in semiconductors (SEC0) while they trend, in cash after a 15% fall. Half in staples, utilities and health care.',
       risk: 'Audited Nov 2026. Its real edge is smaller drops (worst −35% vs −55% for the S&P 500), not return: after costs and French tax it earned 6.3% a year vs 6.8% for the S&P 500 (2000–2026). About 14 orders a year. Semis were picked knowing they won.',
-      study: (p) => (HAVENS[p.haven] || HAVENS.cash).study,
-      targets: (inn, p) => { const hv = HAVENS[p.haven] || HAVENS.cash; return [inn ? { t: 'SEC0', us: 'SMH', name: 'Semiconductors', w: 0.5 } : { t: hv.t, us: hv.us, name: hv.name, w: 0.5 },
-        ...DEFL.map(([t, us, name]) => ({ t, us, name, w: 0.5 / 3 }))]; },
+      targets: (inn) => [inn ? { t: 'SEC0', us: 'SMH', name: 'Semiconductors', w: 0.5 } : { t: 'CASH', name: 'Cash (Revolut)', w: 0.5 }, ...DEF_LINES],
     },
     core: {
-      name: 'Nasdaq + defensive',
+      name: 'Nasdaq + defensive', study: 'qqqdef', reset: true,
       line: '50% Nasdaq-100, 50% staples, utilities and health care. Reset to target every January and July.',
       risk: 'Audited Nov 2026. After costs and French tax: 7.2% a year vs 6.8% for the S&P 500 (2000–2026), with slightly smaller swings. Few orders (about 8 a year), so little tax drag. But in the 2000–02 tech crash it fell further (−58% vs −55%).',
-      study: () => 'qqqdef',
-      targets: () => [{ t: 'SXRV', us: 'QQQ', name: 'Nasdaq-100', w: 0.5 }, ...DEFL.map(([t, us, name]) => ({ t, us, name, w: 0.5 / 3 }))],
+      targets: () => [{ t: 'SXRV', us: 'QQQ', name: 'Nasdaq-100', w: 0.5 }, ...DEF_LINES],
+    },
+    spx: {
+      name: 'S&P 500, just held', study: 'spy',
+      line: 'One fund (VUAA), nothing to trade. The yardstick the other two are measured against.',
+      risk: 'Audited Nov 2026. 6.8% a year after costs and French tax (2000–2026), with the largest drops of the three (−55%). No orders, so no fees and no tax until you sell.',
+      targets: () => [{ t: 'VUAA', us: 'SPY', name: 'S&P 500', w: 1 }],
     },
   };
-  const NAME = { SXRV: 'Nasdaq-100', SEC0: 'Semiconductors', IS0E: 'Gold miners', CASH: 'Cash (Revolut)', ZPDS: 'Consumer staples', ZPDU: 'Utilities', ZPDH: 'Health care' };
-  const planTickers = (p) => { const P = PLANS[p.id]; return P ? new Set([...P.targets(true, p), ...P.targets(false, p)].map((x) => x.t)) : new Set(); };
-  const planLines = (p) => { const P = PLANS[p.id]; return P ? [...P.targets(true, p), ...P.targets(false, p)] : []; };
+  const NAME = { SXRV: 'Nasdaq-100', SEC0: 'Semiconductors', IS0E: 'Gold miners', CASH: 'Revolut cash', ZPDS: 'Consumer staples', ZPDU: 'Utilities', ZPDH: 'Health care', VUAA: 'S&P 500', ZPDT: 'Technology', ZPDD: 'Consumer discretionary', ZPDF: 'Financials' };
+  const COLOR = { SEC0: '#7b61ff', CASH: '#a8b0ba', SXRV: '#2f6fed', VUAA: '#2f6fed', ZPDS: '#e05a8a', ZPDU: '#ea85a6', ZPDH: '#f2adc3', KEPT: '#6b7280', OUT: '#d4a017' };
+  const allLines = (p) => { const P = PLANS[p.id]; return P ? [...P.targets(true), ...P.targets(false)] : []; };
+  const planTickers = (p) => new Set(allLines(p).map((x) => x.t));
   const lineFor = (h, lines) => lines.find((l) => l.t === h.ticker) || lines.find((l) => l.us && h.tracks === l.us) || null;
-  const inPlanAny = (h, p) => !!lineFor(h, planLines(p));
   const keepSet = (p, H) => new Set(Array.isArray(p.keep) ? p.keep : H.filter((h) => h.long_term).map((h) => h.ticker));
-
-  // ---- themes: what each holding is exposed to, so the rotation reads in percentages ----
-  const THEME = { SEC0: 'Semiconductors', VVSM: 'Semiconductors', MRVL: 'Semiconductors', AAOI: 'Semiconductors', VUAA: 'Broad market', EXI2: 'Broad market', SXRV: 'Nasdaq-100',
-    AG: 'Gold & silver', IS0E: 'Gold & silver', CCJ: 'Uranium', NXE: 'Uranium', QUTM: 'Quantum', MSTR: 'Bitcoin (MSTR)', SPCX: 'SpaceX', ZPDS: 'Defensive', ZPDU: 'Defensive', ZPDH: 'Defensive', CASH: 'Cash' };
-  const BY_TRACK = { SMH: 'Semiconductors', SPY: 'Broad market', QQQ: 'Broad market', GDX: 'Gold & silver', SIL: 'Gold & silver', GLD: 'Gold & silver', URA: 'Uranium', XLP: 'Defensive', XLU: 'Defensive', XLV: 'Defensive' };
-  const themeOf = (t, tracks) => THEME[t] || BY_TRACK[tracks] || t;
-  const TCOL = { 'Semiconductors': '#7b61ff', 'Broad market': '#2f6fed', 'Nasdaq-100': '#2f6fed', 'Gold & silver': '#d4a017', 'Uranium': '#2fa66a', 'Quantum': '#12a4b8',
-    'Bitcoin (MSTR)': '#f08a24', 'SpaceX': '#6b7280', 'Defensive': '#e05a8a', 'Cash': '#a8b0ba' };
-  const colorOf = (th) => TCOL[th] || '#94a3b8';
+  const nameOf = (t, H) => NAME[t] || ((H || []).find((h) => h.ticker === t) || {}).name || '';
+  const study = (k) => { const R = dash.data('study_rules'); return (R.status === 'ok' ? R.data : []).find((r) => r.key === k) || null; };
 
   // ---- holdings with live values ----
   function holdings() {
@@ -63,10 +65,15 @@
     if (l && window.SRLive.openAsset) window.SRLive.openAsset({ id: l.id, symbol: l.symbol, name: l.symbol === h.ticker ? h.name || '' : `Your ${h.ticker}, shown through its US twin ${l.symbol}`, exchange: '' });
     else if (SR.open) SR.open(h.tracks);
   }
+  function openTicker(t, H) {
+    const h = (H || []).find((x) => x.ticker === t); if (h) return openHolding(h);
+    const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === t); if (SR.open) SR.open(r ? r.us : t);
+  }
   function totals(H) {
     const T = SR.liveTotals ? SR.liveTotals() : null;
     return T || { total: H.reduce((s, h) => s + (h.value || 0), 0), today: null, todayPct: null };
   }
+  const quote = (us) => { const q = window.SRLive && window.SRLive.quotes.get(SRApp.idOf(us)); return q ? q.price : null; };
 
   // ---- the semiconductor signal: SMH weekly closes (completed weeks only) ----
   const SMH_ID = SRApp.idOf('SMH');
@@ -106,66 +113,176 @@
     } catch (e) { sig = { error: 'eToro did not answer (' + (e.status || 'no connection') + ')' }; }
     sigAt = Date.now(); sigBusy = false; redraw();
   }
-  const smhNow = () => { const q = window.SRLive && window.SRLive.quotes.get(SMH_ID); return q ? q.price : null; };
 
-  // ---- what the plan asks for now: from your holdings to the plan, as one list of orders ----
+  // ---- what the plan asks for now ----
+  // Orders carry a kind: 'signal' (the semis switch), 'reset' (twice-yearly reset, or a line 10 points off target),
+  // 'setup' (holdings outside the plan, and the plan lines they fund). Only the first two are time-bound.
   function planState(H) {
-    const p = plan(), P = PLANS[p.id];
-    const st = { p, P, actions: [], cur: {}, size: 0, inPlan: 0, T: null, inn: null };
+    const p = plan(), P = PLANS[p.id], live = H.filter((h) => h.value > 0);
+    const st = { p, P, orders: [], cur: {}, size: 0, inPlan: 0, T: null, inn: null, keep: keepSet(p, H), total: live.reduce((x, h) => x + h.value, 0), swing: null, swingOn: p.swing !== false };
     if (!P) return st;
-    st.inn = p.id === 'smh' ? (sig && !sig.error ? sig.inn : null) : true;
+    const PT = planTickers(p); st.keep = new Set([...st.keep].filter((t) => !PT.has(t))); // a plan line cannot be kept outside the plan
+    st.inn = P.signal ? (sig && !sig.error ? sig.inn : null) : true;
     if (st.inn == null) return st;
     // semis out of trend but a swing trade is on (bought a sharp dip): that half stays in SEC0 until the swing sells
-    const sw = p.id === 'smh' && st.inn === false && SRApp.swing ? SRApp.swing().find((y) => y.us === 'SMH') : null;
+    const sw = P.signal && st.inn === false && st.swingOn && SRApp.swing ? SRApp.swing().find((y) => y.us === 'SMH') : null;
     st.swing = sw && sw.inTrade ? sw : null;
-    const keep = keepSet(p, H), PT = planTickers(p);
-    let T = P.targets(st.inn || !!st.swing, p);
+    let T = P.targets(st.inn || !!st.swing);
     if (st.swing) T = T.map((l) => (l.t === 'SEC0' ? { ...l, name: 'Semiconductors (swing trade)' } : l));
-    st.T = T; st.keep = keep;
-    const scope = H.filter((h) => !keep.has(h.ticker) && h.value > 0);
-    const other = {}; // holdings not on a current line, by ticker
+    const scope = live.filter((h) => !st.keep.has(h.ticker)), other = {};
     for (const h of scope) { const l = lineFor(h, T); if (l) st.cur[l.t] = (st.cur[l.t] || 0) + h.value; else other[h.ticker] = (other[h.ticker] || 0) + h.value; }
-    st.size = scope.reduce((x, h) => x + h.value, 0) + (p.add > 0 ? p.add : 0);
+    st.size = scope.reduce((x, h) => x + h.value, 0);
     if (st.swing && st.size > 0) { // during a semis swing trade: keep the SEC0 you hold, don't add; the rest of that half waits in cash
       const held = Math.min(0.5, (st.cur.SEC0 || 0) / st.size);
       T = T.map((l) => (l.t === 'SEC0' ? { ...l, w: held } : l));
       if (0.5 - held > 0.001) T.push({ t: 'CASH', name: 'Cash (Revolut)', w: 0.5 - held });
-      st.T = T;
     }
+    st.T = T;
     st.inPlan = T.reduce((x, l) => x + (st.cur[l.t] || 0), 0);
     if (st.size < 50) return st;
-    const others = Object.keys(other);
-    const outside = scope.filter((h) => other[h.ticker] && !inPlanAny(h, p)).map((h) => h.ticker);
+    const all = allLines(p), hOf = (t) => scope.find((h) => h.ticker === t);
+    const sigT = Object.keys(other).filter((t) => lineFor(hOf(t), all)), outT = Object.keys(other).filter((t) => !sigT.includes(t));
     const drift = Math.max(...T.map((l) => Math.abs((st.cur[l.t] || 0) / st.size - l.w)));
     const now = new Date(), m = now.getUTCMonth(), key = `reset-${now.getUTCFullYear()}-${m + 1}`;
-    const window_ = (m === 0 || m === 6) && now.getUTCDate() <= 15 && !p.done[key] && P === PLANS.core;
-    let title = null;
-    if (outside.length) title = st.inPlan < 0.05 * st.size ? `Switch to ${P.name}` : 'Move the rest into the plan';
-    else if (p.add > 0) title = `Invest ${eur(p.add)} of new money`;
-    else if (others.length) title = st.inn ? 'Semis are trending again: buy them back' : 'Semis fell 15%: move that half out';
-    else if (window_) title = 'Twice-yearly reset';
-    else if (drift > 0.10) title = 'Back to target (a line drifted 10 points)';
-    if (!title) return st;
-    const round = (x) => Math.round(x / 10) * 10, minOrder = Math.max(25, st.size * 0.01);
-    const orders = others.map((t) => ({ side: 'sell', t, eur: round(other[t]), all: true }));
+    const resetDue = !!P.reset && (m === 0 || m === 6) && now.getUTCDate() <= 15 && !(p.done || {})[key];
+    const rebalance = !outT.length && !sigT.length && (resetDue || drift > 0.10);
+    if (!outT.length && !sigT.length && !rebalance) return st;
+    const r10 = (x) => Math.round(x / 10) * 10, minOrder = Math.max(25, st.size * 0.01), O = [];
+    for (const t of sigT) O.push({ side: 'sell', t, eur: Math.round(other[t]), all: true, kind: 'signal' });
+    for (const t of outT) O.push({ side: 'sell', t, eur: Math.round(other[t]), all: true, kind: 'setup' });
+    let sigCash = sigT.reduce((x, t) => x + other[t], 0); // what the signal's sale frees: it goes to cash (semis out) or to SEC0 (semis back)
     for (const l of T) {
-      const d = st.size * l.w - (st.cur[l.t] || 0);
-      if (Math.abs(d) >= minOrder) orders.push({ side: d > 0 ? 'buy' : 'sell', t: l.t, eur: round(Math.abs(d)), all: d < 0 && st.size * l.w < 1 });
+      const tgt = st.size * l.w, held = st.cur[l.t] || 0, d = tgt - held;
+      if (Math.abs(d) < minOrder) continue;
+      const base = { side: d > 0 ? 'buy' : 'sell', t: l.t, line: l, target: tgt, held };
+      if (rebalance) O.push({ ...base, eur: r10(Math.abs(d)), kind: 'reset', why: resetDue ? 'reset' : 'drift' });
+      else if (d > 0 && sigCash > 0 && (l.t === 'CASH' || l.t === 'SEC0')) {
+        const a = Math.min(d, sigCash); sigCash -= a;
+        if (a >= minOrder) O.push({ ...base, eur: Math.round(a), kind: 'signal' });
+        if (d - a >= minOrder) O.push({ ...base, eur: r10(d - a), kind: 'setup' });
+      } else O.push({ ...base, eur: r10(Math.abs(d)), kind: 'setup' });
     }
-    orders.sort((x, y) => (x.side === y.side ? y.eur - x.eur : x.side === 'sell' ? -1 : 1));
-    st.actions.push({ title, orders, keep: [...keep].filter((t) => H.some((h) => h.ticker === t && h.value > 0)) });
+    st.orders = O;
     return st;
   }
-  function nextReset() {
-    const n = new Date(), y = n.getUTCFullYear(), m = n.getUTCMonth();
-    const t = m < 6 ? Date.UTC(y, 6, 1) : Date.UTC(y + 1, 0, 1);
-    return day(t);
+  // optional swing trades (Plan tab switch): a buy needs cash waiting in the plan; a sell only concerns what you hold
+  function swingOrders(H, st) {
+    if (!st.P || !st.swingOn || !SRApp.swing) return [];
+    const out = [], waiting = st.P.signal && st.inn === false ? (st.cur.CASH || 0) : 0;
+    for (const x of SRApp.swing()) {
+      const held = H.find((h) => h.value > 0 && h.ticker === x.t), onLine = st.T && st.T.some((l) => l.t === x.t);
+      if (x.signal && x.signal.type === 'sell' && held && !onLine && !st.orders.some((o) => o.t === x.t)) out.push({ side: 'sell', t: x.t, eur: Math.round(held.value), all: true, kind: 'swing', x });
+      else if (x.signal && x.signal.type === 'buy' && waiting >= 150) out.push({ side: 'buy', t: x.t, eur: Math.round(waiting / 3 / 10) * 10, kind: 'swing', x });
+    }
+    return out;
   }
-  function nextFriday() { const n = new Date(); const d = (5 - n.getUTCDay() + 7) % 7 || (n.getUTCHours() >= 21 ? 7 : 0); return day(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + d)); }
-
+  const fee = (o) => (o.t === 'CASH' ? 0 : Math.max(1, 0.0025 * o.eur));
+  function nextReset() { const n = new Date(), y = n.getUTCFullYear(), m = n.getUTCMonth(); return day(m < 6 ? Date.UTC(y, 6, 1) : Date.UTC(y + 1, 0, 1)); }
   function toast(msg) {
     const t = el('div', 'g-toast', msg); document.body.appendChild(t);
     setTimeout(() => t.classList.add('is-on'), 10); setTimeout(() => { t.classList.remove('is-on'); setTimeout(() => t.remove(), 400); }, 2600);
+  }
+
+  // ---- 12-month volatility of a mix (daily moves of what each part follows; cash does not move) ----
+  function series(sym) { const d = SRApp._store[sym]; if (!d || d.status !== 'ok' || !d.data.length) return null; const m = new Map(); let prev = null; for (const r of d.data) { if (prev) m.set(r.date, r.close / prev - 1); prev = r.close; } return m; }
+  function mixVol(parts) { // parts: [{ sym, eur }], sym 'CASH' or a US symbol
+    const spy = series('SPY'), tot = parts.reduce((x, q) => x + q.eur, 0); if (!spy || !tot) return null;
+    const dates = [...spy.keys()].slice(-252), S = parts.filter((q) => q.eur > 0).map((q) => ({ w: q.eur / tot, m: q.sym === 'CASH' ? null : series(q.sym), cash: q.sym === 'CASH' }));
+    const known = S.filter((q) => q.cash || q.m); if (known.reduce((x, q) => x + q.w, 0) < 0.6) return null;
+    const r = dates.map((dt) => { let a = 0, w = 0; for (const q of known) { const v = q.cash ? 0 : q.m.get(dt); if (v != null) { a += q.w * v; w += q.w; } } return w > 0.5 ? a / w : null; }).filter((x) => x != null);
+    if (r.length < 120) return null;
+    const mu = d3.mean(r); return Math.sqrt(d3.sum(r, (x) => (x - mu) ** 2) / (r.length - 1)) * Math.sqrt(252);
+  }
+  const partsNow = (H) => H.filter((h) => h.value > 0).map((h) => ({ sym: h.ticker === 'CASH' ? 'CASH' : h.tracks, eur: h.value }));
+  const partsPlan = (H, st) => [...H.filter((h) => h.value > 0 && st.keep.has(h.ticker)).map((h) => ({ sym: h.tracks, eur: h.value })), ...st.T.map((l) => ({ sym: l.us || 'CASH', eur: st.size * l.w }))];
+
+  // ---- a bottom sheet: the "why" behind an order or a holding ----
+  let sheetEl = null;
+  function closeSheet() { if (sheetEl) { sheetEl.remove(); sheetEl = null; } }
+  function sheet(title, build) {
+    closeSheet();
+    const back = el('div', 'g-sheet-back'), s = back.appendChild(el('div', 'g-sheet'));
+    s.setAttribute('role', 'dialog'); s.setAttribute('aria-label', title);
+    const h = s.appendChild(el('div', 'g-sheet-h')); h.appendChild(el('b', '', title));
+    const x = h.appendChild(el('button', 'g-sheet-x', '✕')); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.addEventListener('click', closeSheet);
+    build(s);
+    back.addEventListener('click', (e) => { if (e.target === back) closeSheet(); });
+    document.body.appendChild(back); sheetEl = back;
+  }
+  const kv = (box, k, text) => { const r = box.appendChild(el('div', 'g-kv')); r.appendChild(el('span', 'g-kv-k', k)); r.appendChild(el('span', 'g-kv-v', text)); return r; };
+  function spark(box, s) {
+    const W = Math.max(260, box.clientWidth || 320), Hh = 110, m = { l: 4, r: 4, t: 6, b: 6 };
+    const d = s.hist, x = d3.scaleLinear().domain([0, d.length - 1]).range([m.l, W - m.r]);
+    const lo = d3.min(d, (r) => Math.min(r.close, r.stop)), hi = d3.max(d, (r) => Math.max(r.close, r.sma));
+    const y = d3.scaleLinear().domain([lo * 0.97, hi * 1.02]).range([Hh - m.b, m.t]);
+    const svg = d3.select(box).append('svg').attr('class', 'g-spark').attr('viewBox', `0 0 ${W} ${Hh}`).attr('width', '100%').attr('height', Hh).attr('role', 'img')
+      .attr('aria-label', 'SMH weekly closes over the last year, with its 30-week average and the 15% stop');
+    const line = (k) => d3.line().x((r, i) => x(i)).y((r) => y(r[k]));
+    svg.append('path').datum(d).attr('d', line('stop')).attr('class', 'g-sp-stop');
+    svg.append('path').datum(d).attr('d', line('sma')).attr('class', 'g-sp-sma');
+    svg.append('path').datum(d).attr('d', line('close')).attr('class', 'g-sp-close');
+    svg.append('circle').attr('cx', x(d.length - 1)).attr('cy', y(d[d.length - 1].close)).attr('r', 3.5).attr('class', 'g-sp-dot');
+    const k = box.appendChild(el('div', 'g-legend'));
+    k.innerHTML = '<span><i class="g-k g-k-close"></i>SMH weekly close</span><span><i class="g-k g-k-sma"></i>30-week average</span><span><i class="g-k g-k-stop"></i>15% below the high</span>';
+  }
+
+  // ---- one order: side, ticker, euros, % of portfolio, and why in one line ----
+  const sideLabel = (o) => (o.t === 'CASH' ? (o.side === 'buy' ? 'Keep' : 'Use') : o.side === 'buy' ? 'Buy' : 'Sell');
+  function whyLine(o, st) {
+    if (o.kind === 'signal') return st.inn ? `Semis are back in trend (since ${day(sig.since)}).` : o.t === 'CASH' ? 'Waits in cash until semis are back in trend.' : `Semis are out of trend (since ${day(sig.since)}).`;
+    if (o.kind === 'reset') return o.why === 'reset' ? 'Twice-yearly reset to target.' : 'This line is 10 points off target.';
+    if (o.kind === 'swing') return o.side === 'buy' ? `Sharp drop in a downtrend (RSI-2 at ${Math.round(o.x.signal.rsi2)}). Optional, 09:00 open only.` : `Swing trade over (${pct(o.x.signal.gain)}). At the 09:00 open.`;
+    if (o.kind === 'money') return o.t === 'CASH' ? 'The semis half waits in cash for now.' : `Plan line, ${p0(o.line.w)} of the plan.`;
+    if (o.t === 'CASH') return o.side === 'buy' ? 'The semis half waits in cash for now.' : 'Cash goes into the plan.';
+    if (o.side === 'sell') return o.line ? 'Above its share of the plan.' : 'Outside your plan.';
+    return `Plan line: target ${eur(o.target)}, you hold ${eur(o.held)}.`;
+  }
+  function orderRow(parent, o, st, H, mode) { // mode: 'quiet' = no "Why" label, 'compact' = no why line (the card says it once)
+    const r = parent.appendChild(el('button', 'g-ord' + (mode === 'compact' ? ' is-compact' : ''))); r.type = 'button';
+    r.appendChild(el('span', 'g-side g-' + (o.t === 'CASH' ? 'cash' : o.side), sideLabel(o)));
+    const w = r.appendChild(el('span', 'g-ord-w')); w.appendChild(el('b', '', o.t === 'CASH' ? 'Cash' : o.t)); w.appendChild(el('span', 'g-muted', nameOf(o.t, H)));
+    const v = r.appendChild(el('span', 'g-ord-v')); v.appendChild(el('b', '', (o.all && o.t !== 'CASH' ? 'all · ' : '') + eur(o.eur)));
+    v.appendChild(el('span', 'g-muted', st.total ? p0(o.eur / st.total) + ' of portfolio' : ''));
+    if (mode === 'compact') r.setAttribute('aria-label', `${sideLabel(o)} ${o.t} ${eur(o.eur)}: ${whyLine(o, st)}`);
+    else { const y = r.appendChild(el('span', 'g-ord-y')); y.appendChild(el('span', '', whyLine(o, st))); if (mode !== 'quiet') y.appendChild(el('span', 'g-ord-go', 'Why ›')); }
+    r.addEventListener('click', () => whySheet(o, st, H));
+    return r;
+  }
+  function whySheet(o, st, H) {
+    const cash = o.t === 'CASH', mine = study(st.P.study), spy = study('spy');
+    sheet(`${sideLabel(o)} ${cash ? 'cash' : o.t} · ${eur(o.eur)}`, (s) => {
+      s.appendChild(el('div', 'g-sheet-lead', whyLine(o, st)));
+      if (o.kind === 'signal' && sig && !sig.error) {
+        const top = Math.max(...sig.hist.map((x) => x.close));
+        kv(s, 'Rule', `Half the plan is in semis only while SMH's weekly close is within 15% of its 52-week high. Friday it closed at ${f0(sig.close)}, ${pct(sig.close / top - 1, 0)} from the high. ${sig.inn ? `Out again below ${f0(sig.exitAt)}.` : `Back in above ${f0(sig.backAt)} at a Friday close.`}`);
+        spark(s, sig);
+        if (mine && spy) kv(s, 'Evidence', `2000–2026 test: with this switch the plan's worst drop was ${pct(mine.max_dd, 0)} (S&P 500: ${pct(spy.max_dd, 0)}). It did not add return: ${pct(mine.cagr_tax)} a year after tax against ${pct(spy.cagr_tax)}.`);
+      } else if (o.kind === 'money' && !cash) {
+        kv(s, 'Rule', `New money goes to the plan lines furthest below target, so nothing has to be sold. ${o.t} (${nameOf(o.t, H)}): target ${eur(o.target)} once the money is in, you hold ${eur(o.held)}.`);
+      } else if (o.kind === 'reset') {
+        kv(s, 'Rule', `Back to the plan's shares: ${o.t} should be ${eur(o.target)} (${p0(o.line.w)}), you hold ${eur(o.held)}.`);
+        kv(s, 'Evidence', 'The plan was tested with a reset every 6 months. Resetting more often only adds fees and tax.');
+      } else if (o.kind === 'swing') {
+        kv(s, 'Rule', o.side === 'buy' ? `${o.x.us} is below its 200-day average and fell hard (RSI-2 below 5). Buy at the next open; sell at the first close above its 5-day average, or after 10 days.` : `${o.x.us} closed above its 5-day average: the bounce is taken. Sell at the next open.`);
+        kv(s, 'Evidence', 'Audit, Xetra funds since 2010: +0.5% a trade after costs, only when traded at the 09:00 open. A day late, nothing. After tax it adds 0 to 1.5 points a year. Optional: switch it off in Plan.');
+        if (o.side === 'buy') kv(s, 'Size', `A third of the ${eur(st.cur.CASH || 0)} waiting in cash for semis.`);
+      } else if (o.side === 'sell' && !o.line && !cash) {
+        kv(s, 'Rule', `${o.t} is not part of “${st.P.name}”. Selling it funds the plan's lines. This has no deadline.`);
+        if (mine && spy) kv(s, 'Evidence', `Your plan in the 2000–2026 test: ${pct(mine.cagr_tax)} a year after tax, worst drop ${pct(mine.max_dd, 0)}. S&P 500: ${pct(spy.cagr_tax)}, ${pct(spy.max_dd, 0)}.`);
+      } else if (cash) {
+        kv(s, 'Rule', o.side === 'buy' ? 'While semis are out of trend, their half of the plan waits in cash on Revolut. Nothing to place.' : 'Cash you hold goes into the plan\'s lines.');
+      } else {
+        kv(s, 'Rule', `${o.t} (${nameOf(o.t, H)}) is ${p0(o.line.w)} of the plan: ${eur(o.target)} of the ${eur(st.size)} in it. You hold ${eur(o.held)}.`);
+        if (mine && spy) kv(s, 'Evidence', `Your plan in the 2000–2026 test: ${pct(mine.cagr_tax)} a year after tax, worst drop ${pct(mine.max_dd, 0)}. S&P 500: ${pct(spy.cagr_tax)}, ${pct(spy.max_dd, 0)}.`);
+      }
+      if (!cash) {
+        const f = fee(o);
+        kv(s, 'Cost', `Fee about €${f2(f)} (0.25%, minimum €1, after your free orders)${o.eur < 200 ? `: ${d3.format('.1%')(f / o.eur)} of this small order` : ''}.${o.side === 'sell' ? ' A gain is taxed at 31.4%; a loss costs no tax.' : ''}`);
+        const row = s.appendChild(el('div', 'g-btns'));
+        if (o.kind === 'setup' && o.side === 'sell' && !o.line) row.appendChild(btn(`Keep ${o.t} instead`, 'primary', () => { const q = plan(), k = keepSet(q, H); k.add(o.t); q.keep = [...k]; closeSheet(); savePlan(q); toast(`${o.t} kept. Orders updated.`); }));
+        row.appendChild(btn('Open chart', '', () => { closeSheet(); openTicker(o.t, H); }));
+      }
+    });
   }
 
   // ---- pieces ----
@@ -179,292 +296,123 @@
   }
   function card(box, kind, title) {
     const c = box.appendChild(el('div', 'g-card g-' + kind));
-    c.appendChild(el('div', 'g-card-t', title));
+    if (title) c.appendChild(el('div', 'g-card-t', title));
     return c;
   }
-  // the weakest fits go first: the most volatile holdings, where the swing rule also failed in the tests
-  const FIRST_THEMES = ['Uranium', 'Gold & silver', 'Quantum'], FIRST_TICKERS = ['AAOI'];
-  function splitOrders(a, H) {
-    const sells = a.orders.filter((o) => o.side === 'sell' && o.t !== 'CASH'), buys = a.orders.filter((o) => o.side === 'buy' && o.t !== 'CASH');
-    const keepCash = a.orders.find((o) => o.side === 'buy' && o.t === 'CASH');
-    const hOf = (t) => (H || []).find((h) => h.ticker === t);
-    const first = sells.filter((o) => FIRST_TICKERS.includes(o.t) || (hOf(o.t) && FIRST_THEMES.includes(themeOf(o.t, hOf(o.t).tracks))));
-    const later = sells.filter((o) => !first.includes(o));
-    const S = sells.reduce((x, o) => x + o.eur, 0) || 1, R10 = (x) => Math.round(x / 10) * 10;
-    const mk = (ss) => { const k = ss.reduce((x, o) => x + o.eur, 0) / S; return { sells: ss, total: ss.reduce((x, o) => x + o.eur, 0), buys: buys.map((o) => ({ ...o, eur: R10(o.eur * k) })).filter((o) => o.eur >= 10), cash: keepCash ? R10(keepCash.eur * k) : 0 }; };
-    return first.length && later.length ? [mk(first), mk(later)] : [mk(sells)];
-  }
-  function orderList(c, a, total, H) {
-    const sells = a.orders.filter((o) => o.side === 'sell' && o.t !== 'CASH'), buys = a.orders.filter((o) => o.side === 'buy' && o.t !== 'CASH');
-    const keepCash = a.orders.find((o) => o.side === 'buy' && o.t === 'CASH'), useCash = a.orders.find((o) => o.side === 'sell' && o.t === 'CASH');
-    const hOf = (t) => (H || []).find((h) => h.ticker === t);
-    const first = sells.filter((o) => FIRST_TICKERS.includes(o.t) || (hOf(o.t) && FIRST_THEMES.includes(themeOf(o.t, hOf(o.t).tracks))));
-    const later = sells.filter((o) => !first.includes(o));
-    const S = sells.reduce((x, o) => x + o.eur, 0) || 1, R10 = (x) => Math.round(x / 10) * 10;
-    const share = (part) => part.reduce((x, o) => x + o.eur, 0) / S;
-    let n = 0;
-    const block = (title, sub, ss, k, withCash) => {
-      c.appendChild(el('div', 'g-sec', title));
-      if (sub) c.appendChild(el('div', 'g-hint g-sub2', sub));
-      const ol = c.appendChild(el('ol', 'g-steps'));
-      const step = (side, label, t, name, amt, all) => {
-        if (amt < 10) return;
-        const li = ol.appendChild(el('li', 'g-step'));
-        li.appendChild(el('span', 'g-step-n', String(++n)));
-        li.appendChild(el('span', 'g-side g-' + side, label));
-        const w = li.appendChild(el('span', 'g-step-w')); w.appendChild(el('b', '', t)); if (name) w.appendChild(el('span', 'g-muted', name));
-        const v = li.appendChild(el('span', 'g-step-v')); v.appendChild(el('b', '', (all ? 'all · ' : '') + eur(amt)));
-        if (total) v.appendChild(el('span', 'g-muted', d3.format('.0%')(amt / total) + ' of portfolio'));
-      };
-      for (const o of ss) step('sell', 'Sell', o.t, NAME[o.t] || (hOf(o.t) && hOf(o.t).name) || '', o.eur, o.all);
-      if (withCash && useCash) step('cash', 'Use', 'Cash', 'from Revolut', useCash.eur);
-      for (const o of buys) step('buy', 'Buy', o.t, NAME[o.t] || '', R10(o.eur * k));
-      if (keepCash) step('cash', 'Keep', 'Cash', 'stays in Revolut', R10(keepCash.eur * k));
-    };
-    if (first.length && later.length) {
-      const k1 = share(first);
-      block('Step 1 · start here', 'The most volatile holdings, where the swing rule also failed in the tests.', first, k1, true);
-      block('Step 2 · when you are ready', 'Larger positions: check which are up before selling (gains are taxed at 31.4%).', later, 1 - k1, false);
-    } else block('Orders on Revolut, in this order', '', sells, 1, true);
-    if (a.keep && a.keep.length) {
-      const kk = c.appendChild(el('div', 'g-keep'));
-      kk.appendChild(el('span', 'g-muted', 'Don\'t touch: ')); kk.appendChild(el('b', '', a.keep.join(', ')));
-      const ch = kk.appendChild(el('button', 'g-link', 'change')); ch.type = 'button'; ch.addEventListener('click', () => go('plan', 0));
-    }
-  }
-  function spark(box, s) {
-    const W = Math.max(260, box.clientWidth || 320), H = 110, m = { l: 4, r: 4, t: 6, b: 6 };
-    const d = s.hist, x = d3.scaleLinear().domain([0, d.length - 1]).range([m.l, W - m.r]);
-    const lo = d3.min(d, (r) => Math.min(r.close, r.stop)), hi = d3.max(d, (r) => Math.max(r.close, r.sma));
-    const y = d3.scaleLinear().domain([lo * 0.97, hi * 1.02]).range([H - m.b, m.t]);
-    const svg = d3.select(box).append('svg').attr('class', 'g-spark').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H).attr('role', 'img')
-      .attr('aria-label', 'SMH weekly closes over the last year, with its 30-week average and the 15% stop');
-    const line = (k) => d3.line().x((r, i) => x(i)).y((r) => y(r[k]));
-    svg.append('path').datum(d).attr('d', line('stop')).attr('class', 'g-sp-stop');
-    svg.append('path').datum(d).attr('d', line('sma')).attr('class', 'g-sp-sma');
-    svg.append('path').datum(d).attr('d', line('close')).attr('class', 'g-sp-close');
-    const L = d[d.length - 1];
-    svg.append('circle').attr('cx', x(d.length - 1)).attr('cy', y(L.close)).attr('r', 3.5).attr('class', 'g-sp-dot');
-    const k = box.appendChild(el('div', 'g-legend'));
-    k.innerHTML = '<span><i class="g-k g-k-close"></i>SMH weekly close</span><span><i class="g-k g-k-sma"></i>30-week average</span><span><i class="g-k g-k-stop"></i>15% below the high</span>';
-  }
-  function signalCard(box) {
-    const c = card(box, 'signal', 'Semiconductors');
-    if (!sig) { c.appendChild(el('div', 'g-line g-muted', 'Checking SMH…')); return; }
-    if (sig.error) { c.appendChild(el('div', 'g-line g-muted', 'No signal: ' + sig.error)); return; }
-    const top = c.appendChild(el('div', 'g-sig'));
-    top.appendChild(el('span', 'g-pill ' + (sig.inn ? 'g-in' : 'g-out'), sig.inn ? 'IN' : 'OUT'));
-    top.appendChild(el('span', '', `since ${day(sig.since)} · SMH ${d3.format(',.0f')(sig.close)} at Friday's close`));
-    const now = smhNow(), ref = now || sig.close;
-    const lvl = sig.inn ? sig.exitAt : sig.backAt, gap = lvl / ref - 1;
-    c.appendChild(el('div', 'g-line', sig.inn
-      ? `Moves to ${(HAVENS[plan().haven] || HAVENS.cash).name.toLowerCase()} if a Friday close is below ${d3.format(',.0f')(lvl)} (${pct(gap)} from ${now ? 'now' : 'Friday'}).`
-      : `Back in if a Friday close is above ${d3.format(',.0f')(lvl)} (${pct(gap)} from ${now ? 'now' : 'Friday'}).`));
-    spark(c, sig);
-    c.classList.add('g-tap'); c.addEventListener('click', () => SR.open && SR.open('SMH'));
-  }
 
-  function rotation(H, st) {
-    const live = H.filter((h) => h.value > 0), total = live.reduce((x, h) => x + h.value, 0);
-    if (!total) return null;
-    const now = {}, tgt = {};
-    for (const h of live) { const th = themeOf(h.ticker, h.tracks); now[th] = (now[th] || 0) + h.value / total; }
-    if (st.T) {
-      const kept = live.filter((h) => st.keep && st.keep.has(h.ticker)), K = kept.reduce((x, h) => x + h.value, 0);
-      for (const h of kept) { const th = themeOf(h.ticker, h.tracks); tgt[th] = (tgt[th] || 0) + h.value / total; }
-      for (const l of st.T) { const th = themeOf(l.t, l.us); tgt[th] = (tgt[th] || 0) + (1 - K / total) * l.w; }
-    }
-    const themes = [...new Set([...Object.keys(now), ...Object.keys(tgt)])];
-    const rows = themes.map((th) => ({ th, now: now[th] || 0, tgt: st.T ? tgt[th] || 0 : null })).map((r) => ({ ...r, d: r.tgt == null ? 0 : r.tgt - r.now }));
-    rows.sort((x, y) => (st.T ? Math.abs(y.d) - Math.abs(x.d) : y.now - x.now) || y.now - x.now);
-    return { total, rows, moved: rows.reduce((x, r) => x + Math.max(0, -r.d), 0) };
-  }
-  function stackBar(parent, label, rows, key) {
-    const r = parent.appendChild(el('div', 'g-stack-row'));
-    r.appendChild(el('span', 'g-stack-l', label));
-    const bar = r.appendChild(el('div', 'g-stackbar'));
-    for (const x of rows) if (x[key] > 0.004) { const seg = bar.appendChild(el('span')); seg.style.width = x[key] * 100 + '%'; seg.style.background = colorOf(x.th); seg.title = `${x.th} ${d3.format('.0%')(x[key])}`; }
-  }
-  function rotationCard(box, H, st) {
-    const R = rotation(H, st); if (!R) return;
-    const c = card(box, 'rot', 'Your rotation');
-    const sgn = st.P && st.p.id === 'smh' && sig && !sig.error;
-    let verdict;
-    if (!st.P) verdict = 'Your live mix by theme. Choose a plan to see where it should go.';
-    else if (!st.T) verdict = 'Checking the semis signal…';
-    else if (R.moved < 0.03) verdict = '✓ On target. Nothing to rotate.';
-    else verdict = `${sgn ? (sig.inn ? 'Semis are in trend. ' : st.swing ? `Semis are out of trend, but a swing trade is on: keep SEC0 until SMH closes above ${d3.format(',.0f')(st.swing.sellAbove)}. ` : `Semis are out of trend (${pct(sig.close / Math.max(...sig.hist.map((x) => x.close)) - 1, 0)} from their high). `) : ''}Rotate ${d3.format('.0%')(R.moved)} of your portfolio.`;
-    c.appendChild(el('div', 'g-verdict' + (R.moved < 0.03 && st.T ? ' g-good' : ''), verdict));
-    stackBar(c, 'Now', R.rows, 'now');
-    if (st.T) stackBar(c, 'Target', R.rows, 'tgt');
-    if (st.T && R.moved >= 0.03) {
-      const tg = c.appendChild(el('button', 'g-link g-more', 'By theme: what rotates into what')); tg.type = 'button';
-      const fb = c.appendChild(el('div', 'g-flows')); fb.hidden = true;
-      tg.addEventListener('click', () => { fb.hidden = !fb.hidden; });
-      for (const f of flows(R, st, H)) {
-        const m = fb.appendChild(el('div', 'g-flow'));
-        const top = m.appendChild(el('div', 'g-flow-t'));
-        const from = top.appendChild(el('span', 'g-tag')); from.style.setProperty('--c', colorOf(f.from)); from.textContent = f.from;
-        top.appendChild(el('b', 'g-flow-p', d3.format('.0%')(f.pct)));
-        top.appendChild(el('span', 'g-arrow', '→'));
-        for (const [to, x] of f.to) { const t = top.appendChild(el('span', 'g-tag')); t.style.setProperty('--c', colorOf(to)); t.textContent = f.to.length > 1 ? `${to} ${d3.format('.0%')(x)}` : to; }
-        m.appendChild(el('div', 'g-flow-s', f.how));
-      }
-      const same = R.rows.filter((r) => Math.abs(r.d) < 0.02 && r.now >= 0.005);
-      if (same.length) fb.appendChild(el('div', 'g-hint', 'Unchanged: ' + same.map((r) => `${r.th} ${d3.format('.0%')(r.now)}`).join(' · ')));
-    }
-    if (st.actions.length) {
-      orderList(c, st.actions[0], R.total, H);
-      c.appendChild(el('div', 'g-hint', 'In each step, sell first, then buy with the proceeds. Positions at a loss can be sold without tax. After trading, send Claude a screenshot of Revolut.'));
-    }
+  // ---- Today, card 1: the answer ----
+  function verdictCard(box, H, st) {
     if (!st.P) {
-      const list = c.appendChild(el('div', 'g-moves'));
-      for (const r of R.rows) { if (r.now < 0.005) continue; const m = list.appendChild(el('div', 'g-move')); const dot = m.appendChild(el('span', 'g-dot')); dot.style.background = colorOf(r.th); m.appendChild(el('span', 'g-move-n', r.th)); m.appendChild(el('span', 'g-move-v', d3.format('.0%')(r.now))); m.appendChild(el('span', '')); }
-      c.appendChild(btn('Choose a plan', 'primary', () => go('plan', 0)));
+      const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'No plan chosen'));
+      c.appendChild(el('div', 'g-line g-muted', 'Pick a plan and this screen tells you each day whether to act, on what, and why.'));
+      c.appendChild(btn('Choose a plan', 'primary', () => go('plan', 0))); return;
     }
-  }
-  // pair what goes down with what goes up: semis go to the haven first, everything else to defensives first
-  function flows(R, st, H) {
-    const hv = st.p.id === 'smh' ? (HAVENS[st.p.haven] || HAVENS.cash).name : null, havenTh = hv ? themeOf((HAVENS[st.p.haven] || HAVENS.cash).t, (HAVENS[st.p.haven] || HAVENS.cash).us) : null;
-    const downs = R.rows.filter((r) => r.d <= -0.02).map((r) => ({ th: r.th, left: -r.d })).sort((x, y) => y.left - x.left);
-    const ups = R.rows.filter((r) => r.d >= 0.005).map((r) => ({ th: r.th, left: r.d }));
-    const pref = (th) => [...ups].sort((x, y) => {
-      const rank = (u) => (th === 'Semiconductors' && u.th === havenTh ? 0 : u.th === 'Defensive' ? 1 : u.th === havenTh ? 2 : 3);
-      return rank(x) - rank(y);
-    });
-    const tick = (th, keepOut) => H.filter((h) => h.value > 0 && themeOf(h.ticker, h.tracks) === th && !(st.keep && st.keep.has(h.ticker)) && !lineFor(h, st.T)).map((h) => h.ticker).filter((t) => !keepOut.includes(t));
-    const planBuys = (th) => st.T.filter((l) => themeOf(l.t, l.us) === th).map((l) => l.t);
-    const out = [];
-    for (const d of downs) {
-      const to = [];
-      for (const u of pref(d.th)) { if (d.left < 0.005) break; const x = Math.min(d.left, u.left); if (x < 0.005) continue; to.push([u.th, x]); u.left -= x; d.left -= x; }
-      const pct_ = to.reduce((s_, [, x]) => s_ + x, 0);
-      if (pct_ < 0.01) continue;
-      const planSell = st.T.some((l) => themeOf(l.t, l.us) === d.th) ? [] : [];
-      const sells = tick(d.th, planSell), buys = [...new Set(to.flatMap(([th]) => planBuys(th).filter((t) => t !== 'CASH')))];
-      const cashOnly = to.every(([th]) => th === 'Cash');
-      out.push({ from: d.th, pct: pct_, to, how: `Sell ${sells.length ? sells.join(', ') : 'part'}` + (buys.length ? ` · buy ${buys.join(', ')}` : '') + (cashOnly ? ' · keep the money in cash' : to.some(([th]) => th === 'Cash') ? ' · rest stays in cash' : '') });
+    if (st.inn == null) { const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'Checking the semis signal…')); if (sig && sig.error) c.appendChild(el('div', 'g-line g-muted', sig.error)); return; }
+    const acts = [...st.orders.filter((o) => o.kind === 'signal' || o.kind === 'reset'), ...swingOrders(H, st)];
+    const real = acts.filter((o) => o.t !== 'CASH'), setup = st.orders.some((o) => o.kind === 'setup' && o.t !== 'CASH');
+    const c = card(box, 'verd ' + (real.length ? 'is-act' : 'is-ok'));
+    const h = c.appendChild(el('div', 'g-verd-h')); h.appendChild(el('span', 'g-verd-dot'));
+    h.appendChild(el('span', '', real.length ? `Act now · ${real.length} order${real.length > 1 ? 's' : ''}` : 'Nothing to do today'));
+    if (real.length) {
+      const list = c.appendChild(el('div', 'g-ords'));
+      for (const o of real) orderRow(list, o, st, H);
+      const toCash = acts.find((o) => o.t === 'CASH' && o.side === 'buy'), fromCash = acts.find((o) => o.t === 'CASH' && o.side === 'sell');
+      c.appendChild(el('div', 'g-hint', (toCash ? `Leave the ${eur(toCash.eur)} in cash until semis are back in trend. ` : fromCash ? `Paid with the ${eur(fromCash.eur)} waiting in cash. ` : '')
+        + `Place ${real.length > 1 ? 'them' : 'it'} on Revolut while the market is open${real.length > 1 ? ', sells first' : ''}. Then send Claude a screenshot.`));
+    } else {
+      c.appendChild(el('div', 'g-line', st.swing ? `Semis are out of trend, but a swing trade in SEC0 is on: hold it until SMH closes above ${f2(st.swing.sellAbove)}.`
+        : setup ? 'No signal. The set-up below has no deadline.' : 'You are on plan and no signal fired.'));
     }
-    return out;
+    c.appendChild(el('div', 'g-verd-next', nextLine(st)));
   }
-
-  // ---- if you add money instead of selling: which sector makes the whole portfolio steadier ----
-  const CANDS = ['XLU', 'XLP', 'XLV', 'XLE', 'XLF', 'XLI', 'XLK', 'XLY', 'XLB', 'XLC', 'TLT', 'SPY', 'QQQ', 'GDX'];
-  const SECTOR = { XLU: 'Utilities', XLP: 'Consumer staples', XLV: 'Health care', XLE: 'Energy', XLF: 'Financials', XLI: 'Industrials', XLK: 'Technology', XLY: 'Consumer discretionary',
-    XLB: 'Materials', XLC: 'Communication', TLT: 'US long bonds', SPY: 'S&P 500', QQQ: 'Nasdaq-100', GDX: 'Gold miners' };
-  const revTicker = (us) => { const r = (window.SR_REVOLUT || []).find((x) => x.us === us); return r ? r.revolut_ticker : us; };
-  function series(sym) { const d = SRApp._store[sym]; if (!d || d.status !== 'ok' || !d.data.length) return null; const m = new Map(); let prev = null; for (const r of d.data) { if (prev) m.set(r.date, r.close / prev - 1); prev = r.close; } return { m, rows: d.data }; }
-  let addCache = { key: '', v: null };
-  function whereToAdd(H, addEur) {
-    const live = H.filter((h) => h.value > 0), total = live.reduce((x, h) => x + h.value, 0);
-    const key = live.map((h) => h.ticker + Math.round(h.value)).join() + '|' + Math.round(addEur) + '|' + (SRApp.state.at || 0);
-    if (addCache.key === key) return addCache.v;
-    const spy = series('SPY'); if (!spy || !total) return null;
-    const dates = [...spy.m.keys()].slice(-252);
-    const hs = live.map((h) => ({ w: h.value / total, s: series(h.tracks) })).filter((x) => x.s);
-    const port = dates.map((dt) => { let r = 0, w = 0; for (const x of hs) { const v = x.s.m.get(dt); if (v != null) { r += x.w * v; w += x.w; } } return w > 0.5 ? r / w : null; });
-    const sd = (a) => { const b = a.filter((x) => x != null); const mu = d3.mean(b); return Math.sqrt(d3.sum(b, (x) => (x - mu) ** 2) / (b.length - 1)) * Math.sqrt(252); };
-    const volNow = sd(port), a = addEur / total, volSpy = sd(dates.map((dt) => spy.m.get(dt) ?? null));
-    const RD = dash.data('rule'), RSI = new Map(RD.status === 'ok' ? RD.data.map((r) => [r.symbol, r.rsi_w]) : []);
-    const res = [];
-    for (const c of CANDS) {
-      const cs = series(c); if (!cs) continue;
-      const mix = dates.map((dt, i) => { const pc = port[i], rc = cs.m.get(dt); return pc == null || rc == null ? null : (pc + a * rc) / (1 + a); });
-      const rows = cs.rows.slice(-253), ret1y = rows.length > 200 ? rows[rows.length - 1].close / rows[0].close - 1 : null;
-      res.push({ us: c, t: revTicker(c), name: SECTOR[c] || c, vol: sd(mix), ret1y, hot: (RSI.get(c) || 0) > 70, held: live.some((h) => h.tracks === c) });
+  function nextLine(st) {
+    if (st.P.signal && sig && !sig.error) {
+      const now = quote('SMH') || sig.close, lvl = sig.inn ? sig.exitAt : sig.backAt;
+      return `Next check: Friday's close. Semis ${sig.inn ? 'go out below' : 'come back above'} SMH ${f0(lvl)} (${pct(lvl / now - 1)} from now).`;
     }
-    res.sort((x, y) => x.vol - y.vol);
-    const v = { volNow, volSpy, a, addEur, res };
-    addCache = { key, v };
-    return v;
-  }
-  function addCard(box, H, st) {
-    const T = totals(H), addEur = st.p.add > 0 ? st.p.add : Math.max(100, Math.round((T.total || 0) * 0.1 / 50) * 50);
-    const W = whereToAdd(H, addEur); if (!W || !W.res.length) return;
-    const c = card(box, 'add', 'Adding money instead of selling?');
-    const best = W.res.filter((r) => !r.hot).slice(0, 3);
-    c.appendChild(el('div', 'g-verdict', `Your portfolio swings ${d3.format('.0%')(W.volNow)} a year, the S&P 500 ${d3.format('.0%')(W.volSpy)}. Each ${eur(addEur)} you add steadies it most here:`));
-    best.forEach((r, k) => {
-      const m = c.appendChild(el('div', 'g-addrow'));
-      m.appendChild(el('span', 'g-rank', String(k + 1)));
-      const n = m.appendChild(el('div', 'g-addn')); n.appendChild(el('b', '', r.t)); n.appendChild(el('span', 'g-muted', r.name));
-      const v = m.appendChild(el('div', 'g-addv'));
-      v.appendChild(el('b', '', `${d3.format('.1%')(W.volNow)} → ${d3.format('.1%')(r.vol)}`));
-      v.appendChild(el('span', 'g-muted', `volatility · last 12 months ${pct(r.ret1y, 0)}`));
-    });
-    const hot = W.res.filter((r) => r.hot).slice(0, 2);
-    c.appendChild(el('div', 'g-hint', `From the last 12 months of daily moves of what you hold.${hot.length ? ' Skipped as overheated: ' + hot.map((r) => r.t).join(', ') + '.' : ''} Lower volatility is the reliable part; past returns don't predict.`));
+    if (st.P.reset) return `Next reset to target: ${nextReset()}.`;
+    return 'Nothing to check: this plan never trades.';
   }
 
-  // ---- swing trades in bear markets (runtime.js SRApp.swing: the tested 2000-2026 rule) ----
-  function swingCard(box, st) {
-    const S = SRApp.swing ? SRApp.swing() : []; if (!S.length) return;
-    if (window.SRLive && window.SRLive.want) window.SRLive.want('swing', S.map((x) => SRApp.idOf(x.us)).filter(Boolean));
-    const c = card(box, 'swing', 'Swing trades');
-    const live = (x) => { const q = window.SRLive && window.SRLive.quotes.get(SRApp.idOf(x.us)); return q ? q.price : null; };
-    const day = (d) => d3.utcFormat('%a %-d %b')(new Date(d + 'T00:00:00Z'));
-    const rows = [], calm = [];
-    for (const x of S) {
-      const px = live(x) || x.close, f = (v) => d3.format(',.2f')(v);
-      if (x.signal && x.signal.type === 'buy') rows.push([0, 'BUY', 'g-buy', x, `Buy at the open: sharp drop on ${day(x.date)} (RSI-2 ${Math.round(x.signal.rsi2)}).`]);
-      else if (x.signal && x.signal.type === 'sell') rows.push([0, 'SELL', 'g-sell', x, `Sell at the open: closed above its 5-day average on ${day(x.date)} (trade ${pct(x.signal.gain)}).`]);
-      else if (x.inTrade) {
-        const hit = px > x.sellAbove;
-        rows.push([1, 'IN', 'g-in', x, `Bought ${day(x.entry.date)} at ${f(x.entry.price)}, now ${pct(px / x.entry.price - 1)}. Sells at a close above ${f(x.sellAbove)}${hit ? ' (above it now: sells if it closes here)' : ` (${pct(x.sellAbove / px - 1)})`}. Day ${x.days + 1} of 10.`]);
-      } else if (x.bear && x.buyBelow) {
-        const hit = px < x.buyBelow;
-        if (!hit && x.buyBelow < 0.92 * px) calm.push(x.name + ' (bear market, no sharp drop yet)');
-        else rows.push([2, 'WATCH', 'g-watch', x, `Buys after a close below ${f(x.buyBelow)}${hit ? ' (below it now: buys if it closes here)' : ` (${pct(x.buyBelow / px - 1)})`}.`]);
-      } else calm.push(x.name);
+  // ---- Today, card 2: holdings outside the plan (no deadline), with what-if ----
+  function setupCard(box, H, st) {
+    const S = st.orders.filter((o) => o.kind === 'setup'); if (!S.length) return;
+    const real = S.filter((o) => o.t !== 'CASH'), sells = real.filter((o) => o.side === 'sell').sort((a, b) => b.eur - a.eur), buys = real.filter((o) => o.side === 'buy'), cash = S.filter((o) => o.t === 'CASH');
+    const moved = sells.reduce((x, o) => x + o.eur, 0) + cash.filter((o) => o.side === 'sell').reduce((x, o) => x + o.eur, 0), fees = real.reduce((x, o) => x + fee(o), 0);
+    const c = card(box, 'setup', 'Set up your plan');
+    c.appendChild(el('div', 'g-line', `${p0(moved / st.total)} of your portfolio (${eur(moved)}) is outside the plan. Moving it takes ${real.length} order${real.length > 1 ? 's' : ''}; fees about ${eur(fees)}. No deadline.`));
+    const tg = c.appendChild(btn(ui.setupOpen ? 'Hide the orders' : `Show the ${real.length} orders`, ui.setupOpen ? '' : 'primary', () => { ui.setupOpen = !ui.setupOpen; SRApp.renderDraw('today'); }));
+    tg.setAttribute('aria-expanded', String(ui.setupOpen));
+    if (ui.setupOpen) {
+      const list = c.appendChild(el('div', 'g-ords'));
+      for (const o of [...sells, ...cash.filter((x) => x.side === 'sell'), ...buys, ...cash.filter((x) => x.side === 'buy')]) orderRow(list, o, st, H, 'compact');
+      const own = sells.filter((o) => !o.line);
+      if (own.length) {
+        c.appendChild(el('div', 'g-sec', 'What if I keep…'));
+        const chips = c.appendChild(el('div', 'g-chips'));
+        for (const o of own) { const b = chips.appendChild(el('button', 'g-chip g-toggle', o.t)); b.type = 'button'; b.addEventListener('click', () => { const q = plan(), k = keepSet(q, H); k.add(o.t); q.keep = [...k]; savePlan(q); toast(`${o.t} kept. Orders updated.`); }); }
+        c.appendChild(el('div', 'g-hint', 'Tap one and the orders are recalculated without it. Tap an order for the why and the fee. Sell first, then buy with the proceeds.'));
+      }
     }
-    rows.sort((u, v) => u[0] - v[0]);
-    for (const [, pill, cls, x, text] of rows) {
-      const r = c.appendChild(el('button', 'g-swrow')); r.type = 'button'; r.addEventListener('click', () => SR.open && SR.open(x.us));
-      const h = r.appendChild(el('div', 'g-swh'));
-      h.appendChild(el('span', 'g-pill ' + cls, pill)); h.appendChild(el('b', '', x.t)); h.appendChild(el('span', 'g-muted', x.name));
-      r.appendChild(el('div', 'g-swt', text));
+    const kept = [...st.keep].filter((t) => H.some((h) => h.ticker === t && h.value > 0));
+    if (kept.length) {
+      const kk = c.appendChild(el('div', 'g-keep')); kk.appendChild(el('span', 'g-muted', 'Kept outside the plan:'));
+      for (const t of kept) { const b = kk.appendChild(el('button', 'g-chip g-toggle is-on', t + ' ✕')); b.type = 'button'; b.setAttribute('aria-label', `Stop keeping ${t}`); b.addEventListener('click', () => { const q = plan(), k = keepSet(q, H); k.delete(t); q.keep = [...k]; savePlan(q); toast(`${t} is back in the set-up.`); }); }
     }
-    if (!rows.length) c.appendChild(el('div', 'g-line g-muted', 'No swing setups: none of these funds is in a bear market.'));
-    if (calm.length) c.appendChild(el('div', 'g-hint', 'No setup now: ' + calm.join(', ') + '.'));
-    const waiting = st.P && st.p.id === 'smh' && st.inn === false ? (st.cur.CASH || 0) : 0;
-    c.appendChild(el('div', 'g-hint', (waiting > 50 ? `Size: up to the ${eur(waiting)} waiting in cash for semis. ` : '') + 'Rule: while a fund is below its 200-day average, buy after a very sharp drop (RSI-2 below 5); sell at the first close above the 5-day average, or after 10 days. Audited Nov 2026: it only works if you trade at the next Xetra open (09:00); a day late, the gain is gone. After fees and tax it adds little (0 to 1.5 points a year in the test), and these 7 funds were picked knowing they bounced best. Optional.'));
-  }
-  function signalRow(box) {
-    if (!sig || sig.error) return;
-    const now = smhNow(), ref = now || sig.close, lvl = sig.inn ? sig.exitAt : sig.backAt, gap = lvl / ref - 1;
-    const r = box.appendChild(el('button', 'g-sigrow')); r.type = 'button'; r.addEventListener('click', () => SR.open && SR.open('SMH'));
-    r.appendChild(el('span', 'g-pill ' + (sig.inn ? 'g-in' : 'g-out'), sig.inn ? 'Semis IN' : 'Semis OUT'));
-    r.appendChild(el('span', 'g-sigrow-t', sig.inn ? `Out below ${d3.format(',.0f')(lvl)} (${pct(gap)})` : `Back in above ${d3.format(',.0f')(lvl)} (${pct(gap)})`));
-    r.appendChild(el('span', 'g-muted', 'Friday close · SMH'));
   }
 
-  // ---- "What to do": at most three direct lines ----
-  function actionCard(box, H, st) {
-    const items = [];
-    const S = SRApp.swing ? SRApp.swing() : [], f0 = (v) => d3.format(',.0f')(v);
-    const holds = (t) => H.some((h) => h.value > 0 && (h.ticker === t || (t === 'SEC0' && h.tracks === 'SMH')));
-    for (const x of S) {
-      if (x.signal && x.signal.type === 'sell' && holds(x.t)) items.push(['now', `<b>Sell ${x.t}</b> at tomorrow's open: the swing trade is over.`]);
-      else if (x.signal && x.signal.type === 'buy') items.push(['now', `<b>Buy ${x.t}</b> at tomorrow's open: sharp drop, swing entry.`]);
-      else if (x.inTrade && holds(x.t)) items.push(['tonight', `If ${x.us} closes <b>above ${f0(x.sellAbove)}</b> tonight, <b>sell ${x.t}</b> tomorrow. Otherwise keep it.`]);
-      else if (x.bear && x.buyBelow) { const q = window.SRLive && window.SRLive.quotes.get(SRApp.idOf(x.us)); if (q && q.price < x.buyBelow) items.push(['tonight', `If ${x.us} closes <b>below ${f0(x.buyBelow)}</b> tonight, <b>buy ${x.t}</b> tomorrow.`]); }
+  // ---- Today, card 3: the levels that would change the answer ----
+  function watchCard(box, H, st) {
+    const rows = [];
+    if (st.P && st.P.signal && sig && !sig.error) {
+      const now = quote('SMH') || sig.close, lvl = sig.inn ? sig.exitAt : sig.backAt;
+      rows.push(['SMH', sig.inn ? 'IN' : 'OUT', sig.inn ? 'g-in' : 'g-out', `Semis: ${sig.inn ? 'out' : 'back in'} at a Friday close ${sig.inn ? 'below' : 'above'} ${f0(lvl)}`, pct(lvl / now - 1)]);
     }
-    if (st.actions && st.actions.length) {
-      const steps = splitOrders(st.actions[0], H);
-      const line = (p) => `<b>Sell ${p.sells.map((o) => o.t).join(', ')}</b> (${eur(p.total)}) → <b>buy ${p.buys.map((o) => `${o.t} ${eur(o.eur)}`).join(', ')}</b>${p.cash ? `, keep ${eur(p.cash)} cash` : ''}.`;
-      items.push(['week', 'This week: ' + line(steps[0])]);
-      if (steps[1]) items.push(['later', 'Later, when ready: ' + line(steps[1])]);
-    } else if (!st.P) items.push(['week', 'Choose a plan in <b>Plan</b> to get your rotation steps.']);
-    const c = card(box, "do g-docard", items.length ? 'What to do' : '✓ Nothing to do today');
-    if (!items.length) { c.appendChild(el('div', 'g-line g-muted', 'No signal and no rotation step. The app notifies you when that changes.')); return; }
-    const ol = c.appendChild(el('ol', 'g-do'));
-    const TAG = { now: 'Now', tonight: 'Tonight', week: 'This week', later: 'Later' };
-    for (const [k, html] of items.slice(0, 4)) {
-      const li = ol.appendChild(el('li', 'g-do-i'));
-      li.appendChild(el('span', 'g-do-t g-do-' + k, TAG[k]));
-      const t = li.appendChild(el('span', 'g-do-x')); t.innerHTML = html.replace(/^This week: |^Later, when ready: /, '');
+    if (st.P && st.swingOn && SRApp.swing) {
+      const S = SRApp.swing();
+      if (window.SRLive && window.SRLive.want) window.SRLive.want('swing', S.map((x) => SRApp.idOf(x.us)).filter(Boolean));
+      for (const x of S) {
+        const px = quote(x.us) || x.close, held = H.some((h) => h.value > 0 && h.ticker === x.t);
+        if (x.inTrade && held) rows.push([x.us, 'SWING', 'g-watch', `${x.t}: sell after a close of ${x.us} above ${f2(x.sellAbove)} (day ${x.days + 1} of 10)`, pct(x.sellAbove / px - 1)]);
+        else if (!x.inTrade && x.bear && x.buyBelow && px / x.buyBelow - 1 < 0.03) rows.push([x.us, 'SWING', 'g-watch', `${x.t}: buy signal after a close of ${x.us} below ${f2(x.buyBelow)}`, pct(x.buyBelow / px - 1)]);
+      }
     }
-    if (st.actions && st.actions.length) { const b = c.appendChild(el('button', 'g-link', 'Exact orders below ↓')); b.type = 'button'; b.addEventListener('click', () => { const e = box.querySelector('.g-steps'); if (e) e.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); }
+    if (st.P && st.P.reset) rows.push([null, 'RESET', 'g-watch', `Back to target on ${nextReset()}`, '']);
+    if (!rows.length) return;
+    const c = card(box, 'watchc', 'What would change this');
+    for (const [us, pill, cls, text, gap] of rows) {
+      const r = c.appendChild(el('button', 'g-wrow')); r.type = 'button'; if (us) r.addEventListener('click', () => SR.open && SR.open(us));
+      r.appendChild(el('span', 'g-pill ' + cls, pill)); r.appendChild(el('span', 'g-wrow-t', text)); r.appendChild(el('b', 'g-wrow-g', gap));
+    }
+  }
+
+  // ---- Today, card 4: new money, as a slider (buys only: no sale, no tax) ----
+  function moneyOrders(st, add) {
+    if (!st.T || add <= 0) return [];
+    const need = st.T.map((l) => Math.max(0, (st.size + add) * l.w - (st.cur[l.t] || 0))), tot = need.reduce((x, y) => x + y, 0) || 1;
+    return st.T.map((l, i) => ({ side: 'buy', t: l.t, line: l, kind: 'money', eur: Math.round(add * need[i] / tot / 10) * 10, target: (st.size + add) * l.w, held: st.cur[l.t] || 0 })).filter((o) => o.eur >= 10).sort((a, b) => (a.t === 'CASH') - (b.t === 'CASH') || b.eur - a.eur);
+  }
+  function moneyCard(box, H, st) {
+    if (!st.T) return;
+    const c = card(box, 'money', 'Adding money?');
+    if (!ui.moneyOpen) {
+      c.appendChild(el('div', 'g-line g-muted', 'See what to buy with new money: no sale, so no tax.'));
+      c.appendChild(btn('Try an amount', '', () => { ui.moneyOpen = true; SRApp.renderDraw('today'); })); return;
+    }
+    const head = c.appendChild(el('div', 'g-slide-h')), amt = head.appendChild(el('b', 'g-slide-v', eur(ui.add)));
+    const x = head.appendChild(el('button', 'g-link', 'close')); x.type = 'button'; x.addEventListener('click', () => { ui.moneyOpen = false; SRApp.renderDraw('today'); });
+    const sl = c.appendChild(el('input', 'g-slider')); sl.type = 'range'; sl.min = '0'; sl.max = '3000'; sl.step = '50'; sl.value = String(ui.add); sl.setAttribute('aria-label', 'Amount to add, in euros');
+    const out = c.appendChild(el('div', 'g-ords')), note = c.appendChild(el('div', 'g-hint'));
+    const paint = () => {
+      out.replaceChildren(); amt.textContent = eur(ui.add);
+      const O = moneyOrders(st, ui.add), tot = { ...st, total: st.total + ui.add };
+      for (const o of O) orderRow(out, o, tot, H, 'quiet');
+      const v0 = mixVol(partsNow(H)), v1 = mixVol([...partsNow(H), ...O.map((o) => ({ sym: o.line.us || 'CASH', eur: o.eur }))]);
+      note.textContent = !ui.add ? 'Move the slider.' : (v0 && v1 ? `Your portfolio's swings: ${p0(v0)} a year → ${p0(v1)}. ` : '') + 'Goes to the plan lines furthest below target. Orders under €400 pay the €1 minimum fee.';
+    };
+    sl.addEventListener('input', () => { ui.add = +sl.value; paint(); });
+    sl.addEventListener('pointerdown', () => { ui.busy = true; }); sl.addEventListener('pointerup', () => { ui.busy = false; }); sl.addEventListener('pointercancel', () => { ui.busy = false; });
+    paint();
   }
 
   // ---- Today ----
@@ -476,44 +424,59 @@
       const c = card(box, 'warn', 'Connect eToro for live prices');
       c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings()));
     }
-    if (st.P && st.p.id === 'smh' && !sig) loadSignal();
-    actionCard(box, H, st);
-    rotationCard(box, H, st);
-    swingCard(box, st);
-    if (st.P && st.p.id === 'smh') signalRow(box);
-    addCard(box, H, st);
-    const PT = planTickers(st.p), KS = st.keep || new Set();
-    const hot = H.filter((h) => h.overheated && !(st.P && (PT.has(h.ticker) || !KS.has(h.ticker))));
-    if (hot.length) {
-      const c = card(box, 'watch', 'Overheated: don\'t add');
-      const chips = c.appendChild(el('div', 'g-chips'));
-      for (const h of hot) { const b2 = chips.appendChild(el('button', 'g-chip g-chip-hot', h.ticker)); b2.type = 'button'; b2.addEventListener('click', () => openHolding(h)); }
-    }
+    if (st.P && st.P.signal && !sig) loadSignal();
+    verdictCard(box, H, st);
+    setupCard(box, H, st);
+    watchCard(box, H, st);
+    moneyCard(box, H, st);
   });
-  function planBars(c, st) {
-    if (!st.T) { c.appendChild(el('div', 'g-line g-muted', 'Waiting for the semis signal…')); return; }
-    for (const x of st.T) {
-      const share = st.size ? (st.cur[x.t] || 0) / st.size : 0;
-      const r = c.appendChild(el('div', 'g-bar'));
-      r.appendChild(el('span', 'g-bar-l', x.t));
-      const tr = r.appendChild(el('span', 'g-bar-track'));
-      const f = tr.appendChild(el('span', 'g-bar-fill')); f.style.width = Math.min(100, share * 100) + '%';
-      const tg = tr.appendChild(el('span', 'g-bar-target')); tg.style.left = x.w * 100 + '%';
-      r.appendChild(el('span', 'g-bar-v', `${d3.format('.0%')(share)} / ${d3.format('.0%')(x.w)}`));
-    }
-  }
 
-  // ---- Portfolio ----
+  // ---- Portfolio: now against the plan, then every holding (tap for why) ----
+  function bucketBars(c, H, st) {
+    const live = H.filter((h) => h.value > 0), tot = st.total || 1, now = [], tgt = [];
+    let kept = 0, out = 0;
+    for (const h of live) { if (st.keep.has(h.ticker)) kept += h.value; else if (!lineFor(h, st.T)) out += h.value; }
+    for (const l of st.T) { now.push([l.t, (st.cur[l.t] || 0) / tot]); tgt.push([l.t, st.size * l.w / tot]); }
+    now.push(['OUT', out / tot], ['KEPT', kept / tot]); tgt.push(['KEPT', kept / tot]);
+    const bar = (label, segs) => {
+      const r = c.appendChild(el('div', 'g-stack-row')); r.appendChild(el('span', 'g-stack-l', label));
+      const b = r.appendChild(el('div', 'g-stackbar'));
+      for (const [k, w] of segs) if (w > 0.004) { const s = b.appendChild(el('span')); s.style.width = w * 100 + '%'; s.style.background = COLOR[k] || '#94a3b8'; s.title = `${k} ${p0(w)}`; }
+    };
+    bar('Now', now); bar('Plan', tgt);
+    const lg = c.appendChild(el('div', 'g-legend'));
+    const seen = new Map(); for (const [k, w] of [...now, ...tgt]) seen.set(k, Math.max(seen.get(k) || 0, w));
+    for (const [k, w] of seen) if (w > 0.004) { const s = lg.appendChild(el('span')); const i = s.appendChild(el('i', 'g-dot')); i.style.background = COLOR[k] || '#94a3b8'; s.appendChild(document.createTextNode(' ' + (k === 'OUT' ? 'Outside the plan' : k === 'KEPT' ? 'Kept' : k === 'CASH' ? 'Cash' : k))); }
+  }
+  function holdingSheet(h, st, H) {
+    const line = st.T ? lineFor(h, st.T) : null, kept = st.keep.has(h.ticker);
+    sheet(`${h.ticker} · ${eur(h.value)}`, (s) => {
+      s.appendChild(el('div', 'g-sheet-lead', `${nameOf(h.ticker, H) || h.name || h.ticker}${h.tracks && h.tracks !== h.ticker ? ` (follows ${h.tracks})` : ''}`));
+      kv(s, 'Share', `${p0(h.value / (st.total || 1))} of your portfolio${h.chg != null ? ` · ${pct(h.chg)} today` : ''}`);
+      if (st.P) kv(s, 'In the plan', kept ? 'Kept outside the plan: the app never asks you to sell it.' : line ? `Plan line ${line.t}: target ${eur(st.size * line.w)}, you hold ${eur(st.cur[line.t] || 0)}.` : st.T && lineFor(h, allLines(st.p)) ? 'Part of the plan, but its signal is off: Today asks you to sell it.' : `Outside “${st.P.name}”: the set-up on Today would sell it. No deadline.`);
+      if (h.overheated) kv(s, 'Flag', 'Overheated (weekly RSI above 70): in the tests, sector funds earned less over the next 3 months. Don\'t add.');
+      const row = s.appendChild(el('div', 'g-btns'));
+      if (st.P && !line) row.appendChild(btn(kept ? 'Let the plan use it' : `Keep ${h.ticker}`, 'primary', () => { const q = plan(), k = keepSet(q, H); if (kept) k.delete(h.ticker); else k.add(h.ticker); q.keep = [...k]; closeSheet(); savePlan(q); toast(kept ? `${h.ticker} is back in the set-up.` : `${h.ticker} kept.`); }));
+      row.appendChild(btn('Open chart', '', () => { closeSheet(); openHolding(h); }));
+    });
+  }
   dash.draw('pfolio', (box) => {
-    const H = holdings().filter((h) => h.value > 0).sort((a, b) => b.value - a.value), T = totals(H);
-    const pst = planState(holdings()), PTs = planTickers(pst.p);
+    const all = holdings(), H = all.filter((h) => h.value > 0).sort((a, b) => b.value - a.value), T = totals(H), st = planState(all);
     box.replaceChildren();
     hero(box, H);
+    if (st.T && st.size > 0) {
+      const c = card(box, 'mix', 'Now against your plan');
+      bucketBars(c, all, st);
+      const v0 = mixVol(partsNow(all)), v1 = mixVol(partsPlan(all, st)), vs = mixVol([{ sym: 'SPY', eur: 1 }]);
+      if (v0 && vs) c.appendChild(el('div', 'g-line g-vol', `Swings over the last 12 months: ${p0(v0)} a year now${v1 ? `, ${p0(v1)} on plan` : ''}. S&P 500: ${p0(vs)}.`));
+    } else if (!st.P) {
+      const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan', 0)));
+    }
     const list = box.appendChild(el('div', 'g-list'));
     const max = d3.max(H, (h) => h.value) || 1;
     for (const h of H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
-      r.addEventListener('click', () => openHolding(h));
+      r.addEventListener('click', () => holdingSheet(h, st, all));
       const a = r.appendChild(el('div', 'g-row-a'));
       a.appendChild(el('b', '', h.ticker));
       a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : '')));
@@ -524,49 +487,45 @@
       v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.0005 ? 'up' : h.chg <= -0.0005 ? 'down' : ''), h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg)));
       const tags = r.appendChild(el('div', 'g-row-tags'));
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
-      if (pst.P) {
-        if (pst.keep && pst.keep.has(h.ticker)) tags.appendChild(el('span', 'g-chip', 'Keep'));
-        else if (pst.T ? lineFor(h, pst.T) : PTs.has(h.ticker)) tags.appendChild(el('span', 'g-chip g-chip-plan', 'Plan'));
-        else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Sell'));
+      if (st.P) {
+        if (st.keep.has(h.ticker)) tags.appendChild(el('span', 'g-chip', 'Kept'));
+        else if (st.T ? lineFor(h, st.T) : planTickers(st.p).has(h.ticker)) tags.appendChild(el('span', 'g-chip g-chip-plan', 'Plan'));
+        else if (st.T && lineFor(h, allLines(st.p))) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Signal: sell'));
+        else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Outside'));
       }
-      tags.appendChild(el('span', 'g-muted', T.total ? d3.format('.0%')(h.value / T.total) : ''));
+      tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
     }
     if (!H.length) list.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));
     const row = box.appendChild(el('div', 'g-btns'));
     row.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
   });
 
-  // ---- Plan ----
+  // ---- Plan: three choices with the same three numbers, then your switches ----
   dash.draw('plan', (box) => {
-    const p = plan(), R = dash.data('study_rules'), rows = R.status === 'ok' ? R.data : [], H = holdings(), st = planState(H);
-    const S = (k) => rows.find((r) => r.key === k);
-    const nums = (parent, s) => {
-      const n = parent.appendChild(el('div', 'g-plan-n'));
-      for (const [v, lab] of [[pct(s.cagr_tax != null ? s.cagr_tax : s.cagr), s.cagr_tax != null ? 'a year after tax' : 'a year'], [d3.format('.1%')(s.vol), 'volatility'], [pct(s.max_dd), 'worst drop']]) { const d = n.appendChild(el('div')); d.appendChild(el('b', '', v)); d.appendChild(el('span', '', lab)); }
-    };
+    const p = plan(), H = holdings(), st = planState(H);
     box.replaceChildren();
     box.appendChild(el('h2', 'g-h2', 'Your plan'));
-    box.appendChild(el('p', 'g-muted g-sub', 'Pick one. Today then lists what to sell and buy on Revolut, starting from what you hold.'));
+    box.appendChild(el('p', 'g-muted g-sub', 'Pick one. Today then says each day whether to act. Numbers: 2000–2026, after 0.35% per order and 31.4% French tax.'));
     const grid = box.appendChild(el('div', 'g-plans'));
     const opt = (id, name, line, k) => {
       const b = grid.appendChild(el('button', 'g-plan' + (p.id === id ? ' is-on' : ''))); b.type = 'button'; b.setAttribute('aria-pressed', String(p.id === id));
       const h = b.appendChild(el('div', 'g-plan-h')); h.appendChild(el('b', '', name)); if (p.id === id) h.appendChild(el('span', 'g-pill g-in', 'Selected'));
       b.appendChild(el('div', 'g-plan-l', line));
-      const s = k && S(k); if (s) nums(b, s);
+      const s = k && study(k);
+      if (s) {
+        const n = b.appendChild(el('div', 'g-plan-n'));
+        for (const [v, lab] of [[pct(s.cagr_tax != null ? s.cagr_tax : s.cagr), 'a year after tax'], [pct(s.max_dd, 0), 'worst drop'], [s.orders != null ? f0(s.orders) : '—', 'orders a year']]) { const d = n.appendChild(el('div')); d.appendChild(el('b', '', v)); d.appendChild(el('span', '', lab)); }
+      }
       b.addEventListener('click', () => { const q = plan(); q.id = id; savePlan(q); if (id === 'smh') loadSignal(); });
     };
-    for (const id of ['smh', 'core']) opt(id, PLANS[id].name, PLANS[id].line, PLANS[id].study(p));
+    for (const id of ['smh', 'core', 'spx']) opt(id, PLANS[id].name, PLANS[id].line, PLANS[id].study);
     opt(null, 'No plan', 'Just track my holdings and the market.', null);
-    const spy = S('spy');
-    if (spy) box.appendChild(el('p', 'g-muted g-sub', `S&P 500 just held, same test: ${pct(spy.cagr_tax != null ? spy.cagr_tax : spy.cagr)} a year after tax, volatility ${d3.format('.1%')(spy.vol)}, worst drop ${pct(spy.max_dd)}. June 2000 – Nov 2026, after 0.35% per order and 31.4% French tax on gains. Past results, not a promise.`));
+    box.appendChild(el('p', 'g-muted g-sub', 'Past results, not a promise. The reliable difference between them is the size of the drops, not the return.'));
     if (!st.P) return;
-    // what stays outside the plan
-    const PT = planTickers(p), keep = keepSet(p, H);
-    const own = H.filter((h) => h.value > 0 && !PT.has(h.ticker));
+    const PT = planTickers(p), keep = keepSet(p, H), own = H.filter((h) => h.value > 0 && !PT.has(h.ticker));
     if (own.length) {
-      const kc = box.appendChild(el('div', 'g-card'));
-      kc.appendChild(el('div', 'g-card-t', 'Keep outside the plan'));
-      kc.appendChild(el('div', 'g-line g-muted', 'Tap to keep. Everything not kept is sold into the plan.'));
+      const kc = card(box, 'keepc', 'Keep outside the plan');
+      kc.appendChild(el('div', 'g-line g-muted', 'Tap to keep. What is not kept is what the set-up on Today moves into the plan.'));
       const chips = kc.appendChild(el('div', 'g-chips'));
       for (const h of own) {
         const on = keep.has(h.ticker), b = chips.appendChild(el('button', 'g-chip g-toggle' + (on ? ' is-on' : ''), (on ? '✓ ' : '') + h.ticker)); b.type = 'button';
@@ -574,15 +533,14 @@
         b.addEventListener('click', () => { const q = plan(), k = keepSet(q, H); if (k.has(h.ticker)) k.delete(h.ticker); else k.add(h.ticker); q.keep = [...k]; savePlan(q); });
       }
     }
-    const money = box.appendChild(el('div', 'g-card g-money'));
-    money.appendChild(el('div', 'g-card-t', 'New money'));
-    const f = money.appendChild(el('div', 'g-field'));
-    const inp = f.appendChild(el('input')); inp.id = 'g-add'; inp.type = 'number'; inp.min = '0'; inp.step = '50'; inp.inputMode = 'decimal'; inp.placeholder = 'Amount to add, €';
-    if (p.add > 0) inp.value = String(p.add);
-    f.appendChild(btn('Save', 'primary', () => { const q = plan(); q.add = Math.max(0, parseFloat(String(inp.value).replace(',', '.')) || 0); savePlan(q); if (q.add > 0) { toast('Your steps are on Today.'); go('today'); } }));
-    const tc = box.appendChild(el('div', 'g-card'));
-    tc.appendChild(el('div', 'g-card-t', `What to hold · ${eur(st.size)}`));
-    if (p.id === 'smh') tc.appendChild(el('div', 'g-line g-muted', st.inn == null ? 'Checking the semis signal…' : st.inn ? 'Semis are IN: that half sits in SEC0.' : `Semis are OUT: that half waits in ${(HAVENS[p.haven] || HAVENS.cash).name.toLowerCase()}.`));
+    if (p.id !== 'spx') {
+      const sc = card(box, 'swingc', 'Swing trades'), on = p.swing !== false;
+      sc.appendChild(el('div', 'g-line g-muted', 'Optional. Buys sharp drops in a downtrend with the cash waiting for semis, for a few days. In the audit it added 0 to 1.5 points a year after fees and tax, and only when traded at the 09:00 open.'));
+      const b = sc.appendChild(el('button', 'g-switch' + (on ? ' is-on' : ''), on ? 'On: swing signals count on Today' : 'Off: plan signals only')); b.type = 'button'; b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', String(on));
+      b.addEventListener('click', () => { const q = plan(); q.swing = !on; savePlan(q); });
+    }
+    const tc = card(box, 'hold', `What to hold · ${eur(st.size)}`);
+    if (p.id === 'smh') tc.appendChild(el('div', 'g-line g-muted', st.inn == null ? 'Checking the semis signal…' : st.inn ? 'Semis are IN: that half sits in SEC0.' : st.swing ? 'Semis are OUT, but a swing trade in SEC0 is on.' : 'Semis are OUT: that half waits in cash.'));
     if (st.T) {
       const t = tc.appendChild(el('table', 'g-table'));
       t.innerHTML = '<thead><tr><th>Revolut</th><th></th><th class="num">Target</th><th class="num">You hold</th></tr></thead>';
@@ -600,8 +558,8 @@
   });
 
   // live: Today and Portfolio follow the prices (every 10 s while open); the semis signal every 30 minutes
-  setInterval(() => { if (document.hidden) return; SRApp.renderDraw('today'); SRApp.renderDraw('pfolio'); }, 10000);
+  setInterval(() => { if (document.hidden || ui.busy) return; SRApp.renderDraw('today'); SRApp.renderDraw('pfolio'); }, 10000);
   setInterval(() => { if (!document.hidden && plan().id === 'smh') loadSignal(); }, 5 * 60000);
   SRApp.onChange(() => { if (plan().id === 'smh') { if (window.SRLive && window.SRLive.want) window.SRLive.want('guide', [SMH_ID]); loadSignal(); } });
-  window.SRGuide = { PLANS, planState: () => planState(holdings()), signal: () => sig, computeSignal, weekEnd };
+  window.SRGuide = { PLANS, planState: () => planState(holdings()), swingOrders: () => { const H = holdings(); return swingOrders(H, planState(H)); }, signal: () => sig, computeSignal, weekEnd };
 })();
