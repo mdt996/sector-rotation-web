@@ -22,7 +22,7 @@
     for (const [sym, id] of SRApp.DATASETS) if (!seen.has(sym) && sym !== 'EURUSD' && ok(sym)) { seen.add(sym); U.push({ sym, id, name: names.get(sym) || '', group: 'Funds', rows: ok(sym) }); }
     return U;
   }
-  // the world board's daily candles are kept 2 hours on the device (the live price still updates the last candle): reopening the app does not spend 15 of eToro's 60 reads a minute
+  // the world board's daily candles are kept 2 hours on the device (the live price still updates the last candle): reopening the app does not spend 15 of eToro's 120 reads a minute
   const WB = 'sr.wb2', TTL = 2 * 3600e3;
   const failAt = new Map();
   function keep(sym) { try { const all = JSON.parse(localStorage.getItem(WB) || '{}'); all[sym] = { at: Date.now(), r: extra.get(sym).map((x) => [x.date, x.open, x.high, x.low, x.close]) }; localStorage.setItem(WB, JSON.stringify(all)); } catch (e) { /* storage full: asked again next time */ } }
@@ -136,7 +136,7 @@
     P(`3. The record, on cases the model had never seen (it was fitted on the years before each 3-year block since 1999, then judged on the block; ${n(D1.bars)} days of ${D1.assets} assets). "Worked" = up 2 ATR before down 2 ATR within 20 candles, buying at the next open.`);
     const t = d.appendChild(el('div', 'sc-howt')); t.appendChild(el('b', '', 'Candles')); t.appendChild(el('b', 'sc-n', 'Buy signals')); t.appendChild(el('b', 'sc-n', 'Any candle'));
     for (const k of ['1D', '4H', '1H', '30m', '1W']) { const x = S[k]; if (!x || !x.buy) continue; t.appendChild(el('span', '', k + (x.ok ? '' : ' (not reliable)'))); t.appendChild(el('span', 'sc-n', p1(x.buy.win))); t.appendChild(el('span', 'sc-n', p1(x.buy.base))); }
-    P('On 4-hour and 1-hour candles the daily model was applied as it is, including to 40 assets it had never seen. On 30-minute and weekly candles its edge was not steady: signals there are drawn hollow.');
+    P('On 4-hour and 1-hour candles: the daily model fitted up to October 2023, judged on candles from December 2023, including 40 assets it had never seen. On 30-minute and weekly candles its edge was not steady: signals there are drawn hollow.' + (S['1Dx'] && S['1Dx'].buy ? ` On daily candles of 40 assets it had never seen, from 2013 (model fitted to 2012): ${p1(S['1Dx'].buy.win)} against ${p1(S['1Dx'].buy.base)}.` : ''));
     if (S.drivers) P(`4. What the model mostly buys: a pullback inside a longer rise. The typical signal is just under its 50-day average, above a rising 200-day average, RSI in the mid-40s. Buying at a 1-year high did worse than buying on any day (${p1(S.drivers.list[4].win)} against ${p1(S.drivers.any)}), and so did buying after a steep rise of the 200-day average (${p1(S.drivers.list[5].win)}).`);
     P('5. What did not help when tested the same way, and is not used: sell signals (the model\'s best sell scores worked 47.3% against 47.4% on any day), the market\'s own state (from 14 points worse in 2008-2010 to 16 better in 2011-2013), an asset\'s own past record (no link between before and after 2015), counting how many signals agree, and reward to risk. The sell side of a buy is its stop, its target or 20 candles.');
     P('The edge is small: about 57% against 54%. Four signals in ten fail, which is why each comes with a stop. Analysis, not advice.');

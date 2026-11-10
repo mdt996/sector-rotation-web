@@ -104,7 +104,10 @@
   // GitHub's usual answer carries the file only up to 1 MB: the raw form is asked for, which has no such limit (the scan's ranking grows with its list of assets)
   async function getFile(name) {
     const t = token(); if (!t) return null;
-    const r = await SRApp.request('GET', API.replace(/settings\.json$/, name) + '?t=' + Date.now(), { ...headers(t), Accept: 'application/vnd.github.raw+json' });
+    // the candle files live on their own branch ("packs": one commit, replaced when they are rewritten, so the repository does not grow); the main branch is tried if a file is not there
+    const url = API.replace(/settings\.json$/, name) + '?t=' + Date.now(), hd = { ...headers(t), Accept: 'application/vnd.github.raw+json' };
+    let r = await SRApp.request('GET', url + (/^packs\//.test(name) ? '&ref=packs' : ''), hd);
+    if (r.status === 404 && /^packs\//.test(name)) r = await SRApp.request('GET', url, hd);
     if (r.status !== 200) return null;
     const j = JSON.parse(r.body);
     return j && typeof j.content === 'string' && j.encoding === 'base64' && j.sha ? JSON.parse(b64d(j.content)) : j;   // the usual answer, if the raw form was not given

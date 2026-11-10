@@ -38,7 +38,7 @@
     const key = [...allIds()].sort().join(',');
     if (key !== lastIds) { lastIds = key; clearTimeout(soon); soon = setTimeout(poll, 250); streamSync(); }
     streamOpen();
-    if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, streaming() ? 30000 : views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 34 ? 4000 : POLL_MS); }; loop(); }   // with the stream alive, one read every 30 s is enough (currency conversion);   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
+    if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, streaming() ? 30000 : views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 68 ? 4000 : POLL_MS); }; loop(); }   // with the stream alive, one read every 30 s is enough (currency conversion);   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
   }
   function allIds() { const s = new Set([FX]); for (const set of wanted.values()) for (const i of set) s.add(i); return s; }
   async function poll() {
@@ -150,7 +150,7 @@
     const fkey = key + '/' + count;
     if (flying.has(fkey)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/`); return flying.get(fkey); }   // already on its way: the screen's need moves it to the front
     const job = (async () => {
-      if (enough && now - hit.fullAt < 7 * 864e5) {   // only the candles since the last one kept
+      if (enough && now - hit.fullAt < 10 * 864e5) {   // only the candles since the last one kept
         const lastT = hit.rows[hit.rows.length - 1].t, n = Math.max(5, Math.ceil((now - lastT) / ((SEC[interval] || 86400) * 1000)) + 3);
         if (n < count) {
           const fresh = await fetchRows(id, interval, n, prio), byT = new Map(hit.rows.map((r) => [r.t, r]));
@@ -573,8 +573,8 @@
     async function load(fit) {
       if (!hasKeys()) { header(); return; }
       box.classList.add('is-loading'); if (retryBtn) retryBtn.hidden = true; lastLoad = null;
-      // while waiting: say so when eToro's limit of 60 reads a minute is the reason
-      const waiting = setInterval(() => { const st = SRApp.etoroState ? SRApp.etoroState() : null; if (st && st.wait > 0 && !dead) sub.textContent = `eToro allows 60 requests a minute and the limit is reached: the chart loads in about ${st.wait} s.`; }, 500);
+      // while waiting: say so when eToro's limit of 120 reads a minute is the reason
+      const waiting = setInterval(() => { const st = SRApp.etoroState ? SRApp.etoroState() : null; if (st && st.wait > 0 && !dead) sub.textContent = `eToro allows 120 requests a minute and the limit is reached: the chart loads in about ${st.wait} s.`; }, 500);
       let d, pc, rows, shown = false; const mine = ++loadSeq, t0 = Date.now();
       const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); } catch (e) { drawErr = String((e && e.message) || e).slice(0, 80); if (window.console) console.error(e); } try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
       try {
@@ -596,7 +596,7 @@
         clearInterval(waiting); box.classList.remove('is-loading');
         if (dead || mine !== loadSeq) return;
         if (shown) { sub.textContent = `Shown from this device; eToro did not answer (${e.status || 'no connection'}).`; return; }   // the kept chart stays
-        failed(e.status === 429 ? 'eToro allows 60 requests a minute and the limit is still reached. Trying again shortly.' : e.status === 401 || e.status === 403 ? `eToro refused the keys (${e.status}). Check them in Settings.` : `eToro did not answer (${e.status || 'no connection'}).`, !(e.status === 401 || e.status === 403));
+        failed(e.status === 429 ? 'eToro allows 120 requests a minute and the limit is still reached. Trying again shortly.' : e.status === 401 || e.status === 403 ? `eToro refused the keys (${e.status}). Check them in Settings.` : `eToro did not answer (${e.status || 'no connection'}).`, !(e.status === 401 || e.status === 403));
         return;
       }
       if (mine !== loadSeq) { clearInterval(waiting); return; }

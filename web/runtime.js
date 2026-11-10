@@ -495,14 +495,14 @@
     setLink: () => {},
     refresh: () => refresh(),
   };
-  // eToro allows 60 reads a minute per user key, all devices together (phone, Mac, background check). Every eToro read goes
+  // eToro allows 120 market-data reads a minute per user key (measured: its answers say "120;w=60"), all devices together (phone, Mac, background check). Every eToro read goes
   // through one queue: at most 4 at a time. A read is sent only while this device has sent fewer than its ceiling in the last
-  // minute: 24 for the world board and the preloading (prio 0), 30 for the once-a-day extras (prio 1), 46 for the fund history
+  // minute: 48 for the world board and the preloading (prio 0), 60 for the once-a-day extras (prio 1), 92 for the fund history
   // the app is built on (prio 1.5), 57 for what the screen is waiting for (prio 2: quotes, the asset opened, search). So the
   // fund history always completes and the screen keeps room. A 429 answer pauses the queue (4, 8, 16, 32 s) and the same
   // request is sent again: a chart waits instead of failing.
   const EQ = { q: [], run: 0, sent: [], pauseUntil: 0, strikes: 0, strikeAt: 0, timer: null };
-  const CAP_SCREEN = 57;
+  const CAP_SCREEN = 112;
   function etoroSend(url, headers, prio) {
     return new Promise((resolve) => { EQ.q.push({ url, headers, prio: prio == null ? 2 : prio, tries: 0, resolve }); pump(); });
   }
@@ -511,7 +511,7 @@
     while (EQ.q.length && EQ.run < 4) {
       const now = Date.now(); EQ.sent = EQ.sent.filter((t) => now - t < 60000);
       let k = 0; for (let i = 1; i < EQ.q.length; i++) if (EQ.q[i].prio > EQ.q[k].prio) k = i;   // what the screen waits for first, then in order of arrival
-      const cap = EQ.q[k].prio >= 2 ? CAP_SCREEN : EQ.q[k].prio >= 1.5 ? 46 : EQ.q[k].prio >= 1 ? 30 : 24, wait = Math.max(EQ.pauseUntil - now, EQ.sent.length >= cap ? 60000 - (now - EQ.sent[EQ.sent.length - cap]) + 30 : 0);
+      const cap = EQ.q[k].prio >= 2 ? CAP_SCREEN : EQ.q[k].prio >= 1.5 ? 92 : EQ.q[k].prio >= 1 ? 60 : 48, wait = Math.max(EQ.pauseUntil - now, EQ.sent.length >= cap ? 60000 - (now - EQ.sent[EQ.sent.length - cap]) + 30 : 0);
       if (wait > 0) { EQ.timer = setTimeout(pump, Math.min(wait, 4000)); return; }
       const job = EQ.q.splice(k, 1)[0]; job.sentAt = now;
       EQ.run++; EQ.sent.push(now);
