@@ -108,7 +108,7 @@
     if (!force && sig && Date.now() - sigAt < 30 * 60e3) return;
     sigBusy = true;
     try {
-      const rows = await window.SRLive.candles(SMH_ID, 'OneWeek', 200);
+      const rows = await window.SRLive.candles(SMH_ID, 'OneWeek', 200, 2);   // the Today verdict waits for it
       sig = computeSignal(rows.filter((r) => weekEnd(r.t) <= Date.now()).map((r) => ({ close: r.close, end: weekEnd(r.t) })));
     } catch (e) { sig = { error: 'eToro did not answer (' + (e.status || 'no connection') + ')' }; }
     sigAt = Date.now(); sigBusy = false; redraw();
@@ -482,9 +482,12 @@
       row.appendChild(btn('Open chart', '', () => { closeSheet(); openHolding(h); }));
     });
   }
-  dash.draw('pfolio', (box) => {
+  dash.draw('pfolio', (outer) => {
     const all = holdings(), H = all.filter((h) => h.value > 0).sort((a, b) => b.value - a.value), T = totals(H), st = planState(all);
-    box.replaceChildren();
+    outer.replaceChildren();
+    // a wide window (the Mac): the total and the plan on the left, every holding on the right; one column on a phone
+    const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
+    outer.classList.toggle('g-two', two);
     hero(box, H);
     if (st.T && st.size > 0) {
       const c = card(box, 'mix', 'Now against your plan');
@@ -494,7 +497,7 @@
     } else if (!st.P) {
       const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan', 0)));
     }
-    const list = box.appendChild(el('div', 'g-list'));
+    const list = right.appendChild(el('div', 'g-list'));
     const max = d3.max(H, (h) => h.value) || 1;
     for (const h of H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
@@ -523,9 +526,12 @@
   });
 
   // ---- Plan: three choices with the same three numbers, then your switches ----
-  dash.draw('plan', (box) => {
+  dash.draw('plan', (outer) => {
     const p = plan(), H = holdings(), st = planState(H);
-    box.replaceChildren();
+    outer.replaceChildren();
+    // a wide window (the Mac): the choice on the left, what it means for you on the right; one column on a phone
+    const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
+    outer.classList.toggle('g-two', two);
     box.appendChild(el('h2', 'g-h2', 'Your plan'));
     box.appendChild(el('p', 'g-muted g-sub', 'Pick one. Today then says each day whether to act. Numbers: 2000–2026, after 0.35% per order and 31.4% French tax.'));
     const grid = box.appendChild(el('div', 'g-plans'));
@@ -546,7 +552,7 @@
     if (!st.P) return;
     const PT = planTickers(p), keep = keepSet(p, H), own = H.filter((h) => h.value > 0 && !PT.has(h.ticker));
     if (own.length) {
-      const kc = card(box, 'keepc', 'Keep outside the plan');
+      const kc = card(right, 'keepc', 'Keep outside the plan');
       kc.appendChild(el('div', 'g-line g-muted', 'Tap to keep. What is not kept is what the set-up on Today moves into the plan.'));
       const chips = kc.appendChild(el('div', 'g-chips'));
       for (const h of own) {
@@ -556,12 +562,12 @@
       }
     }
     if (p.id !== 'spx') {
-      const sc = card(box, 'swingc', 'Swing trades'), on = p.swing !== false;
+      const sc = card(right, 'swingc', 'Swing trades'), on = p.swing !== false;
       sc.appendChild(el('div', 'g-line g-muted', 'Optional. Buys sharp drops in a downtrend with the cash waiting for semis, for a few days. In the audit it added 0 to 1.5 points a year after fees and tax, and only when traded at the 09:00 open.'));
       const b = sc.appendChild(el('button', 'g-switch' + (on ? ' is-on' : ''), on ? 'On: swing signals count on Today' : 'Off: plan signals only')); b.type = 'button'; b.setAttribute('role', 'switch'); b.setAttribute('aria-checked', String(on));
       b.addEventListener('click', () => { const q = plan(); q.swing = !on; savePlan(q); });
     }
-    const tc = card(box, 'hold', `What to hold · ${eur(st.size)}`);
+    const tc = card(right, 'hold', `What to hold · ${eur(st.size)}`);
     if (p.id === 'smh') tc.appendChild(el('div', 'g-line g-muted', st.inn == null ? 'Checking the semis signal…' : st.inn ? 'Semis are IN: that half sits in SEC0.' : st.swing ? 'Semis are OUT, but a swing trade in SEC0 is on.' : 'Semis are OUT: that half waits in cash.'));
     if (st.T) {
       const t = tc.appendChild(el('table', 'g-table'));

@@ -19,8 +19,8 @@
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* not kept */ } };
   const hasKeys = () => { const c = SRApp.config(); return !!(c.apiKey && c.userKey); };
-  async function getJSON(path) {
-    const r = await SRApp.etoroGet(path);
+  async function getJSON(path, prio) {
+    const r = await SRApp.etoroGet(path, prio);
     if (r.status !== 200) { const e = new Error('eToro ' + (r.status || 'unreachable')); e.status = r.status; throw e; }
     return JSON.parse(r.body);
   }
@@ -56,10 +56,16 @@
 
   // ---- candles ------------------------------------------------------------------
   const cache = new Map();
-  async function candles(id, interval, count) {
+  async function candles(id, interval, count, prio) {
     const key = id + '/' + interval + '/' + count, hit = cache.get(key), ttl = /Day|Week/.test(interval) ? 600000 : 60000;
     if (hit && Date.now() - hit.at < ttl) return hit.rows;
-    const j = await getJSON(`/api/v1/market-data/instruments/${id}/history/candles/desc/${interval}/${count}`);
+    if (flying.has(key)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/${count}`); return flying.get(key); }   // the same read is already on its way: the screen's need moves it to the front
+    const job = fetchCandles(key, id, interval, count, prio); flying.set(key, job);
+    try { return await job; } finally { flying.delete(key); }
+  }
+  const flying = new Map();
+  async function fetchCandles(key, id, interval, count, prio) {
+    const j = await getJSON(`/api/v1/market-data/instruments/${id}/history/candles/desc/${interval}/${count}`, prio);
     const list = (j.candles && j.candles[0] && j.candles[0].candles) || [];
     const rows = list.map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }))
       .filter((r) => r.close > 0).sort((a, b) => a.t - b.t);
@@ -68,15 +74,18 @@
   }
   // the close before today's trading day: from the app's own daily data when it has the instrument, else asked once a day
   const prevCache = new Map();
+  try { const k = JSON.parse(localStorage.getItem('sr.prev') || '{}'); if (k.day === todayET()) for (const [id, price] of Object.entries(k.p || {})) prevCache.set(+id, { day: k.day, price }); } catch (e) { /* asked again */ }
+  const prevKeep = () => { try { const p = {}; for (const [id, v] of prevCache) if (v.day === todayET() && v.price != null) p[id] = v.price; localStorage.setItem('sr.prev', JSON.stringify({ day: todayET(), p })); } catch (e) { /* not kept */ } };
   function prevFromRows(rows) { const t = todayET(); let p = null; for (const r of rows || []) if (r.date < t) p = r; return p ? p.close : null; }
   function storedRows(id) { const sym = (SRApp.DATASETS.find((d) => d[1] === id) || [])[0]; const d = sym && S()[sym]; return d && d.status === 'ok' && d.data.length ? d.data : null; }
-  async function prevClose(id) {
+  async function prevClose(id, prio) {
     const own = storedRows(id);
     if (own) return prevFromRows(own);
     const hit = prevCache.get(id);
     if (hit && hit.day === todayET()) return hit.price;
-    const price = prevFromRows(await candles(id, 'OneDay', 6));
-    prevCache.set(id, { day: todayET(), price });
+    let rows = null; for (const n of [1000, 400]) { const c = cache.get(id + '/OneDay/' + n); if (c && c.rows.length) { rows = c.rows; break; } }   // daily candles already on the device
+    const price = prevFromRows(rows || await candles(id, 'OneDay', 6, prio));
+    prevCache.set(id, { day: todayET(), price }); prevKeep();
     return price;
   }
   const prevSync = (id) => { const own = storedRows(id); if (own) return prevFromRows(own); const h = prevCache.get(id); return h && h.day === todayET() ? h.price : null; };
@@ -110,7 +119,7 @@
   async function zones(id) {
     const hit = zcache[id];
     if (hit && hit.day === todayET()) return hit;
-    return zonesFrom(id, await candles(id, 'OneDay', 1000));
+    return zonesFrom(id, await candles(id, 'OneDay', 1000, 1));   // background read, once a day per holding
   }
   // weekly RSI (14, Wilder) on completed weeks (a week counts once its Friday has closed)
   function weeklyRsi(rows) {
@@ -289,6 +298,7 @@
       for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
       ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf()); ch.setLevels(srLevels());
       geo = null;
+      try {
       if (window.SRTA && window.SRTA.geometry && ch.setAuto) {
         const tm = (i) => bars[Math.max(0, Math.min(bars.length - 1, i))].time, A2 = [];
         if (bars.length >= 60) {
@@ -305,6 +315,7 @@
         ch.setAuto(A2);
       }
       drawTA();
+      } catch (e) { if (window.console) console.error(e); taBox.replaceChildren(el('p', 'av-note', 'The technical analysis could not be computed for this asset (' + String((e && e.message) || e).slice(0, 80) + '). The chart itself is complete.')); }
     }
     // the live price moves the newest candle, or opens the next one
     function liveCandle() {
@@ -363,21 +374,35 @@
         sub.after(b);
       }
     }
+    let retried = 0, retryBtn = null;
+    function failed(msg, again) {
+      sub.textContent = msg; sub.className = 'av-sub';
+      if (!retryBtn) { retryBtn = el('button', 'btn av-retry', 'Try again'); retryBtn.type = 'button'; retryBtn.addEventListener('click', () => { retried = 0; load(true); }); sub.insertAdjacentElement('afterend', retryBtn); }
+      retryBtn.hidden = false;
+      if (again && retried < 2) { retried++; setTimeout(() => { if (!dead && retryBtn && !retryBtn.hidden) load(true); }, 4000 * retried); }   // two more tries on its own
+    }
     async function load(fit) {
       if (!hasKeys()) { header(); return; }
-      box.classList.add('is-loading');
+      box.classList.add('is-loading'); if (retryBtn) retryBtn.hidden = true;
+      // while waiting: say so when eToro's limit of 60 reads a minute is the reason
+      const waiting = setInterval(() => { const st = SRApp.etoroState ? SRApp.etoroState() : null; if (st && st.wait > 0 && !dead) sub.textContent = `eToro allows 60 requests a minute and the limit is reached: the chart loads in about ${st.wait} s.`; }, 500);
+      let d, pc, rows;
       try {
-        const [d, pc] = await Promise.all([candles(inst.id, 'OneDay', 1000), prevClose(inst.id)]);
-        let rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n);
-        if (dead) return;
-        if (!d.length && !rows.length) { noData(); return; }
-        if (!rows.length && d.length) { rows = d; frame = FRAMES[4]; sub.textContent = 'No intraday prices for this listing: showing daily candles.'; }
-        daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
-        bars = toBars(rows);
-        paint(fit); liveCandle(); header(); facts();
+        d = await candles(inst.id, 'OneDay', 1000); pc = await prevClose(inst.id);   // the previous close comes out of the daily candles: one read, not two
+        rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n).catch((e) => { if (d.length) return []; throw e; });   // the timeframe failed: fall back on daily candles
       } catch (e) {
-        if (!dead) sub.textContent = 'eToro did not answer (' + (e.status || 'no connection') + ').';
-      } finally { box.classList.remove('is-loading'); }
+        clearInterval(waiting); box.classList.remove('is-loading');
+        if (!dead) failed(e.status === 429 ? 'eToro allows 60 requests a minute and the limit is still reached. Trying again shortly.' : e.status === 401 || e.status === 403 ? `eToro refused the keys (${e.status}). Check them in Settings.` : `eToro did not answer (${e.status || 'no connection'}).`, !(e.status === 401 || e.status === 403));
+        return;
+      }
+      clearInterval(waiting); box.classList.remove('is-loading');
+      if (dead) return;
+      if (!d.length && !rows.length) { noData(); return; }
+      if (!rows.length && d.length) { rows = d; frame = FRAMES[4]; sub.textContent = 'No intraday prices for this listing: showing daily candles.'; }
+      daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
+      bars = toBars(rows);
+      try { paint(fit); } catch (e) { if (window.console) console.error(e); failed('The chart could not be drawn (' + String((e && e.message) || e).slice(0, 80) + ').', false); }
+      try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); }
     }
     const tick = () => { if (dead) return; liveCandle(); header(); facts(); };
     ticks.add(tick);
@@ -558,7 +583,7 @@
   function watchHoldings() {
     const H = holdingsLive();
     want('holdings', H.map((h) => h.id));
-    for (const h of H) if (!storedRows(h.id)) prevClose(h.id).catch(() => {});
+    for (const h of H) if (!storedRows(h.id)) prevClose(h.id, 1).catch(() => {});
     (async () => { for (const h of H) if (!zonesSync(h.id)) { try { await zones(h.id); } catch (e) { /* next time */ } } SRApp.renderDraw('folio'); })();
   }
   SRApp.onChange(watchHoldings);

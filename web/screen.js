@@ -21,12 +21,17 @@
     for (const [sym, id] of SRApp.DATASETS) if (!seen.has(sym) && sym !== 'EURUSD' && ok(sym)) { seen.add(sym); U.push({ sym, id, name: names.get(sym) || '', group: 'Funds', rows: ok(sym) }); }
     return U;
   }
+  // the world board's daily candles are kept 2 hours on the device (the live price still updates the last candle): reopening the app does not spend 15 of eToro's 60 reads a minute
+  const WB = 'sr.wb2', TTL = 2 * 3600e3;
+  const failAt = new Map();
+  function keep(sym) { try { const all = JSON.parse(localStorage.getItem(WB) || '{}'); all[sym] = { at: Date.now(), r: extra.get(sym).map((x) => [x.date, x.open, x.high, x.low, x.close]) }; localStorage.setItem(WB, JSON.stringify(all)); } catch (e) { /* storage full: asked again next time */ } }
+  try { const all = JSON.parse(localStorage.getItem(WB) || '{}'); for (const [sym, v] of Object.entries(all)) if (v && Date.now() - v.at < TTL && v.r && v.r.length) extra.set(sym, v.r.map(([date, open, high, low, close]) => ({ date, open, high, low, close }))); } catch (e) { /* no cache */ }
   async function load() {
     if (busy || !window.SRLive || !window.SRLive.candles) return;
     busy = true; let k = 0;
     for (const [sym, id] of BOARD) {
-      if (extra.has(sym) || (SRApp._store[sym] && SRApp._store[sym].status === 'ok')) continue;
-      try { const r = await window.SRLive.candles(id, 'OneDay', 400); extra.set(sym, r.map(({ date, open, high, low, close }) => ({ date, open, high, low, close }))); } catch (e) { extra.set(sym, []); }
+      if (extra.has(sym) || (SRApp._store[sym] && SRApp._store[sym].status === 'ok') || Date.now() - (failAt.get(sym) || 0) < 60000) continue;
+      try { const r = await window.SRLive.candles(id, 'OneDay', 400, 0); extra.set(sym, r.map(({ date, open, high, low, close }) => ({ date, open, high, low, close }))); if (r.length) keep(sym); } catch (e) { failAt.set(sym, Date.now()); }   // asked again a minute later, not given up for the session
       if (++k % 5 === 0) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
     }
     busy = false; if (k) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
@@ -134,6 +139,6 @@
     if (two && selId == null && outer.offsetParent !== null) { const first = live.find((r) => r.id); if (first) select(first); }   // the best-ranked asset is shown first
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
-  let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); SRApp.renderDraw('screener'); SRApp.renderDraw('today'); } });
+  let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
   window.SRScreen = { rows, load, open, ago, SHORT, top, loadWide, count: () => rows().filter((r) => r.A).length + (wide ? wide.scanned : 0), record: () => (wide ? wide.record : null) };
 })();

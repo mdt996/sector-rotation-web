@@ -98,7 +98,7 @@
   }
   async function fetchEtoro(sym, iid, cfg) {
     const url = `https://public-api.etoro.com/api/v1/market-data/instruments/${iid}/history/candles/desc/OneDay/${sym === 'SMH' ? 1000 : 400}`; // SMH: enough weeks for the plan's trend rule
-    const r = await httpGet(url, etoroHeaders(cfg.apiKey, cfg.userKey));
+    const r = await etoroSend(url, etoroHeaders(cfg.apiKey, cfg.userKey), 1.5);   // paced: behind what the screen waits for, ahead of the once-a-day extras
     if (r.status !== 200) throw httpError('eToro', sym, r);
     const L = loaders[sym];
     return L ? L.fn({ answer: r.body }) : [];
@@ -443,11 +443,46 @@
     setLink: () => {},
     refresh: () => refresh(),
   };
+  // eToro allows 60 reads a minute per user key, all devices together (phone, Mac, background check). Every eToro read goes
+  // through one queue: at most 4 at a time. From this device, per minute: the world board (prio 0) stops at 30 reads, the fund
+  // history and the once-a-day extras (prio 1 to 1.5) at 42, which leaves room for what the screen is waiting for (prio 2:
+  // quotes, the asset opened, search), up to 57. A 429 answer pauses the queue (4, 8, 16, 32 s) and the same request is sent
+  // again: a chart waits instead of failing.
+  const EQ = { q: [], run: 0, sent: [], pauseUntil: 0, strikes: 0, strikeAt: 0, timer: null };
+  const CAP_SCREEN = 57;
+  function etoroSend(url, headers, prio) {
+    return new Promise((resolve) => { EQ.q.push({ url, headers, prio: prio == null ? 2 : prio, tries: 0, resolve }); pump(); });
+  }
+  function pump() {
+    clearTimeout(EQ.timer); EQ.timer = null;
+    while (EQ.q.length && EQ.run < 4) {
+      const now = Date.now(); EQ.sent = EQ.sent.filter((t) => now - t < 60000);
+      let k = 0; for (let i = 1; i < EQ.q.length; i++) if (EQ.q[i].prio > EQ.q[k].prio) k = i;   // what the screen waits for first, then in order of arrival
+      const cap = EQ.q[k].prio >= 2 ? CAP_SCREEN : EQ.q[k].prio >= 1 ? 42 : 30, wait = Math.max(EQ.pauseUntil - now, EQ.sent.length >= cap ? 60000 - (now - EQ.sent[EQ.sent.length - cap]) + 30 : 0);
+      if (wait > 0) { EQ.timer = setTimeout(pump, Math.min(wait, 4000)); return; }
+      const job = EQ.q.splice(k, 1)[0]; job.sentAt = now;
+      EQ.run++; EQ.sent.push(now);
+      httpGet(job.url, job.headers).then((r) => {
+        EQ.run--;
+        const t = Date.now();
+        if (r.status === 429 && job.tries < (job.prio >= 1 ? 5 : 2)) {
+          job.tries++;
+          if (job.sentAt >= EQ.strikeAt) { EQ.strikes = Math.min(EQ.strikes + 1, 4); EQ.strikeAt = t; EQ.pauseUntil = t + 4000 * Math.pow(2, EQ.strikes - 1); }   // one strike per burst, not per request
+          EQ.q.push(job);
+        } else if ((r.status === 0 || r.status >= 500) && job.prio >= 2 && job.tries < 2) { job.tries++; setTimeout(() => { EQ.q.push(job); pump(); }, 1200 * job.tries); }   // a lost connection or a server error: two more tries
+        else { if (r.status === 200) EQ.strikes = 0; job.resolve(r); }
+        pump();
+      });
+    }
+  }
+  const etoroBoost = (path) => { for (const j of EQ.q) if (j.url.endsWith(path)) j.prio = 2; pump(); };   // a queued background read the screen now waits for
+  // for the screens: how long the queue is paused by eToro's limit (seconds) and how many reads are waiting
+  const etoroState = () => { const now = Date.now(), sent = EQ.sent.filter((t) => now - t < 60000), capWait = sent.length >= CAP_SCREEN ? 60000 - (now - sent[sent.length - CAP_SCREEN]) : 0; return { wait: Math.max(0, Math.ceil(Math.max(EQ.pauseUntil - now, capWait) / 1000)), queued: EQ.q.length, lastMinute: sent.length }; };
   // eToro reads for the live layer (prices, search, intraday candles) with the keys saved in Settings
-  async function etoroGet(path) {
+  async function etoroGet(path, prio) {
     const cfg = config();
     if (!(cfg.apiKey && cfg.userKey)) return { status: 0, body: '', reason: 'no keys' };
-    return httpGet('https://public-api.etoro.com' + path, etoroHeaders(cfg.apiKey, cfg.userKey));
+    return etoroSend('https://public-api.etoro.com' + path, etoroHeaders(cfg.apiKey, cfg.userKey), prio);
   }
   function renderDraw(name) {
     const fn = draws[name];
@@ -455,5 +490,5 @@
   }
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
+  window.SRApp = { DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();
