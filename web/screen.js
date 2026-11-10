@@ -76,6 +76,8 @@
     const R = rows(), S = stats(), live = R.filter((r) => r.A);
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', R.map((r) => r.id).filter(Boolean));
     box.appendChild(el('h2', 'g-h2', 'Screener'));
+    const sb = box.appendChild(el('button', 'sc-search', 'Search any eToro asset for its full analysis')); sb.type = 'button';
+    sb.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
     box.appendChild(el('p', 'g-muted g-sub', `${live.length} assets, analysed with the same rules and ranked on the signals that passed the history test. Tap one for its chart, levels and its own test.`));
     const map = box.appendChild(el('div', 'sc-map'));
     for (const r of R.filter((x) => x.group === 'World')) {

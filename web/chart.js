@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: false, macd: false, vol: true, zones: false, fair: true, sr: true };
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true }; // a clean chart: two averages, RSI, the nearest levels
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -37,7 +37,7 @@
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
-    let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind2', {})), zones = null, fair = null, levels = [], dead = false;
+    let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
 
     const root = container.appendChild(el('div', 'ch'));
     const tools = root.appendChild(el('div', 'ch-tools'));
@@ -54,7 +54,7 @@
     for (const k of Object.keys(IND_LABEL)) {
       const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
-      c.addEventListener('change', () => { ind[k] = c.checked; lsSet('sr.ind2', ind); applyIndicators(); });
+      c.addEventListener('change', () => { ind[k] = c.checked; lsSet('sr.ind3', ind); applyIndicators(); });
     }
 
     const up = css('--av-up', '#089981'), down = css('--av-down', '#f23645');

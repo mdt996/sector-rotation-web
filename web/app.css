@@ -481,6 +481,8 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .ta-sz { font-weight: 600; }
 /* wide windows (the Mac app): the guided screens keep a real width (auto margins alone let them collapse inside the page's flex column) */
 @media (min-width: 900px) { .sr-card.g-screen { width: 100%; max-width: 860px; } #screener.sr-card.g-screen { max-width: 1180px; } .sc-map { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); } }
+.sc-search { font: inherit; font-size: 15px; color: var(--color-fg-muted); text-align: left; width: 100%; padding: 12px 14px; margin: 0 0 12px; border-radius: 12px; border: 1px solid var(--color-border-line); background: var(--color-panel); cursor: pointer; }
+.g-link2 { margin-left: 16px; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

@@ -249,8 +249,9 @@
       const q = live(), px = q ? q.price : rows[n - 1].close;
       const A = taNow();
       if (A) {
-        for (const z of A.above.slice(0, 3)) out.push({ p: z.p, kind: 'res', label: z.kinds.join(' + ') });
-        for (const z of A.below.slice(0, 3)) out.push({ p: z.p, kind: 'sup', label: z.kinds.join(' + ') });
+        const lab = (z) => z.kinds.slice(0, 2).join(' + ') + (z.kinds.length > 2 ? ' +' + (z.kinds.length - 2) : '');   // short labels, the two nearest zones each side
+        for (const z of A.above.slice(0, 2)) out.push({ p: z.p, kind: 'res', label: lab(z) });
+        for (const z of A.below.slice(0, 2)) out.push({ p: z.p, kind: 'sup', label: lab(z) });
       }
       const sw = SRApp.swing ? SRApp.swing().find((x) => x.us === inst.symbol) : null;
       if (sw && sw.inTrade && sw.sellAbove) out.push({ p: sw.sellAbove, kind: 'act', label: 'Swing: sell on a close above' });
