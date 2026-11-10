@@ -195,7 +195,37 @@
     }
     return { days: N, from: bars[200].date, to: bars[end - 1].date, anyBuy: (any[0].b + any[1].b) / N, anySell: (any[0].s + any[1].s) / N, by };
   }
-  const API = { prep, scan, analyze, backtest, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
+  // What to DRAW on the candles of any timeframe: the best support and resistance trendlines (a line counts when at least two
+  // pivots sit on it within a tolerance of 0.6 ATR and no close has gone through it), unfilled gaps, and a wedge or triangle
+  // when the two lines converge. For display: the tested signals above keep their own, stricter definitions.
+  function geometry(b) {
+    const n = b.length; if (n < 60) return { lines: [], gaps: [], pattern: null };
+    const P = prep(b), t = n - 1, { c, h, l } = P, tol = 0.6 * (P.atr[t] || h[t] - l[t]), from = Math.max(0, t - 160);
+    const best = (piv, val, side) => {
+      const ps = piv.filter((p) => p >= from); let out = null;
+      for (let a = 0; a < ps.length; a++) for (let d = a + 1; d < ps.length; d++) {
+        const i = ps[a], j = ps[d]; if (j - i < 10) continue;
+        const m = (val[j] - val[i]) / (j - i), at = (x) => val[i] + m * (x - i);
+        let ok = true; for (let x = i; x <= t; x++) if (side > 0 ? c[x] < at(x) - tol : c[x] > at(x) + tol) { ok = false; break; }
+        if (!ok) continue;
+        const touch = ps.filter((q) => q >= i && Math.abs(val[q] - at(q)) <= tol), score = touch.length * 10 + (j - i) / 10 + (t - j < 60 ? 5 : 0);
+        if (touch.length >= 2 && (!out || score > out.score)) out = { kind: side > 0 ? 'sup' : 'res', i, j, p1: val[i], p2: val[j], m, now: at(t), at0: at, touches: touch.length, pts: touch.map((q) => [q, val[q]]), score };
+      }
+      return out;
+    };
+    const S = best(P.pl, l, 1), R = best(P.ph, h, -1), lines = [S, R].filter(Boolean), gaps = [];
+    for (let g = Math.max(1, t - 120); g <= t; g++) {
+      if (l[g] > h[g - 1] * 1.005) { let m = Infinity; for (let j = g; j <= t; j++) if (l[j] < m) m = l[j]; if (m > h[g - 1]) gaps.push({ i: g, top: m, bottom: h[g - 1], dir: 'up' }); }
+      if (h[g] < l[g - 1] * 0.995) { let m = -Infinity; for (let j = g; j <= t; j++) if (h[j] > m) m = h[j]; if (m < l[g - 1]) gaps.push({ i: g, top: l[g - 1], bottom: m, dir: 'down' }); }
+    }
+    let pattern = null;
+    if (S && R) {
+      const x0 = Math.max(S.i, R.i), g0 = R.at0(x0) - S.at0(x0), g1 = R.now - S.now, sS = S.m / c[t], sR = R.m / c[t];
+      if (g1 > 0 && g0 > 0 && g1 < 0.75 * g0) pattern = sS > 0.0003 && sR > 0.0003 ? 'Rising wedge' : sS < -0.0003 && sR < -0.0003 ? 'Falling wedge' : 'Triangle';
+    }
+    return { lines: lines.map(({ at0, score, ...x }) => x), gaps: gaps.slice(-4), pattern };
+  }
+  const API = { prep, scan, analyze, backtest, geometry, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
   root.SRTA = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
 })(typeof window !== 'undefined' ? window : globalThis);

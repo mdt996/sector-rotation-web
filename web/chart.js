@@ -36,6 +36,7 @@
     opts = opts || {};
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
+    let autos = [];
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
 
@@ -150,6 +151,18 @@
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
+      if (ind.sr) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
+        const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
+        const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xe = W / hr;
+        if (d.type === 'line' && x2 !== x1) {
+          ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.5 * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(xe * hr, (y1 + (y2 - y1) * (xe - x1) / (x2 - x1)) * r); ctx.stroke();
+          for (const q of d.pts || []) { const qx = xOf(q.t), qy = yOf(q.p); if (qx == null || qy == null) continue; ctx.beginPath(); ctx.arc(qx * hr, qy * r, 3 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }
+        } else if (d.type === 'box') {
+          ctx.fillStyle = 'rgba(138,143,152,0.18)'; ctx.fillRect(x1 * hr, Math.min(y1, y2) * r, (xe - x1) * hr, Math.max(1, Math.abs(y2 - y1) * r));
+          label(ctx, 'gap', x1 * hr + 4 * hr, Math.min(y1, y2) * r - 3 * r, '#8a8f98', 'left');
+        }
+      }
+      ctx.lineWidth = Math.max(1, 1.3 * r);
       const all = drawings.concat(draft ? [draft] : []);
       for (const d of all) {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p); if (x1 == null || y1 == null) continue;
@@ -317,6 +330,7 @@
       setZones(L) { zones = L; redraw(); },
       setFair(f) { fair = f && f.bear > 0 && f.bull > 0 ? f : null; redraw(); },
       setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
+      setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };

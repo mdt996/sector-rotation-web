@@ -194,6 +194,7 @@
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
     let taKey = '', taVal = null, taBt = null;
+    let geo = null; // trendlines, gaps and wedge on the timeframe shown
     const taBars = () => daily.map((r) => ({ date: r.date, open: r.open, high: r.high, low: r.low, close: r.close }));
     function taNow() {
       if (!window.SRTA || daily.length < 260) return null;
@@ -207,6 +208,11 @@
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
       taBox.appendChild(el('div', 'ta-h', 'Technical analysis'));
       taBox.appendChild(el('div', 'ta-line', `${A.above200 ? 'Above' : 'Below'} its 200-day average, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
+      if (geo && (geo.lines.length || geo.gaps.length)) {
+        const S = geo.lines.find((x) => x.kind === 'sup'), R = geo.lines.find((x) => x.kind === 'res'), dir = (x) => (x.m > 0 ? 'rising' : 'falling');
+        taBox.appendChild(el('div', 'ta-line', `On this timeframe (${frame.k}): ${[S ? `${dir(S)} support line at ${fmtP(S.now)} (${S.touches} pivots)` : '', R ? `${dir(R)} resistance line at ${fmtP(R.now)} (${R.touches} pivots)` : '', geo.gaps.length ? geo.gaps.length + ' open gap' + (geo.gaps.length > 1 ? 's' : '') : ''].filter(Boolean).join(' · ')}.`
+          + (geo.pattern ? ` ${geo.pattern}: the two lines converge. Not in the history test yet.` : '')));
+      }
       const sg = taBox.appendChild(el('div', 'ta-sigs'));
       if (!A.signals.length) sg.appendChild(el('div', 'ta-line ta-muted', 'No signal in the last 5 days.'));
       for (const x of A.signals) {
@@ -264,6 +270,16 @@
       if (dead) return;
       for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
       ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf()); ch.setLevels(srLevels());
+      geo = null;
+      if (window.SRTA && window.SRTA.geometry && ch.setAuto) {
+        const tm = (i) => bars[Math.max(0, Math.min(bars.length - 1, i))].time, A2 = [];
+        if (bars.length >= 60) {
+          geo = window.SRTA.geometry(bars.map((x) => ({ open: x.open, high: x.high, low: x.low, close: x.close })));
+          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
+          for (const g of geo.gaps) A2.push({ type: 'box', a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
+        }
+        ch.setAuto(A2);
+      }
       drawTA();
     }
     // the live price moves the newest candle, or opens the next one
