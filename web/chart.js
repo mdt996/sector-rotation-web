@@ -248,6 +248,17 @@
     bMeasure.addEventListener('click', () => setTool(tool === 'measure' ? 'cursor' : 'measure'));
     bFib.addEventListener('click', () => setTool(tool === 'fib' ? 'cursor' : 'fib'));
     bTrend.addEventListener('click', () => setTool(tool === 'trend' ? 'cursor' : 'trend'));
+    // tap a level or a trendline to see what it is made of
+    chart.subscribeClick((ev) => {
+      if (!ev || !ev.point || tool !== 'cursor' || !opts.onPick) return;
+      let hit = null, bd = 10;
+      if (ind.sr) for (const lv of levels) { const y = yOf(lv.p); if (y != null && Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: lv.p, label: lv.full || lv.label, kind: lv.kind }; } }
+      if (ind.sr) for (const d of autos) if (d.type === 'line') {
+        const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null || x2 === x1 || ev.point.x < x1) continue;
+        const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
+      }
+      opts.onPick(hit);
+    });
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });

@@ -170,7 +170,14 @@
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
 
     // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+    let pickBox = null;
+    function showPick(hit) {
+      if (!pickBox) { pickBox = el('div', 'av-pick'); box.insertAdjacentElement('afterend', pickBox); }
+      const q = live(), px = q ? q.price : (daily.length ? daily[daily.length - 1].close : null);
+      pickBox.hidden = !hit;
+      if (hit) pickBox.textContent = `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
+    }
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     const live = () => quotes.get(inst.id);
     function header() {
@@ -256,8 +263,8 @@
       const A = taNow();
       if (A) {
         const lab = (z) => z.kinds.slice(0, 2).join(' + ') + (z.kinds.length > 2 ? ' +' + (z.kinds.length - 2) : '');   // short labels, the two nearest zones each side
-        for (const z of A.above.slice(0, 2)) out.push({ p: z.p, kind: 'res', label: lab(z) });
-        for (const z of A.below.slice(0, 2)) out.push({ p: z.p, kind: 'sup', label: lab(z) });
+        for (const z of A.above.slice(0, 2)) out.push({ p: z.p, kind: 'res', label: lab(z), full: z.kinds.join(' + ') });
+        for (const z of A.below.slice(0, 2)) out.push({ p: z.p, kind: 'sup', label: lab(z), full: z.kinds.join(' + ') });
       }
       const sw = SRApp.swing ? SRApp.swing().find((x) => x.us === inst.symbol) : null;
       if (sw && sw.inTrade && sw.sellAbove) out.push({ p: sw.sellAbove, kind: 'act', label: 'Swing: sell on a close above' });
@@ -275,7 +282,7 @@
         const tm = (i) => bars[Math.max(0, Math.min(bars.length - 1, i))].time, A2 = [];
         if (bars.length >= 60) {
           geo = window.SRTA.geometry(bars.map((x) => ({ open: x.open, high: x.high, low: x.low, close: x.close })));
-          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
+          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, full: `${Ln.m > 0 ? 'rising' : 'falling'} ${Ln.kind === 'sup' ? 'support' : 'resistance'} line through ${Ln.touches} pivots on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
           for (const g of geo.gaps) A2.push({ type: 'box', a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
         }
         ch.setAuto(A2);

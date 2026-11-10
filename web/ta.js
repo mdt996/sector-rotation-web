@@ -36,9 +36,9 @@
   }
   const BULL = ['sup', 'ma50_sup', 'ma200_sup', 'fib_sup', 'tl_sup', 'gap_sup', 'rsi30', 'div_bull'];
   const BEAR = ['res', 'ma50_res', 'ma200_res', 'fib_res', 'tl_res', 'gap_res', 'rsi70', 'div_bear'];
-  const SIDE = { sup3: 1, sup4: 1, res3: -1, res4: -1, sup: 1, ma50_sup: 1, ma200_sup: 1, fib_sup: 1, tl_sup: 1, gap_sup: 1, rsi30: 1, div_bull: 1, golden: 1, brk_up: 1, tl_brk_up: 1, hi250: 1, ihs: 1, cup: 1, conf2: 1, conf3: 1,
+  const SIDE = { tri_brk_up: 1, wedge_fall_brk: 1, tri_brk_dn: -1, wedge_rise_brk: -1, sup3: 1, sup4: 1, res3: -1, res4: -1, sup: 1, ma50_sup: 1, ma200_sup: 1, fib_sup: 1, tl_sup: 1, gap_sup: 1, rsi30: 1, div_bull: 1, golden: 1, brk_up: 1, tl_brk_up: 1, hi250: 1, ihs: 1, cup: 1, conf2: 1, conf3: 1,
     res: -1, ma50_res: -1, ma200_res: -1, fib_res: -1, tl_res: -1, gap_res: -1, rsi70: -1, div_bear: -1, death: -1, brk_dn: -1, tl_brk_dn: -1, lo250: -1, hs: -1, conf2_res: -1, conf3_res: -1 };
-  const NAME = { sup3: 'Touch of a support made of 3+ pivots', sup4: 'Touch of a support made of 4+ pivots', res3: 'Touch of a resistance made of 3+ pivots', res4: 'Touch of a resistance made of 4+ pivots', sup: 'Touch of a horizontal support', res: 'Touch of a horizontal resistance', ma50_sup: 'Pullback to the 50-day average in an uptrend', ma50_res: 'Rally to the 50-day average in a downtrend',
+  const NAME = { tri_brk_up: 'Break up out of a triangle', wedge_fall_brk: 'Break up out of a falling wedge', tri_brk_dn: 'Break down out of a triangle', wedge_rise_brk: 'Break down out of a rising wedge', sup3: 'Touch of a support made of 3+ pivots', sup4: 'Touch of a support made of 4+ pivots', res3: 'Touch of a resistance made of 3+ pivots', res4: 'Touch of a resistance made of 4+ pivots', sup: 'Touch of a horizontal support', res: 'Touch of a horizontal resistance', ma50_sup: 'Pullback to the 50-day average in an uptrend', ma50_res: 'Rally to the 50-day average in a downtrend',
     ma200_sup: 'Touch of the 200-day average from above', ma200_res: 'Touch of the 200-day average from below', fib_sup: 'Fibonacci retracement of a rise (38-62%)', fib_res: 'Fibonacci retracement of a fall (38-62%)',
     tl_sup: 'Touch of a rising trendline', tl_res: 'Touch of a falling trendline', tl_brk_up: 'Break above a falling trendline', tl_brk_dn: 'Break below a rising trendline', gap_sup: 'Fill of a gap up', gap_res: 'Fill of a gap down',
     rsi30: 'RSI falls below 30', rsi70: 'RSI rises above 70', div_bull: 'Bullish RSI divergence', div_bear: 'Bearish RSI divergence', golden: 'Golden cross (50 over 200)', death: 'Death cross (50 under 200)',
@@ -173,6 +173,17 @@
     const below = levels.filter((z) => z.dist < -0.003).sort((x, y) => y.p - x.p), above = levels.filter((z) => z.dist > 0.003).sort((x, y) => x.p - y.p);
     const signals = [];
     for (let d = 0; d <= 5; d++) for (const id of R.events[t - d] || []) if (!signals.some((x) => x.id === id)) signals.push({ id, name: NAME[id], side: SIDE[id], ago: d, date: bars[t - d].date });
+    // breaks out of a triangle or a wedge (the drawn lines, as known the day before), last 5 bars
+    for (let d = 0; d <= 5 && t - d - 261 >= 0; d++) {
+      const G0 = geometry(bars.slice(t - d - 261, t - d)), cc = c[t - d], c1 = c[t - d - 1], tol = 0.6 * P.atr[t - d];
+      const Rr = G0.lines.find((x) => x.kind === 'res'), Ss = G0.lines.find((x) => x.kind === 'sup');
+      const up = Rr && cc > Rr.now + Rr.m + tol && c1 <= Rr.now + tol, dn = Ss && cc < Ss.now + Ss.m - tol && c1 >= Ss.now - tol;
+      const add2 = (id) => { if (!signals.some((x) => x.id === id)) signals.push({ id, name: NAME[id], side: SIDE[id], ago: d, date: bars[t - d].date }); };
+      if (up && G0.pattern === 'Triangle') add2('tri_brk_up');
+      if (up && G0.pattern === 'Falling wedge') add2('wedge_fall_brk');
+      if (dn && G0.pattern === 'Triangle') add2('tri_brk_dn');
+      if (dn && G0.pattern === 'Rising wedge') add2('wedge_rise_brk');
+    }
     return { price: px, date: bars[t].date, rsi: P.rsi[t], atr: P.atr[t], above50: px > P.s50[t], above200: px > P.s200[t], s50: P.s50[t], s200: P.s200[t], levels, below, above,
       sup: below[0] || null, res: above[0] || null, rr: below[0] && above[0] ? above[0].dist / -below[0].dist : null, signals, chg5: c[t] / c[t - 5] - 1, chg20: c[t] / c[t - 20] - 1 };
   }
