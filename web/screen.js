@@ -40,16 +40,32 @@
   // last night's wide scan (a job in the private sync repository writes scan.json; see scan.js there)
   let wide = null, wideAt = 0, wideBusy = false;
   let packSet = new Set();
+  // The ranking can be several MB (thousands of assets). It is kept on the device, shown at once when the app opens, and read
+  // again from GitHub only when the small file scanmeta.json says a newer one exists.
+  const SDB = {
+    open() { return new Promise((res) => { if (typeof indexedDB === 'undefined') return res(null); const giveUp = setTimeout(() => res(null), 1500); try { const r = indexedDB.open('sr-scan', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onsuccess = () => { clearTimeout(giveUp); res(r.result); }; r.onerror = r.onblocked = () => { clearTimeout(giveUp); res(null); }; } catch (e) { clearTimeout(giveUp); res(null); } }); },
+    async get() { const db = await this.open(); if (!db) return null; return new Promise((res) => { try { const q = db.transaction('s').objectStore('s').get('scan'); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch (e) { res(null); } }); },
+    async set(v) { const db = await this.open(); if (!db) return; try { db.transaction('s', 'readwrite').objectStore('s').put(v, 'scan'); } catch (e) { /* not kept: read again next time */ } },
+  };
+  const useWide = (j) => { wide = j; packSet = new Set(j.packs || []); allMemo = null; };
+  let warm = SDB.get().then((j) => { if (j && j.rows && !wide) { useWide(j); SRApp.renderDraw('screener'); SRApp.renderDraw('today'); } }).catch(() => {});
   async function loadWide(force) {
     if (wideBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - wideAt < 20 * 60e3)) return;
     wideBusy = true;
-    try { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) { wide = j; packSet = new Set(j.packs || []); } } catch (e) { /* keeps the last one */ }
+    try {
+      await warm;
+      let need = true;
+      if (wide && !force) { const m = await window.SRSync.getFile('scanmeta.json'); if (m && m.made && m.made === wide.made) need = false; }
+      if (need) { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) { useWide(j); SDB.set(j); } }
+    } catch (e) { /* keeps the last one */ }
     wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
   }
   // ---- the ranking: the buy model's score of the last candle (ta.js mscore; its record is in tastats.js, "model") ----
   const MDL = () => (window.SRTA && window.SRTA.model && window.SRTA.model()) || null, MST = () => ((window.SR_TASTATS || {}).model || {});
   // one list for everything: this device's own analysis (yours, the funds, the world board: live) and the nightly scan
+  let allMemo = null;
   function all() {
+    if (allMemo && Date.now() - allMemo.at < 1200) return allMemo.rows;
     const M = new Map(), out = [], seen = new Set(), Q = window.SRLive ? window.SRLive.quotes : new Map(), today = new Date().toISOString().slice(0, 10), md = MDL(), bar = md ? md.buy : 2, bar2 = md ? md.strong : 2;
     if (wide) for (const r of wide.rows) M.set(r.id, r);
     const grade = (o) => { o.buy = o.ms != null && o.ms >= bar; o.strong = o.ms != null && o.ms >= bar2; return o; };
@@ -64,6 +80,7 @@
       out.push(grade({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: r.cap || null, sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
         sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true }));
     }
+    allMemo = { at: Date.now(), rows: out };
     return out;
   }
   const tier = (r) => (r.buy ? 0 : 1);
