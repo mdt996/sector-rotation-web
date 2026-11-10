@@ -36,6 +36,11 @@
   }
   const BULL = ['sup', 'ma50_sup', 'ma200_sup', 'fib_sup', 'tl_sup', 'gap_sup', 'rsi30', 'div_bull'];
   const BEAR = ['res', 'ma50_res', 'ma200_res', 'fib_res', 'tl_res', 'gap_res', 'rsi70', 'div_bear'];
+  // candle signals (the day's own shape) and what happens right after a breakout
+  const CANDLE = { tail_top: [-1, 'Topping tail after a rise'], tail_bot: [1, 'Bottoming tail after a fall'], engulf_bull: [1, 'Bullish engulfing after a fall'], engulf_bear: [-1, 'Bearish engulfing after a rise'],
+    rev_up: [1, 'Reversal day up from a 20-day low'], rev_dn: [-1, 'Reversal day down from a 20-day high'], neg_bull: [1, 'Strong down candle negated the next day'], neg_bear: [-1, 'Strong up candle negated the next day'],
+    brk_up_conf: [1, 'Breakout confirmed the next day'], brk_up_fail: [-1, 'Breakout failed: back below the level'], brk_dn_conf: [-1, 'Breakdown confirmed the next day'], brk_dn_fail: [1, 'Breakdown failed: back above the level'],
+    tl_brk_up_conf: [1, 'Trendline break confirmed the next day'], tl_brk_up_fail: [-1, 'Trendline break failed within 5 days'] };
   const SIDE = { tri_brk_up: 1, wedge_fall_brk: 1, tri_brk_dn: -1, wedge_rise_brk: -1, sup3: 1, sup4: 1, res3: -1, res4: -1, sup: 1, ma50_sup: 1, ma200_sup: 1, fib_sup: 1, tl_sup: 1, gap_sup: 1, rsi30: 1, div_bull: 1, golden: 1, brk_up: 1, tl_brk_up: 1, hi250: 1, ihs: 1, cup: 1, conf2: 1, conf3: 1,
     res: -1, ma50_res: -1, ma200_res: -1, fib_res: -1, tl_res: -1, gap_res: -1, rsi70: -1, div_bear: -1, death: -1, brk_dn: -1, tl_brk_dn: -1, lo250: -1, hs: -1, conf2_res: -1, conf3_res: -1 };
   const NAME = { tri_brk_up: 'Break up out of a triangle', wedge_fall_brk: 'Break up out of a falling wedge', tri_brk_dn: 'Break down out of a triangle', wedge_rise_brk: 'Break down out of a rising wedge', sup3: 'Touch of a support made of 3+ pivots', sup4: 'Touch of a support made of 4+ pivots', res3: 'Touch of a resistance made of 3+ pivots', res4: 'Touch of a resistance made of 4+ pivots', sup: 'Touch of a horizontal support', res: 'Touch of a horizontal resistance', ma50_sup: 'Pullback to the 50-day average in an uptrend', ma50_res: 'Rally to the 50-day average in a downtrend',
@@ -45,6 +50,7 @@
     brk_up: 'Break above a horizontal resistance', brk_dn: 'Break below a horizontal support', hi250: 'New 1-year high', lo250: 'New 1-year low', ihs: 'Inverse head and shoulders, neckline broken', hs: 'Head and shoulders, neckline broken',
     cup: 'Cup and handle, rim broken', conf2: 'Two buy signals at once', conf3: 'Three or more buy signals at once', conf2_res: 'Two sell signals at once', conf3_res: 'Three or more sell signals at once' };
 
+  for (const [k, v] of Object.entries(CANDLE)) { SIDE[k] = v[0]; NAME[k] = v[1]; }
   // events[t] = list of signal ids that fired at the close of day t
   function scan(bars, opts) {
     const P = prep(bars), { n, c, h, l, s50, s200, rsi } = P, ev = new Array(n);
@@ -52,6 +58,7 @@
     let ihK = 0, ilK = 0;                         // pivots known so far: ph[0..ihK), pl[0..ilK)
     const ups = [], downs = [];                   // unfilled gaps
     let tlS = null, tlR = null, lastHi = -99, lastLo = -99, fibKey = '', fibHit = {};
+    let pUp = null, pDn = null, pTl = null;      // a breakout waiting for its confirmation or its failure
     for (let t = 1; t < n; t++) {
       const e = [];
       while (ihK < P.ph.length && P.ph[ihK] + K <= t) ihK++;
@@ -65,12 +72,16 @@
       const hs = [], ls = [];
       for (let i = ihK - 1; i >= 0 && P.ph[i] >= t - LOOK; i--) hs.push(P.ph[i]);
       for (let i = ilK - 1; i >= 0 && P.pl[i] >= t - LOOK; i--) ls.push(P.pl[i]);
+      // the days after a breakout: confirmed (next day closes higher and stays above the level) or failed (closes back through it within 5 days)
+      if (pUp) { if (t - pUp.at > 5) pUp = null; else if (c[t] < pUp.p * 0.99) { e.push('brk_up_fail'); pUp = null; } else if (t === pUp.at + 1 && c[t] > pUp.c && l[t] > pUp.p) e.push('brk_up_conf'); }
+      if (pDn) { if (t - pDn.at > 5) pDn = null; else if (c[t] > pDn.p * 1.01) { e.push('brk_dn_fail'); pDn = null; } else if (t === pDn.at + 1 && c[t] < pDn.c && h[t] < pDn.p) e.push('brk_dn_conf'); }
+      if (pTl) { if (t - pTl.at > 5) pTl = null; else if (c[t] < pTl.lo) { e.push('tl_brk_up_fail'); pTl = null; } else if (t === pTl.at + 1 && c[t] > pTl.c) e.push('tl_brk_up_conf'); }
       // horizontal support and resistance
       for (const z of zonesAt(P, t, hs, ls)) {
         if (l[t - 1] > z.p * 1.01 && l[t] <= z.p * 1.01 && c[t] >= z.p * 0.98) { e.push('sup'); if (z.n >= 3) e.push('sup3'); if (z.n >= 4) e.push('sup4'); }
         if (h[t - 1] < z.p * 0.99 && h[t] >= z.p * 0.99 && c[t] <= z.p * 1.02) { e.push('res'); if (z.n >= 3) e.push('res3'); if (z.n >= 4) e.push('res4'); }
-        if (c[t - 1] <= z.p * 1.01 && c[t] > z.p * 1.01 && c[t - 5] < z.p) e.push('brk_up');
-        if (c[t - 1] >= z.p * 0.99 && c[t] < z.p * 0.99 && c[t - 5] > z.p) e.push('brk_dn');
+        if (c[t - 1] <= z.p * 1.01 && c[t] > z.p * 1.01 && c[t - 5] < z.p) { e.push('brk_up'); pUp = { at: t, p: z.p, c: c[t] }; }
+        if (c[t - 1] >= z.p * 0.99 && c[t] < z.p * 0.99 && c[t - 5] > z.p) { e.push('brk_dn'); pDn = { at: t, p: z.p, c: c[t] }; }
       }
       // moving averages
       const above = (s, k) => { for (let j = t - k; j < t; j++) if (!(c[j] > s[j])) return false; return true; };
@@ -109,7 +120,7 @@
       }
       if (tlR && !tlR.dead && t - tlR.j <= 120) {
         const v = lineAt(tlR, t), v1 = lineAt(tlR, t - 1);
-        if (c[t] > v * 1.01) { e.push('tl_brk_up'); tlR.dead = true; } else if (h[t - 1] < v1 * 0.99 && h[t] >= v * 0.99) e.push('tl_res');
+        if (c[t] > v * 1.01) { e.push('tl_brk_up'); tlR.dead = true; pTl = { at: t, c: c[t], lo: l[t] }; } else if (h[t - 1] < v1 * 0.99 && h[t] >= v * 0.99) e.push('tl_res');
       }
       // new 1-year closing highs and lows (first in 20 days)
       let mx = -Infinity, mn = Infinity; for (let j = t - LOOK; j < t; j++) if (j >= 0) { if (c[j] > mx) mx = c[j]; if (c[j] < mn) mn = c[j]; }
@@ -132,6 +143,21 @@
             if (iC > 0) { let lowH = Infinity, hiH = -Infinity; for (let j = iC; j < t; j++) { if (l[j] < lowH) lowH = l[j]; if (h[j] > hiH) hiH = h[j]; }
               if (lowH >= B + 0.5 * (A - B) && lowH <= 0.97 * hiH) e.push('cup'); }
           }
+        }
+      }
+      { // candles: the shape of the day, read at its close
+        const A = P.atr[t], o = P.o, rng = h[t] - l[t], body = Math.abs(c[t] - o[t]), upW = h[t] - Math.max(o[t], c[t]), loW = Math.min(o[t], c[t]) - l[t];
+        if (A > 0 && rng > 0) {
+          const pos = (c[t] - l[t]) / rng, ch5 = c[t - 1] - c[t - 6], pb = Math.abs(c[t - 1] - o[t - 1]), A1 = P.atr[t - 1] || A;
+          let hi20 = -Infinity, lo20 = Infinity; for (let j = t - 20; j < t; j++) { if (h[j] > hi20) hi20 = h[j]; if (l[j] < lo20) lo20 = l[j]; }
+          if (rng >= 0.8 * A && upW >= 0.6 * rng && pos <= 0.4 && (h[t] >= hi20 || ch5 >= A)) e.push('tail_top');
+          if (rng >= 0.8 * A && loW >= 0.6 * rng && pos >= 0.6 && (l[t] <= lo20 || ch5 <= -A)) e.push('tail_bot');
+          if (c[t] > o[t] && c[t - 1] < o[t - 1] && c[t] >= o[t - 1] && o[t] <= c[t - 1] && body >= 0.6 * A && ch5 <= -A) e.push('engulf_bull');
+          if (c[t] < o[t] && c[t - 1] > o[t - 1] && c[t] <= o[t - 1] && o[t] >= c[t - 1] && body >= 0.6 * A && ch5 >= A) e.push('engulf_bear');
+          if (l[t] < lo20 && c[t] > c[t - 1] && c[t] > o[t] && pos >= 0.65) e.push('rev_up');
+          if (h[t] > hi20 && c[t] < c[t - 1] && c[t] < o[t] && pos <= 0.35) e.push('rev_dn');
+          if (c[t - 1] < o[t - 1] && pb >= 0.7 * A1 && c[t] > h[t - 1]) e.push('neg_bull');
+          if (c[t - 1] > o[t - 1] && pb >= 0.7 * A1 && c[t] < l[t - 1]) e.push('neg_bear');
         }
       }
       const u = [...new Set(e)], nb = u.filter((x) => BULL.includes(x)).length, ns = u.filter((x) => BEAR.includes(x)).length;

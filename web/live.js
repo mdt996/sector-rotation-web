@@ -241,15 +241,21 @@
         for (const g of geo.gaps) { const mid = (g.top + g.bottom) / 2, r = tl.appendChild(el('div', 'ta-tlr ' + (mid < px ? 'is-sup' : 'is-res'))); r.appendChild(el('span', 'ta-tlp', fmtP(mid))); r.appendChild(el('span', 'ta-tld', fmtPct(mid / px - 1))); r.appendChild(el('span', 'ta-tlt', `open gap ${g.dir}, ${fmtP(g.bottom)} to ${fmtP(g.top)}`)); }
       }
       if (geo && geo.lines.some((x) => x.agree && x.agree.length)) taBox.appendChild(el('div', 'ta-line ta-muted', 'Bold = the line meets another level today. Tested on 79 assets: a touch of a rising line worked 52% of the time with such an agreement and 53% without (any day 54%), so agreement is shown but does not raise the ranking.'));
-      const sg = taBox.appendChild(el('div', 'ta-sigs'));
-      if (!A.signals.length) sg.appendChild(el('div', 'ta-line ta-muted', 'No signal in the last 5 days.'));
-      for (const x of A.signals) {
-        const r = sg.appendChild(el('div', 'ta-sig ' + (x.side > 0 ? 'is-buy' : 'is-sell') + (G[x.id] && G[x.id].ok ? ' is-ok' : '')));
+      // signals that passed the history test are shown in full; the other patterns seen are folded away, with their record
+      const sg = taBox.appendChild(el('div', 'ta-sigs')), okS = A.signals.filter((x) => G[x.id] && G[x.id].ok), restS = A.signals.filter((x) => !(G[x.id] && G[x.id].ok));
+      const sigCard = (host, x) => {
+        const r = host.appendChild(el('div', 'ta-sig ' + (x.side > 0 ? 'is-buy' : 'is-sell') + (G[x.id] && G[x.id].ok ? ' is-ok' : '')));
         r.appendChild(el('b', '', (x.side > 0 ? 'Buy signal: ' : 'Sell signal: ') + x.name));
         r.appendChild(el('span', 'ta-when', x.ago === 0 ? 'today' : x.ago === 1 ? 'yesterday' : x.ago + ' days ago'));
         const mine = B && B.by[x.id], g = G[x.id];
         r.appendChild(el('div', 'ta-rec', (mine ? `On this asset: worked ${mine.w} of ${mine.n} times (${p0(mine.win)}); any day ${p0(mine.base)}.${mine.n < 15 ? ' Few cases.' : ''}` : 'On this asset: no earlier case in its history.')
           + (g ? ` On 79 assets: ${p0(g.win)} of ${g.n.toLocaleString('en-US')}; any day ${p0(g.base)}.${g.ok ? '' : ' No reliable edge.'}` : '')));
+      };
+      if (!okS.length) sg.appendChild(el('div', 'ta-line ta-muted', A.signals.length ? 'No tested signal in the last 5 days.' : 'No signal in the last 5 days.'));
+      for (const x of okS) sigCard(sg, x);
+      if (restS.length) {
+        const d = sg.appendChild(el('details', 'ta-rest')); d.appendChild(el('summary', '', `${restS.length} other pattern${restS.length > 1 ? 's' : ''} seen, with no reliable edge in the test: ${[...new Set(restS.map((x) => x.name.toLowerCase()))].slice(0, 3).join(', ')}${restS.length > 3 ? '…' : ''}`));
+        for (const x of restS) sigCard(d, x);
       }
       const lv = taBox.appendChild(el('div', 'ta-lv'));
       const row = (z) => { const r = lv.appendChild(el('div', 'ta-lvr ' + (z.side === 'res' ? 'is-res' : 'is-sup'))); r.appendChild(el('span', 'ta-d', pc(z.p / px - 1))); r.appendChild(el('b', '', fmtP(z.p))); r.appendChild(el('span', 'ta-k', z.kinds.join(' + '))); if (z.n >= 3) r.appendChild(el('span', 'ta-n', z.n + ' agree')); };

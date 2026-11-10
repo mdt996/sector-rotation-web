@@ -533,6 +533,9 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .ch-note { display: none; }
 .ch.is-full .ch-note:not(:empty) { display: block; font-size: 12.5px; line-height: 1.35; color: var(--color-fg); padding: 2px 4px 4px; }
 body.chart-full .sc-detail { z-index: 90; }   /* the full view opened from the Mac screener panel must cover the header and the navigation */
+.ta-rest { margin-top: 8px; }
+.ta-rest > summary { cursor: pointer; font-size: 13px; color: var(--color-fg-muted); padding: 8px 0; }
+.ta-rest .ta-sig { margin-top: 6px; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
