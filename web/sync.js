@@ -101,11 +101,13 @@
   }
 
   // another file of the private repository (the nightly scan's ranking): read-only
+  // GitHub's usual answer carries the file only up to 1 MB: the raw form is asked for, which has no such limit (the scan's ranking grows with its list of assets)
   async function getFile(name) {
     const t = token(); if (!t) return null;
-    const r = await SRApp.request('GET', API.replace(/settings\.json$/, name) + '?t=' + Date.now(), headers(t));
+    const r = await SRApp.request('GET', API.replace(/settings\.json$/, name) + '?t=' + Date.now(), { ...headers(t), Accept: 'application/vnd.github.raw+json' });
     if (r.status !== 200) return null;
-    return JSON.parse(b64d(JSON.parse(r.body).content));
+    const j = JSON.parse(r.body);
+    return j && typeof j.content === 'string' && j.encoding === 'base64' && j.sha ? JSON.parse(b64d(j.content)) : j;   // the usual answer, if the raw form was not given
   }
   window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus, getFile };
   // when the app opens, when you come back to it, and every 5 minutes while it is open
