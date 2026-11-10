@@ -434,9 +434,12 @@
   }
 
   // ---- Today ----
-  dash.draw('today', (box) => {
+  dash.draw('today', (outer) => {
     const H = holdings(), st = planState(H), c0 = cfg();
-    box.replaceChildren();
+    outer.replaceChildren();
+    // a wide window (the Mac): what to do on the left, what the screener found on the right; one column on a phone
+    const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
+    outer.classList.toggle('g-two', two);
     hero(box, H);
     if (c0.source !== 'yahoo' && !(c0.apiKey && c0.userKey)) {
       const c = card(box, 'warn', 'Connect eToro for live prices');
@@ -444,9 +447,9 @@
     }
     if (st.P && st.P.signal && !sig) loadSignal();
     verdictCard(box, H, st);
-    scoutCard(box);
+    scoutCard(right);
     setupCard(box, H, st);
-    watchCard(box, H, st);
+    watchCard(right, H, st);
     moneyCard(box, H, st);
   });
 

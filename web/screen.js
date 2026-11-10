@@ -61,7 +61,20 @@
     }
     return out;
   }
-  const open = (r) => { if (window.SRLive && window.SRLive.openAsset && r.id) window.SRLive.openAsset({ id: r.id, symbol: r.sym, name: r.name, exchange: '' }); };
+  // On a wide window (the Mac) the list stays on the left and the chosen asset is analysed beside it; on a phone it opens as a page.
+  let left = null, detail = null, detView = null, selId = null;
+  const isMac = () => window.innerWidth >= 1100;
+  function select(r) {
+    selId = r.id; if (detView) detView.destroy();
+    detView = window.SRLive.assetView(detail, { id: r.id, symbol: r.sym, name: r.name || '', exchange: '' }, { embed: true });
+    detail.scrollTop = 0;
+    for (const x of document.querySelectorAll('#screener [data-id]')) x.classList.toggle('is-sel', +x.dataset.id === r.id);
+  }
+  const open = (r) => {
+    if (!r.id || !window.SRLive) return;
+    if (isMac() && detail && detail.offsetParent !== null && window.SRLive.assetView) select(r);   // only when the screener itself is on screen
+    else if (window.SRLive.openAsset) window.SRLive.openAsset({ id: r.id, symbol: r.sym, name: r.name, exchange: '' });
+  };
   const ago = (x) => (x.ago === 0 ? 'today' : x.ago === 1 ? 'yesterday' : x.ago + ' days ago');
   const ORDER = {
     signal: (a, b) => b.score - a.score || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup),
@@ -69,9 +82,15 @@
     resistance: (a, b) => (a.res == null ? 9 : a.res) - (b.res == null ? 9 : b.res),
     today: (a, b) => b.chg - a.chg,
   };
-  dash.draw('screener', (box) => {
-    box.replaceChildren();
-    if (!window.SRTA) return;
+  dash.draw('screener', (outer) => {
+    if (!window.SRTA) { outer.replaceChildren(); return; }
+    const two = isMac(); let box = outer;
+    outer.classList.toggle('sc-two', two);
+    if (two) {   // the detail panel is kept across the 15-second refresh of the list
+      if (!left) { left = el('div', 'sc-left'); detail = el('div', 'sc-detail'); detail.appendChild(el('p', 'g-muted', 'Choose an asset on the left: its chart and analysis open here.')); }
+      if (left.parentNode !== outer) outer.replaceChildren(left, detail);
+      left.replaceChildren(); box = left;
+    } else { if (detView) detView.destroy(); detView = null; selId = null; left = null; detail = null; outer.replaceChildren(); }
     load(); loadWide();
     const R = rows(), S = stats(), live = R.filter((r) => r.A);
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', R.map((r) => r.id).filter(Boolean));
@@ -81,7 +100,7 @@
     box.appendChild(el('p', 'g-muted g-sub', `${live.length} assets, analysed with the same rules and ranked on the signals that passed the history test. Tap one for its chart, levels and its own test.`));
     const map = box.appendChild(el('div', 'sc-map'));
     for (const r of R.filter((x) => x.group === 'World')) {
-      const t = map.appendChild(el('button', 'sc-tile')); t.type = 'button'; t.title = r.name; t.addEventListener('click', () => open(r));
+      const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
       t.appendChild(el('b', '', r.sym)); t.appendChild(el('span', '', r.A ? pct(r.chg) : '…'));
       if (r.A) t.style.background = `color-mix(in srgb, var(--color-${r.chg >= 0 ? 'ok' : 'bad'}) ${Math.min(55, Math.round(Math.abs(r.chg) * 1800))}%, var(--color-panel))`;
     }
@@ -89,7 +108,7 @@
     for (const [k, lab] of [['signal', 'Signals first'], ['support', 'Nearest support'], ['resistance', 'Nearest resistance'], ['today', 'Today']]) { const b = bar.appendChild(el('button', 'g-chip g-toggle' + (sort === k ? ' is-on' : ''), lab)); b.type = 'button'; b.addEventListener('click', () => { sort = k; SRApp.renderDraw('screener'); }); }
     const list = box.appendChild(el('div', 'sc-list'));
     for (const r of live.sort(ORDER[sort])) {
-      const b = list.appendChild(el('button', 'sc-row')); b.type = 'button'; b.addEventListener('click', () => open(r));
+      const b = list.appendChild(el('button', 'sc-row' + (r.id === selId ? ' is-sel' : ''))); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
       const a = b.appendChild(el('span', 'sc-a')); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name));
       const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0.0005 ? 'up' : r.chg < -0.0005 ? 'down' : ''), pct(r.chg)));
       const y = b.appendChild(el('span', 'sc-y'));
@@ -104,7 +123,7 @@
       box.appendChild(el('p', 'g-muted g-sub', `${wide.scanned} assets scanned on ${String(wide.made).slice(0, 10)}; ${W.length} with a tested buy signal in the last 3 days. Ideas graded so far: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.`));
       const wl = box.appendChild(el('div', 'sc-list'));
       for (const r of W.slice(0, 24)) {
-        const b = wl.appendChild(el('button', 'sc-row')); b.type = 'button'; b.addEventListener('click', () => open(r));
+        const b = wl.appendChild(el('button', 'sc-row' + (r.id === selId ? ' is-sel' : ''))); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
         const a = b.appendChild(el('span', 'sc-a')); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group));
         const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0 ? 'up' : r.chg < 0 ? 'down' : ''), pct(r.chg)));
         const y = b.appendChild(el('span', 'sc-y')); y.appendChild(el('span', 'g-pill g-buy', (SHORT[r.buy.id] || r.buy.id) + ' · ' + ago(r.buy)));
@@ -112,7 +131,9 @@
       }
     }
     box.appendChild(el('p', 'g-hint', 'Support and resistance are the nearest zones made of averages, pivots, Fibonacci levels, trendlines and gaps. Only four buy signals passed the test (trendline break, RSI divergence, Fibonacci pullback, RSI below 30); the rest is context. Analysis, not advice.'));
+    if (two && selId == null && outer.offsetParent !== null) { const first = live.find((r) => r.id); if (first) select(first); }   // the best-ranked asset is shown first
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
+  let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); SRApp.renderDraw('screener'); SRApp.renderDraw('today'); } });
   window.SRScreen = { rows, load, open, ago, SHORT, top, loadWide, count: () => rows().filter((r) => r.A).length + (wide ? wide.scanned : 0), record: () => (wide ? wide.record : null) };
 })();

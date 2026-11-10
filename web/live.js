@@ -143,7 +143,9 @@
     const who = 'view' + (++vid);
     let frame = FRAMES.find((f) => f.k === lsGet('sr.frame', '1D')) || FRAMES[4], bars = [], daily = [], prev = null, L = null, dead = false, hovering = false;
     root.replaceChildren();
-    const page = root.appendChild(el('div', 'av-page'));
+    const page = root.appendChild(el('div', 'av-page' + (opts.embed ? ' is-embed' : ''))); let chFit = null;
+    const fitPage = () => { const w = page.clientWidth >= 980; if (w !== page.classList.contains('is-wide')) { page.classList.toggle('is-wide', w); if (chFit) chFit(); } };   // two columns when the page itself is wide enough
+    const pageRO = window.ResizeObserver ? new ResizeObserver(fitPage) : null; if (pageRO) pageRO.observe(page); fitPage();
     const wrap = page.appendChild(el('div', 'av'));
     const side = page.appendChild(el('div', 'av av-side'));
     const top = wrap.appendChild(el('div', 'av-top'));
@@ -181,9 +183,9 @@
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
     const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames); } else { wrap.insertBefore(frames, box); } };
-    const wide = () => window.innerWidth >= 1000;
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (wide() ? Math.max(460, window.innerHeight - 250) : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
+    chFit = () => { if (ch.fit) ch.fit(); };
     const live = () => quotes.get(inst.id);
     function header() {
       if (dead) return;
@@ -381,7 +383,7 @@
     ticks.add(tick);
     want(who, [inst.id]);
     load(true);
-    const api = { id: inst.id, back: () => ch.back(), destroy() { dead = true; ticks.delete(tick); want(who, []); views.delete(api); ch.destroy(); } };
+    const api = { id: inst.id, back: () => ch.back(), destroy() { dead = true; if (pageRO) pageRO.disconnect(); ticks.delete(tick); want(who, []); views.delete(api); ch.destroy(); } };
     views.add(api);
     return api;
   }

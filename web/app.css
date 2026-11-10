@@ -502,13 +502,26 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 /* asset page on a wide window (Mac): the chart on the left at the height of the window, the analysis beside it */
 .av-page { display: block; }
 .av-side { display: block; }
-@media (min-width: 1000px) {
-  .av-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 430px); gap: 0 28px; align-items: start; }
-  .av-page > .av { align-content: start; }
-  .av-side { position: sticky; top: 0; max-height: calc(100vh - 96px); overflow-y: auto; padding-right: 6px; }
-  .av-side .av-ta { margin-top: 0; border-top: 0; padding-top: 0; }
-  .av-page .av-ranges { justify-content: flex-start; max-width: 460px; }
-  .av-page .av-top, .av-page .av-price { max-width: 100%; }
+.av-page.is-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 430px); gap: 0 28px; align-items: start; }
+.av-page.is-wide > .av { align-content: start; }
+.av-page.is-wide .av-side { position: sticky; top: 0; max-height: calc(100vh - 96px); overflow-y: auto; padding-right: 6px; }
+.av-page.is-wide .av-side .av-ta { margin-top: 0; border-top: 0; padding-top: 0; }
+@media (min-width: 1000px) { .av-page .av-ranges { justify-content: flex-start; max-width: 460px; } }
+/* ---- the Mac window (1100 px and more): navigation on the left, Today in two columns, the screener with the chosen asset beside the list ---- */
+@media (min-width: 1100px) {
+  body { padding-bottom: 0; padding-left: 100px; }
+  .tabbar { top: 0; bottom: 0; right: auto; width: 92px; box-sizing: border-box; flex-direction: column; justify-content: flex-start; gap: 6px; padding: 14px 8px; border-top: 0; border-right: 1px solid var(--color-border-line); }
+  .tabbar button { flex: none; padding: 12px 0 10px; border-radius: 12px; font-size: 12px; }
+  .tabbar button[aria-selected="true"] { background: color-mix(in srgb, var(--sr-c1) 10%, transparent); }
+  #today.sr-card.g-screen { max-width: 1260px; }
+  .g-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 22px; align-items: start; }
+  #screener.sr-card.g-screen { max-width: none; }
+  .sc-two { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .sc-two .sc-list { grid-template-columns: 1fr; }
+  .sc-two .sc-map { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+  .sc-detail { position: sticky; top: 74px; height: calc(100vh - 88px); overflow-y: auto; background: var(--color-panel, #fff); border: 1px solid var(--color-border-line); border-radius: 16px; padding: 14px 18px 18px; }
+  .sc-row.is-sel, .sc-tile.is-sel { outline: 2px solid var(--sr-c1); outline-offset: -2px; }
+  .av-page.is-embed.is-wide .av-side { max-height: calc(100vh - 130px); }
 }
 
 /* ---- dashboard ---- */
