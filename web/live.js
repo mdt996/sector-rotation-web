@@ -189,6 +189,7 @@
       const q = live(), px = q ? q.price : (daily.length ? daily[daily.length - 1].close : null);
       pickBox.hidden = !hit;
       if (hit) pickBox.textContent = `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
+      if (ch && ch.note) ch.note(hit ? pickBox.textContent : '');   // the same line inside the chart when it is in full view
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
     const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames); } else { wrap.insertBefore(frames, box); } };

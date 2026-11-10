@@ -48,6 +48,7 @@
     tools.appendChild(el('span', 'ch-sep'));
     const bInd = btn('ind', 'Indicators'), bUndo = btn('undo', 'Undo last drawing'), bClear = btn('clear', 'Clear drawings'), bFull = btn('full', 'Fullscreen');
     const hint = root.appendChild(el('div', 'ch-hint', ''));
+    const noteEl = root.appendChild(el('div', 'ch-note'));   // in full view: what the tapped line or level is
     const main = root.appendChild(el('div', 'ch-main'));
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
@@ -276,11 +277,13 @@
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
     function sizeMain() { const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0; main.style.height = root.classList.contains('is-full') ? '' : (own || (340 + (np - 1) * 110)) + 'px'; }
     bFull.addEventListener('click', () => toggleFull());
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !dead && root.classList.contains('is-full')) { e.preventDefault(); toggleFull(false); } });   // Esc leaves the full view (Mac)
     window.addEventListener('resize', () => { if (dead) return; sizeMain(); if (root.classList.contains('is-full')) { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* self-sizing */ } } });
     function toggleFull(on) {
       const want = on != null ? on : !root.classList.contains('is-full');
       root.classList.toggle('is-full', want); document.body.classList.toggle('chart-full', want);
       if (opts.onFull) { try { opts.onFull(want); } catch (e) { /* the page keeps its own header */ } }
+      if (!want) noteEl.textContent = '';
       bFull.setAttribute('aria-pressed', String(want));
       sizeMain();
       setTimeout(() => { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* the chart sizes itself */ } redraw(); }, 90);   // fill the window in full view
@@ -356,7 +359,7 @@
       },
       setZones(L) { zones = L; redraw(); },
       setFair(f) { fair = f && f.bear > 0 && f.bull > 0 ? f : null; redraw(); },
-slot, fit: () => { sizeMain(); },
+slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }, isFull: () => root.classList.contains('is-full'),
       setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
