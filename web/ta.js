@@ -236,7 +236,76 @@
     }
     return { lines: lines.map(({ at0, score, ...x }) => x), gaps: gaps.slice(-4), pattern };
   }
-  const API = { prep, scan, analyze, backtest, geometry, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
+  // Elastic trendlines, for display. A line runs through two major pivots and is kept when other points respect it within a
+  // tolerance: major and internal pivots, highs and lows alike (a line can turn from resistance into support), and gap edges.
+  // It may be crossed: a breakout and the retest that follows count as touches; crossings only lower its score. Flat lines
+  // are left to the horizontal levels. Two scales on a long chart: the whole history given, and the last 260 bars.
+  function tlScale(b, tag, near) {
+    const n = b.length; if (n < 80) return [];
+    const P = prep(b), t = n - 1, { c, h, l } = P, px = c[t], atr = P.atr[t] || 0, tolP = Math.max(0.008, 0.6 * atr / px), cap = near ? Math.max(0.12, 4 * atr / px) : Math.max(0.25, 6 * atr / px);
+    const KM = Math.max(8, Math.round(n / 40)), sep = Math.max(5, Math.round(n / 80)), maj = [];
+    for (let i = KM; i < n - 3; i++) {
+      let H = true, L = true;
+      for (let j = i - KM; j <= Math.min(n - 1, i + KM); j++) { if (j === i) continue; if (h[j] > h[i]) H = false; if (l[j] < l[i]) L = false; }
+      if (H) maj.push({ i, p: h[i] });
+      if (L) maj.push({ i, p: l[i] });
+    }
+    const anc = maj.map((x) => ({ i: x.i, p: x.p, w: 3 }));
+    for (const q of P.ph) anc.push({ i: q, p: h[q], w: 1 });
+    for (const q of P.pl) anc.push({ i: q, p: l[q], w: 1 });
+    for (let g = 1; g < n; g++) {
+      if (l[g] > h[g - 1] * 1.01) anc.push({ i: g, p: h[g - 1], w: 1 }, { i: g, p: l[g], w: 1 });
+      if (h[g] < l[g - 1] * 0.99) anc.push({ i: g, p: l[g - 1], w: 1 }, { i: g, p: h[g], w: 1 });
+    }
+    anc.sort((x, y) => x.i - y.i || y.w - x.w);
+    const minSpan = Math.max(15, Math.round(n / 30)), flat = Math.max(0.04 * px, 2 * atr), out = [];
+    for (let a = 0; a < maj.length; a++) for (let d = a + 1; d < maj.length; d++) {
+      const A = maj[a], B = maj[d]; if (B.i - A.i < minSpan) continue;
+      const m = (B.p - A.p) / (B.i - A.i), at = (x) => A.p + m * (x - A.i), now = at(t), dist = Math.abs(now / px - 1);
+      if (!(now > 0) || dist > cap || Math.abs(m) * n < flat) continue;
+      let w = 0, last = -99; const pts = [];
+      for (const q of anc) { if (q.i < A.i) continue; const v = at(q.i); if (v > 0 && Math.abs(q.p / v - 1) <= tolP) { if (q.i - last >= sep) { pts.push([q.i, q.p]); w += q.w; last = q.i; } else if (q.w > 1) w += 1; } }
+      if (pts.length < 3) continue;
+      let cross = 0, side = 0;
+      for (let x = A.i; x <= t && cross <= 3; x++) { const v = at(x), sd = c[x] > v * (1 + tolP) ? 1 : c[x] < v * (1 - tolP) ? -1 : 0; if (sd && side && sd !== side) cross++; if (sd) side = sd; }
+      if (cross > 3) continue;
+      const score = w - 2 * cross + Math.min(3, (t - A.i) / (n / 8)) + (t - last < n / 5 ? 2 : 0) + 4 * (1 - dist / cap);
+      out.push({ i: A.i, j: B.i, p1: A.p, p2: B.p, m, now, touches: pts.length, cross, pts, score, scale: tag, kind: now >= px ? 'res' : 'sup' });
+    }
+    return out.sort((x, y) => y.score - x.score);
+  }
+  // levels: optional [{ p, label }] (averages, pivot zones, Fibonacci, gaps). A line whose value today sits on one of them, or
+  // on another line, scores higher and carries `agree` (what it agrees with). Display only: on history, a line touch that
+  // coincided with a level did no better than a line touch alone (research/ta/bt_conf.js).
+  function trendlines(b, max, levels) {
+    const n = b.length, M = max || 4; if (n < 80) return [];
+    const sets = [tlScale(b, n > 420 ? 'long-term' : '', false)];
+    if (n > 420) { const off = n - 260; sets.push(tlScale(b.slice(off), 'recent', true).map((L) => ({ ...L, i: L.i + off, j: L.j + off, pts: L.pts.map(([x, q]) => [x + off, q]) }))); }
+    const P = prep(b.slice(-60)), px = b[n - 1].close, tolA = Math.max(0.008, 0.3 * (P.atr[P.n - 1] || 0) / px), LV = (levels || []).filter((z) => z && z.p > 0);
+    for (const S of sets) { for (const L of S.slice(0, 40)) { L.agree = LV.filter((z) => Math.abs(z.p / L.now - 1) <= tolA).map((z) => z.label).slice(0, 3); L.score += 2 * Math.min(2, L.agree.length); } for (const L of S.slice(40)) L.agree = []; S.sort((x, y) => y.score - x.score); }
+    // two lines are the same when they sit at about the same price today with about the same slope, or fan out from one pivot
+    const pick = [], same = (q, L) => { const dn = Math.abs(q.now / L.now - 1), dm = Math.abs(q.m - L.m) / px; return (dn < 0.03 && dm < 0.0005) || (dn < 0.02 && q.m * L.m > 0 && dm < 0.0015) || (Math.abs(q.i - L.i) <= 3 && dn < 0.12); };
+    const take = (L) => { if (L && pick.length < M && !pick.some((q) => same(q, L))) pick.push(L); };
+    const all = sets.flat().sort((x, y) => y.score - x.score);
+    take(all.find((x) => x.kind === 'res')); take(all.find((x) => x.kind === 'sup'));   // the best resistance and the best support,
+    for (const S of sets) if (S.length && !pick.some((q) => q.scale === S[0].scale)) take(S.find((x) => !pick.some((q) => same(q, x))));   // one of each scale,
+    for (const L of all) take(L);   // then the best of the rest
+    for (const L of pick) if (pick.some((q) => q !== L && Math.abs(q.now / L.now - 1) <= tolA)) L.agree = L.agree.concat('another trendline');
+    return pick.sort((x, y) => Math.abs(x.now - px) - Math.abs(y.now - px));   // nearest to the price first
+  }
+  // Gaps not filled yet, anywhere in the bars given, nearest to the price first.
+  function openGaps(b, max) {
+    const n = b.length, t = n - 1; if (n < 30) return [];
+    const P = prep(b), { h, l } = P, px = P.c[t], min = Math.max(0.003 * px, 0.15 * (P.atr[t] || 0)), mn = new Array(n), mx = new Array(n), out = [];
+    for (let i = t, a = Infinity, z = -Infinity; i >= 0; i--) { a = Math.min(a, l[i]); z = Math.max(z, h[i]); mn[i] = a; mx[i] = z; }
+    for (let g = 1; g <= t; g++) {
+      if (l[g] > h[g - 1] * 1.005 && mn[g] - h[g - 1] >= min) out.push({ i: g, top: mn[g], bottom: h[g - 1], dir: 'up' });
+      if (h[g] < l[g - 1] * 0.995 && l[g - 1] - mx[g] >= min) out.push({ i: g, top: l[g - 1], bottom: mx[g], dir: 'down' });
+    }
+    const mid = (g) => (g.top + g.bottom) / 2;
+    return out.filter((g) => Math.abs(mid(g) / px - 1) < 0.3).sort((x, y) => Math.abs(mid(x) - px) - Math.abs(mid(y) - px)).slice(0, max || 5);
+  }
+  const API = { prep, scan, analyze, backtest, geometry, trendlines, openGaps, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
   root.SRTA = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
 })(typeof window !== 'undefined' ? window : globalThis);

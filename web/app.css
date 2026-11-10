@@ -484,6 +484,21 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .sc-search { font: inherit; font-size: 15px; color: var(--color-fg-muted); text-align: left; width: 100%; padding: 12px 14px; margin: 0 0 12px; border-radius: 12px; border: 1px solid var(--color-border-line); background: var(--color-panel); cursor: pointer; }
 .g-link2 { margin-left: 16px; }
 .av-pick { font-size: 13.5px; line-height: 1.4; padding: 9px 12px; margin: 8px 0 0; border-radius: 10px; background: color-mix(in srgb, var(--sr-c1) 10%, var(--color-panel)); border: 1px solid color-mix(in srgb, var(--sr-c1) 35%, var(--color-border-line)); }
+/* full view: the chart takes all the height left under its toolbar */
+.ch.is-full { display: flex; flex-direction: column; }
+.ch.is-full .ch-main { flex: 1 1 auto; height: auto !important; min-height: 0; }
+.ch-slot { display: none; }
+.ch.is-full .ch-slot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: calc(2px + env(safe-area-inset-top)) 2px 0; }
+.ch-title { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ch.is-full .ch-slot .av-ranges { flex: 1 1 220px; margin: 0; max-width: 520px; }
+.ta-tl { margin: 6px 0 2px; }
+.ta-tlr { display: grid; grid-template-columns: 76px 62px 1fr; gap: 8px; align-items: baseline; font-size: 13px; padding: 3px 0 3px 8px; border-left: 3px solid var(--color-border, #d9dce1); margin-top: 3px; }
+.ta-tlr.is-sup { border-left-color: #1f9d55; }
+.ta-tlr.is-res { border-left-color: #d64545; }
+.ta-tlp { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ta-tld { font-variant-numeric: tabular-nums; color: var(--color-fg-muted); }
+.ta-tlt { color: var(--color-fg-muted); }
+.ta-tlr.is-agree .ta-tlt { color: var(--color-fg, #111); font-weight: 600; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

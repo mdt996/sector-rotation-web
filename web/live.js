@@ -177,7 +177,9 @@
       pickBox.hidden = !hit;
       if (hit) pickBox.textContent = `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
     }
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+    const fullTitle = el('div', 'ch-title', inst.symbol);
+    const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames); } else { wrap.insertBefore(frames, box); } };
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     const live = () => quotes.get(inst.id);
     function header() {
@@ -187,6 +189,7 @@
       const c = price != null && prev ? price / prev - 1 : null;
       chg.textContent = c == null ? '' : `${fmtPct(c)}  ${price - prev >= 0 ? '+' : '−'}${fmtP(Math.abs(price - prev))} today`;
       chg.className = 'av-chg ' + cls(c);
+      fullTitle.replaceChildren(el('b', '', inst.symbol), el('span', '', ' ' + fmtP(price) + ' '), el('span', 'av-chg ' + cls(c), c == null ? '' : fmtPct(c)));
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
       if (hovering || nodata) return;
@@ -202,6 +205,7 @@
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
     let taKey = '', taVal = null, taBt = null;
     let geo = null; // trendlines, gaps and wedge on the timeframe shown
+    const lineText = (x) => `${x.edge ? x.edge.toLowerCase() + ' edge: ' : x.scale ? x.scale + ' ' : ''}${x.m > 0 ? 'rising' : 'falling'} ${x.kind === 'sup' ? 'support' : 'resistance'} line, ${x.touches} touches${x.cross ? ', crossed ' + (x.cross === 1 ? 'once' : x.cross + ' times') : ''}${x.agree && x.agree.length ? '; today it meets ' + x.agree.join(', ') : ''}`;
     const taBars = () => daily.map((r) => ({ date: r.date, open: r.open, high: r.high, low: r.low, close: r.close }));
     function taNow() {
       if (!window.SRTA || daily.length < 260) return null;
@@ -216,10 +220,12 @@
       taBox.appendChild(el('div', 'ta-h', 'Technical analysis'));
       taBox.appendChild(el('div', 'ta-line', `${A.above200 ? 'Above' : 'Below'} its 200-day average, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
       if (geo && (geo.lines.length || geo.gaps.length)) {
-        const S = geo.lines.find((x) => x.kind === 'sup'), R = geo.lines.find((x) => x.kind === 'res'), dir = (x) => (x.m > 0 ? 'rising' : 'falling');
-        taBox.appendChild(el('div', 'ta-line', `On this timeframe (${frame.k}): ${[S ? `${dir(S)} support line at ${fmtP(S.now)} (${S.touches} pivots)` : '', R ? `${dir(R)} resistance line at ${fmtP(R.now)} (${R.touches} pivots)` : '', geo.gaps.length ? geo.gaps.length + ' open gap' + (geo.gaps.length > 1 ? 's' : '') : ''].filter(Boolean).join(' · ')}.`
-          + (geo.pattern ? ` ${geo.pattern}: the two lines converge. Not in the history test yet.` : '')));
+        const tl = taBox.appendChild(el('div', 'ta-tl'));
+        tl.appendChild(el('div', 'ta-line', `Trendlines and gaps on the ${frame.k} chart` + (geo.pattern ? ` · ${geo.pattern}: the two edges converge; a break out of it is one of the tested signals.` : '')));
+        for (const x of geo.lines) { const r = tl.appendChild(el('div', 'ta-tlr ' + (x.kind === 'sup' ? 'is-sup' : 'is-res') + (x.agree && x.agree.length ? ' is-agree' : ''))); r.appendChild(el('span', 'ta-tlp', fmtP(x.now))); r.appendChild(el('span', 'ta-tld', fmtPct(x.now / px - 1))); r.appendChild(el('span', 'ta-tlt', lineText(x))); }
+        for (const g of geo.gaps) { const mid = (g.top + g.bottom) / 2, r = tl.appendChild(el('div', 'ta-tlr ' + (mid < px ? 'is-sup' : 'is-res'))); r.appendChild(el('span', 'ta-tlp', fmtP(mid))); r.appendChild(el('span', 'ta-tld', fmtPct(mid / px - 1))); r.appendChild(el('span', 'ta-tlt', `open gap ${g.dir}, ${fmtP(g.bottom)} to ${fmtP(g.top)}`)); }
       }
+      if (geo && geo.lines.some((x) => x.agree && x.agree.length)) taBox.appendChild(el('div', 'ta-line ta-muted', 'Bold = the line meets another level today. Tested on 79 assets: a touch of a rising line worked 52% of the time with such an agreement and 53% without (any day 54%), so agreement is shown but does not raise the ranking.'));
       const sg = taBox.appendChild(el('div', 'ta-sigs'));
       if (!A.signals.length) sg.appendChild(el('div', 'ta-line ta-muted', 'No signal in the last 5 days.'));
       for (const x of A.signals) {
@@ -262,7 +268,7 @@
       const q = live(), px = q ? q.price : rows[n - 1].close;
       const A = taNow();
       if (A) {
-        const lab = (z) => z.kinds.slice(0, 2).join(' + ') + (z.kinds.length > 2 ? ' +' + (z.kinds.length - 2) : '');   // short labels, the two nearest zones each side
+        const nk = box.clientWidth < 560 ? 1 : 2, lab = (z) => z.kinds.slice(0, nk).join(' + ') + (z.kinds.length > nk ? ' +' + (z.kinds.length - nk) : '');   // short labels, the two nearest zones each side
         for (const z of A.above.slice(0, 2)) out.push({ p: z.p, kind: 'res', label: lab(z), full: z.kinds.join(' + ') });
         for (const z of A.below.slice(0, 2)) out.push({ p: z.p, kind: 'sup', label: lab(z), full: z.kinds.join(' + ') });
       }
@@ -281,9 +287,15 @@
       if (window.SRTA && window.SRTA.geometry && ch.setAuto) {
         const tm = (i) => bars[Math.max(0, Math.min(bars.length - 1, i))].time, A2 = [];
         if (bars.length >= 60) {
-          geo = window.SRTA.geometry(bars.map((x) => ({ open: x.open, high: x.high, low: x.low, close: x.close })));
-          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, full: `${Ln.m > 0 ? 'rising' : 'falling'} ${Ln.kind === 'sup' ? 'support' : 'resistance'} line through ${Ln.touches} pivots on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
-          for (const g of geo.gaps) A2.push({ type: 'box', a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
+          const src = bars.map((x) => ({ open: x.open, high: x.high, low: x.low, close: x.close })), day = (i) => new Date(tm(i) * 1000).toISOString().slice(0, frame.sec >= 86400 ? 10 : 16).replace('T', ' ');
+          geo = window.SRTA.geometry(src);
+          const strict = geo.pattern ? geo.lines.map((x) => Object.assign({ edge: geo.pattern }, x)) : [];   // the two edges of a wedge or triangle stay drawn
+          const An = taNow(), strong = /^(50|200)-day average|^Fibonacci|^gap|^1-year|^pivots ×([3-9]|\d\d)/, lv = An ? An.levels.map((z) => ({ p: z.p, label: z.kinds.filter((k) => strong.test(k)).join(' + ') })).filter((z) => z.label) : [];   // only the levels that count: the two averages, Fibonacci, gaps, 3+ pivots, the year's extremes
+          const TL = window.SRTA.trendlines ? window.SRTA.trendlines(src, box.clientWidth < 560 ? 3 : 4, lv) : [];   // elastic lines, long-term and recent; those that agree with a level come first
+          if (TL.length || strict.length) geo.lines = strict.concat(TL.filter((x) => !strict.some((q) => Math.abs(q.now / x.now - 1) < 0.03 && Math.abs(q.m - x.m) / x.now < 0.0005))).slice(0, 5);
+          if (window.SRTA.openGaps) geo.gaps = window.SRTA.openGaps(src, 5);
+          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, scale: Ln.scale, agree: (Ln.agree || []).length, now: Ln.now, full: lineText(Ln) + `, drawn from ${day(Ln.i)} on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
+          for (const g of geo.gaps) A2.push({ type: 'box', kind: g.bottom >= src[src.length - 1].close ? 'res' : 'sup', full: `gap ${g.dir} of ${day(g.i)}, not filled yet: ${fmtP(g.bottom)} to ${fmtP(g.top)}`, a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
         }
         ch.setAuto(A2);
       }

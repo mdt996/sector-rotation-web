@@ -41,6 +41,7 @@
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
 
     const root = container.appendChild(el('div', 'ch'));
+    const slot = root.appendChild(el('div', 'ch-slot'));   // name, price and timeframes, shown in full view
     const tools = root.appendChild(el('div', 'ch-tools'));
     const btn = (k, title) => { const b = tools.appendChild(el('button', 'ch-btn')); b.type = 'button'; b.title = title; b.setAttribute('aria-label', title); b.innerHTML = svg(ICON[k]); b.dataset.k = k; return b; };
     const bCursor = btn('cursor', 'Move and zoom'), bMeasure = btn('measure', 'Measure'), bFib = btn('fib', 'Fibonacci retracement'), bTrend = btn('trend', 'Trend line'), bH = btn('hline', 'Horizontal line');
@@ -153,9 +154,12 @@
       ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
       if (ind.sr) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
-        const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xe = W / hr;
+        const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xEdge = W / hr;
+        const xLast = bars.length ? xOf(bars[bars.length - 1].time) : null, sp = chart.timeScale().options().barSpacing || 6;
+        const xe = d.type === 'line' && xLast != null ? Math.min(xEdge, xLast + 40 * sp) : xEdge;   // a line runs 40 bars past the last candle, not to infinity
         if (d.type === 'line' && x2 !== x1) {
-          ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.5 * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(xe * hr, (y1 + (y2 - y1) * (xe - x1) / (x2 - x1)) * r); ctx.stroke();
+          ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, (d.agree ? 2.6 : d.scale === 'long-term' ? 1.8 : 1.3) * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(xe * hr, (y1 + (y2 - y1) * (xe - x1) / (x2 - x1)) * r); ctx.stroke();
+          if (d.agree && xLast != null && xLast > x1) { const yl = y1 + (y2 - y1) * (xLast - x1) / (x2 - x1); ctx.beginPath(); ctx.arc(xLast * hr, yl * r, 6 * r, 0, 7); ctx.lineWidth = Math.max(1, 1.6 * r); ctx.stroke(); }   // ring: where the line meets another level today
           for (const q of d.pts || []) { const qx = xOf(q.t), qy = yOf(q.p); if (qx == null || qy == null) continue; ctx.beginPath(); ctx.arc(qx * hr, qy * r, 3 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }
         } else if (d.type === 'box') {
           ctx.fillStyle = 'rgba(138,143,152,0.18)'; ctx.fillRect(x1 * hr, Math.min(y1, y2) * r, (xe - x1) * hr, Math.max(1, Math.abs(y2 - y1) * r));
@@ -255,19 +259,28 @@
       if (ind.sr) for (const lv of levels) { const y = yOf(lv.p); if (y != null && Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: lv.p, label: lv.full || lv.label, kind: lv.kind }; } }
       if (ind.sr) for (const d of autos) if (d.type === 'line') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null || x2 === x1 || ev.point.x < x1) continue;
-        const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
+        const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: d.now != null ? d.now : candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
+      }
+      if (!hit && ind.sr) for (const d of autos) if (d.type === 'box') {
+        const x1 = xOf(d.a.t), y1 = yOf(d.a.p), y2 = yOf(d.b.p); if (x1 == null || y1 == null || y2 == null || ev.point.x < x1) continue;
+        if (ev.point.y >= Math.min(y1, y2) - 4 && ev.point.y <= Math.max(y1, y2) + 4) hit = { p: (d.a.p + d.b.p) / 2, label: d.full || 'gap', kind: d.kind };
       }
       opts.onPick(hit);
     });
+    // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
+    root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
     bInd.addEventListener('click', () => { menu.hidden = !menu.hidden; bInd.setAttribute('aria-pressed', String(!menu.hidden)); });
     bFull.addEventListener('click', () => toggleFull());
+    window.addEventListener('resize', () => { if (root.classList.contains('is-full')) { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* self-sizing */ } } });
     function toggleFull(on) {
       const want = on != null ? on : !root.classList.contains('is-full');
       root.classList.toggle('is-full', want); document.body.classList.toggle('chart-full', want);
+      if (opts.onFull) { try { opts.onFull(want); } catch (e) { /* the page keeps its own header */ } }
       bFull.setAttribute('aria-pressed', String(want));
+      setTimeout(() => { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* the chart sizes itself */ } redraw(); }, 90);   // fill the window in full view
     }
     setTool('cursor');
 
@@ -340,7 +353,8 @@
       },
       setZones(L) { zones = L; redraw(); },
       setFair(f) { fair = f && f.bear > 0 && f.bull > 0 ? f : null; redraw(); },
-      setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
+slot,
+            setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
