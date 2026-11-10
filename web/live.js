@@ -257,7 +257,8 @@
       if (ch && ch.note) ch.note(hit ? pickBox.textContent : '');   // the same line inside the chart when it is in full view
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
-    const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); wrap.insertBefore(verdictEl, box); } };
+    const onFull = (on) => { const host = page.closest('.sc-detail'); if (host) host.classList.toggle('is-raised', on);   // the Mac screener panel covers the header only for its own full view
+      if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); wrap.insertBefore(verdictEl, box); } };
     const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     chFit = () => { if (ch.fit) ch.fit(); };
@@ -272,12 +273,14 @@
       fullTitle.replaceChildren(el('b', '', inst.symbol), el('span', '', ' ' + fmtP(price) + ' '), el('span', 'av-chg ' + cls(c), c == null ? '' : fmtPct(c)));
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
-      if (hovering || nodata) return;
+      if (hovering || nodata || drawErr) return;
       sub.textContent = q ? `Live · ${hhmm(q.at)}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
     }
     function toBars(rows) {
-      return rows.map((r) => ({ time: Math.floor(r.t / 1000), open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume || 0 }));
+      const byT = new Map(), ok = (x) => typeof x === 'number' && isFinite(x) && x > 0;
+      for (const r of rows) { const time = Math.floor(r.t / 1000); if (isFinite(time) && ok(r.open) && ok(r.high) && ok(r.low) && ok(r.close)) byT.set(time, { time, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume || 0 }); }
+      return [...byT.values()].sort((a, b) => a.time - b.time);   // a candle with a missing value, a repeated time or a wrong order would leave the chart empty
     }
     const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || null;
     // support / resistance from the last year's turning points (daily highs and lows that are the extreme of +/-5 days),
@@ -484,7 +487,7 @@
         sub.after(b);
       }
     }
-    let retried = 0, retryBtn = null, loadSeq = 0, lastLoad = null;
+    let retried = 0, retryBtn = null, loadSeq = 0, lastLoad = null, drawErr = '';
     function failed(msg, again) {
       sub.textContent = msg; sub.className = 'av-sub';
       if (!retryBtn) { retryBtn = el('button', 'btn av-retry', 'Try again'); retryBtn.type = 'button'; retryBtn.addEventListener('click', () => { retried = 0; load(true); }); sub.insertAdjacentElement('afterend', retryBtn); }
@@ -497,7 +500,7 @@
       // while waiting: say so when eToro's limit of 60 reads a minute is the reason
       const waiting = setInterval(() => { const st = SRApp.etoroState ? SRApp.etoroState() : null; if (st && st.wait > 0 && !dead) sub.textContent = `eToro allows 60 requests a minute and the limit is reached: the chart loads in about ${st.wait} s.`; }, 500);
       let d, pc, rows, shown = false; const mine = ++loadSeq, t0 = Date.now();
-      const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
+      const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); } catch (e) { drawErr = String((e && e.message) || e).slice(0, 80); if (window.console) console.error(e); } try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
       try {
         // 1. what the device already has: the chart appears at once
         let kd = await kept(inst.id, 'OneDay'); if ((!kd || kd.rows.length < 300) && await fromPack(inst.id)) kd = await kept(inst.id, 'OneDay');   // nothing on the device: the published history, if this asset is scanned
@@ -528,7 +531,9 @@
       if (!rows.length && d.length) { rows = d; frame = FRAMES[4]; sub.textContent = 'No intraday prices for this listing: showing daily candles.'; }
       daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
       bars = toBars(rows);
-      try { paint(fit); } catch (e) { if (window.console) console.error(e); failed('The chart could not be drawn (' + String((e && e.message) || e).slice(0, 80) + ').', false); }
+      drawErr = '';
+      try { paint(fit); } catch (e) { drawErr = String((e && e.message) || e).slice(0, 80); if (window.console) console.error(e); }
+      if (drawErr) failed('The chart could not be drawn (' + drawErr + '). Tell me this message.', false);
       try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); }
     }
     const tick = () => { if (dead) return; liveCandle(); header(); facts(); };
