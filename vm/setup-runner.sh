@@ -15,7 +15,9 @@ if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! co
 fi
 DIR="$HOME/actions-runner"; mkdir -p "$DIR"; cd "$DIR"
 if [ ! -x ./config.sh ]; then
-  V="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')"
+  # the whole answer is read before it is searched: a reader that stops early makes curl report a write failure
+  J="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)"
+  V="$(printf '%s\n' "$J" | sed -n -E 's/.*"tag_name": *"v([^"]+)".*/\1/p')"; V="${V%%[[:space:]]*}"
   [ -n "$V" ] || { echo "Could not read the runner's latest version from GitHub."; exit 1; }
   echo "== Downloading GitHub's runner $V for $ARCH"
   curl -fsSL -o runner.tar.gz "https://github.com/actions/runner/releases/download/v${V}/actions-runner-linux-${ARCH}-${V}.tar.gz"
