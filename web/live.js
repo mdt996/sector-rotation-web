@@ -157,6 +157,7 @@
     const frames = wrap.appendChild(el('div', 'av-ranges'));
     for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); load(true); }); }
     const box = wrap.appendChild(el('div', 'av-chart'));
+    const taBox = wrap.appendChild(el('div', 'av-ta'));
     const stats = wrap.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
@@ -191,22 +192,53 @@
     const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || null;
     // support / resistance from the last year's turning points (daily highs and lows that are the extreme of +/-5 days),
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
+    // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
+    let taKey = '', taVal = null, taBt = null;
+    const taBars = () => daily.map((r) => ({ date: r.date, open: r.open, high: r.high, low: r.low, close: r.close }));
+    function taNow() {
+      if (!window.SRTA || daily.length < 260) return null;
+      const key = inst.id + '|' + daily.length + '|' + daily[daily.length - 1].date;
+      if (key !== taKey) { const b = taBars(); taKey = key; taVal = window.SRTA.analyze(b); taBt = window.SRTA.backtest(b); }
+      return taVal;
+    }
+    function drawTA() {
+      taBox.replaceChildren();
+      const A = taNow(); if (!A) { if (daily.length) taBox.appendChild(el('p', 'av-note', 'Technical analysis needs about a year of daily history.')); return; }
+      const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
+      taBox.appendChild(el('div', 'ta-h', 'Technical analysis'));
+      taBox.appendChild(el('div', 'ta-line', `${A.above200 ? 'Above' : 'Below'} its 200-day average, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
+      const sg = taBox.appendChild(el('div', 'ta-sigs'));
+      if (!A.signals.length) sg.appendChild(el('div', 'ta-line ta-muted', 'No signal in the last 5 days.'));
+      for (const x of A.signals) {
+        const r = sg.appendChild(el('div', 'ta-sig ' + (x.side > 0 ? 'is-buy' : 'is-sell') + (G[x.id] && G[x.id].ok ? ' is-ok' : '')));
+        r.appendChild(el('b', '', (x.side > 0 ? 'Buy signal: ' : 'Sell signal: ') + x.name));
+        r.appendChild(el('span', 'ta-when', x.ago === 0 ? 'today' : x.ago === 1 ? 'yesterday' : x.ago + ' days ago'));
+        const mine = B && B.by[x.id], g = G[x.id];
+        r.appendChild(el('div', 'ta-rec', (mine ? `On this asset: worked ${mine.w} of ${mine.n} times (${p0(mine.win)}); any day ${p0(mine.base)}.${mine.n < 15 ? ' Few cases.' : ''}` : 'On this asset: no earlier case in its history.')
+          + (g ? ` On 79 assets: ${p0(g.win)} of ${g.n.toLocaleString('en-US')}; any day ${p0(g.base)}.${g.ok ? '' : ' No reliable edge.'}` : '')));
+      }
+      const lv = taBox.appendChild(el('div', 'ta-lv'));
+      const row = (z) => { const r = lv.appendChild(el('div', 'ta-lvr ' + (z.side === 'res' ? 'is-res' : 'is-sup'))); r.appendChild(el('span', 'ta-d', pc(z.p / px - 1))); r.appendChild(el('b', '', fmtP(z.p))); r.appendChild(el('span', 'ta-k', z.kinds.join(' + '))); if (z.n >= 3) r.appendChild(el('span', 'ta-n', z.n + ' agree')); };
+      for (const z of A.above.slice(0, 3).reverse()) row(z);
+      const now = lv.appendChild(el('div', 'ta-lvr is-now')); now.appendChild(el('span', 'ta-d', 'now')); now.appendChild(el('b', '', fmtP(px)));
+      for (const z of A.below.slice(0, 3)) row(z);
+      if (B) {
+        const best = Object.entries(B.by).filter(([id, x]) => x.n >= 8 && G[id]).sort((u, v) => v[1].edge - u[1].edge);
+        const t = taBox.appendChild(el('details', 'ta-bt')); t.appendChild(el('summary', '', `History test on this asset (${B.from.slice(0, 4)}–${B.to.slice(0, 4)}, ${B.days} days)`));
+        t.appendChild(el('p', 'av-note', `Success = up 2 average daily ranges before down 2, within 20 days, entering at the next open (the reverse for sell signals). Buying on any day here: ${p0(B.anyBuy)}. First half / second half is the walk-forward check: a signal counts only if it helped in both.`));
+        for (const [id, x] of best) { const r = t.appendChild(el('div', 'ta-btr')); r.appendChild(el('span', 'ta-k', window.SRTA.NAME[id])); r.appendChild(el('b', '', `${p0(x.win)} of ${x.n}`)); r.appendChild(el('span', 'ta-d ' + (x.edge > 0.03 && x.e1 > 0 && x.e2 > 0 ? 'up' : ''), `${pc(x.edge)} · halves ${x.e1 == null ? '–' : pc(x.e1)} / ${x.e2 == null ? '–' : pc(x.e2)}`)); }
+        if (!best.length) t.appendChild(el('p', 'av-note', 'Too few cases on this asset to judge any signal.'));
+      }
+    }
     function srLevels() {
       const rows = daily.slice(-260), n = rows.length, out = [];
       if (n < 30) return out;
-      const piv = [];
-      for (let i = 5; i < n - 5; i++) {
-        let isH = true, isL = true;
-        for (let j = i - 5; j <= i + 5; j++) { if (rows[j].high > rows[i].high) isH = false; if (rows[j].low < rows[i].low) isL = false; }
-        if (isH) piv.push(rows[i].high); if (isL) piv.push(rows[i].low);
-      }
       const q = live(), px = q ? q.price : rows[n - 1].close;
-      const groups = [];
-      for (const p of piv.sort((a, b) => a - b)) { const g = groups[groups.length - 1]; if (g && p / g.lo - 1 < 0.03) { g.sum += p; g.n++; } else groups.push({ lo: p, sum: p, n: 1 }); }
-      const lv = groups.map((g) => ({ p: g.sum / g.n, n: g.n }));
-      const above = lv.filter((x) => x.p > px * 1.005).sort((a, b) => a.p - b.p).slice(0, 2), below = lv.filter((x) => x.p < px * 0.995).sort((a, b) => b.p - a.p).slice(0, 2);
-      for (const x of above) out.push({ p: x.p, kind: 'res', label: 'Resistance' + (x.n > 1 ? ` ×${x.n}` : '') });
-      for (const x of below) out.push({ p: x.p, kind: 'sup', label: 'Support' + (x.n > 1 ? ` ×${x.n}` : '') });
+      const A = taNow();
+      if (A) {
+        for (const z of A.above.slice(0, 3)) out.push({ p: z.p, kind: 'res', label: z.kinds.join(' + ') });
+        for (const z of A.below.slice(0, 3)) out.push({ p: z.p, kind: 'sup', label: z.kinds.join(' + ') });
+      }
       const sw = SRApp.swing ? SRApp.swing().find((x) => x.us === inst.symbol) : null;
       if (sw && sw.inTrade && sw.sellAbove) out.push({ p: sw.sellAbove, kind: 'act', label: 'Swing: sell on a close above' });
       else if (sw && sw.bear && sw.buyBelow && sw.buyBelow > px * 0.92) out.push({ p: sw.buyBelow, kind: 'act', label: 'Swing: buy on a close below' });
@@ -218,6 +250,7 @@
       if (dead) return;
       for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
       ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf()); ch.setLevels(srLevels());
+      drawTA();
     }
     // the live price moves the newest candle, or opens the next one
     function liveCandle() {

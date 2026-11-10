@@ -334,6 +334,22 @@
     return 'Nothing to check: this plan never trades.';
   }
 
+  // ---- Today: what the screener scouted (buy signals that passed the history test, last 3 days) ----
+  function scoutCard(box) {
+    if (!window.SRScreen || !window.SRTA) return;
+    window.SRScreen.load();
+    const T = window.SRScreen.top(4), S = (window.SR_TASTATS || {}).by || {}, c = card(box, 'scout', 'Scouted today');
+    if (!T.length) c.appendChild(el('div', 'g-line g-muted', `No tested buy signal in the last 3 days among the ${window.SRScreen.count()} assets watched.`));
+    for (const r of T) {
+      const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button'; b.addEventListener('click', () => window.SRScreen.open(r));
+      b.appendChild(el('span', 'g-pill g-buy', r.sym));
+      b.appendChild(el('span', 'g-wrow-t', `${window.SRScreen.SHORT[r.buy.id] || r.buy.name}, ${window.SRScreen.ago(r.buy)} · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
+      b.appendChild(el('b', 'g-wrow-g', p0(S[r.buy.id].win)));
+    }
+    if (T.length) c.appendChild(el('div', 'g-hint', 'The percentage is how often that signal worked on 79 assets; buying on any day worked 54%. Tap for the chart, the levels and the asset\'s own test.'));
+    const l = c.appendChild(el('button', 'g-link', 'Open the screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
+  }
+
   // ---- Today, card 2: holdings outside the plan (no deadline), with what-if ----
   function setupCard(box, H, st) {
     const S = st.orders.filter((o) => o.kind === 'setup'); if (!S.length) return;
@@ -426,6 +442,7 @@
     }
     if (st.P && st.P.signal && !sig) loadSignal();
     verdictCard(box, H, st);
+    scoutCard(box);
     setupCard(box, H, st);
     watchCard(box, H, st);
     moneyCard(box, H, st);
