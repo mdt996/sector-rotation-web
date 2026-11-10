@@ -273,13 +273,16 @@
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
     bInd.addEventListener('click', () => { menu.hidden = !menu.hidden; bInd.setAttribute('aria-pressed', String(!menu.hidden)); });
+    // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
+    function sizeMain() { const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0; main.style.height = root.classList.contains('is-full') ? '' : (own || (340 + (np - 1) * 110)) + 'px'; }
     bFull.addEventListener('click', () => toggleFull());
-    window.addEventListener('resize', () => { if (root.classList.contains('is-full')) { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* self-sizing */ } } });
+    window.addEventListener('resize', () => { if (dead) return; sizeMain(); if (root.classList.contains('is-full')) { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* self-sizing */ } } });
     function toggleFull(on) {
       const want = on != null ? on : !root.classList.contains('is-full');
       root.classList.toggle('is-full', want); document.body.classList.toggle('chart-full', want);
       if (opts.onFull) { try { opts.onFull(want); } catch (e) { /* the page keeps its own header */ } }
       bFull.setAttribute('aria-pressed', String(want));
+      sizeMain();
       setTimeout(() => { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* the chart sizes itself */ } redraw(); }, 90);   // fill the window in full view
     }
     setTool('cursor');
@@ -332,7 +335,7 @@
       }
       const panes = chart.panes();
       if (panes.length > 1) { panes[0].setStretchFactor(3); for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1); }
-      main.style.height = (root.classList.contains('is-full') ? '' : (340 + (panes.length - 1) * 110) + 'px');
+      main.dataset.panes = String(panes.length); sizeMain();
       redraw();
     }
 

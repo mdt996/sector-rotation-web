@@ -143,7 +143,9 @@
     const who = 'view' + (++vid);
     let frame = FRAMES.find((f) => f.k === lsGet('sr.frame', '1D')) || FRAMES[4], bars = [], daily = [], prev = null, L = null, dead = false, hovering = false;
     root.replaceChildren();
-    const wrap = root.appendChild(el('div', 'av'));
+    const page = root.appendChild(el('div', 'av-page'));
+    const wrap = page.appendChild(el('div', 'av'));
+    const side = page.appendChild(el('div', 'av av-side'));
     const top = wrap.appendChild(el('div', 'av-top'));
     const idt = top.appendChild(el('div', 'av-id'));
     idt.appendChild(el('div', 'av-sym', inst.symbol));
@@ -157,16 +159,16 @@
     const frames = wrap.appendChild(el('div', 'av-ranges'));
     for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); load(true); }); }
     const box = wrap.appendChild(el('div', 'av-chart'));
-    const taBox = wrap.appendChild(el('div', 'av-ta'));
-    const stats = wrap.appendChild(el('dl', 'av-stats'));
+    const taBox = side.appendChild(el('div', 'av-ta'));
+    const stats = side.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
     const sRsi = stat('Weekly RSI (14)'), sFv = stat('Fair value: bear · base · bull', 'z-fv'), sVs = stat('Price vs base fair value', 'z-fv');
     const sAcc = stat('Low part of 2-year range', 'z-acc'), sFair = stat('Middle', 'z-fair'), sTp = stat('High part', 'z-tp');
-    const how = wrap.appendChild(el('button', 'sr-more av-how', 'What these mean')); how.type = 'button';
-    const howText = wrap.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated, for the US sector funds only: over 1999–2026 the 3 months after such a week averaged +0.6% against +2.5% otherwise, and it also held on the years never used to build it (1999–2010). A reason not to add; trimming is optional. It did not hold for semiconductors, the Nasdaq, the S&P 500 or single stocks, so it is not flagged there. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
+    const how = side.appendChild(el('button', 'sr-more av-how', 'What these mean')); how.type = 'button';
+    const howText = side.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated, for the US sector funds only: over 1999–2026 the 3 months after such a week averaged +0.6% against +2.5% otherwise, and it also held on the years never used to build it (1999–2010). A reason not to add; trimming is optional. It did not hold for semiconductors, the Nasdaq, the S&P 500 or single stocks, so it is not flagged there. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
     howText.hidden = true;
-    const fvText = wrap.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
+    const fvText = side.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
 
     // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
@@ -179,7 +181,8 @@
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
     const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames); } else { wrap.insertBefore(frames, box); } };
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+    const wide = () => window.innerWidth >= 1000;
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (wide() ? Math.max(460, window.innerHeight - 250) : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     const live = () => quotes.get(inst.id);
     function header() {

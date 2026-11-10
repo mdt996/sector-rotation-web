@@ -499,6 +499,17 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .ta-tld { font-variant-numeric: tabular-nums; color: var(--color-fg-muted); }
 .ta-tlt { color: var(--color-fg-muted); }
 .ta-tlr.is-agree .ta-tlt { color: var(--color-fg, #111); font-weight: 600; }
+/* asset page on a wide window (Mac): the chart on the left at the height of the window, the analysis beside it */
+.av-page { display: block; }
+.av-side { display: block; }
+@media (min-width: 1000px) {
+  .av-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 430px); gap: 0 28px; align-items: start; }
+  .av-page > .av { align-content: start; }
+  .av-side { position: sticky; top: 0; max-height: calc(100vh - 96px); overflow-y: auto; padding-right: 6px; }
+  .av-side .av-ta { margin-top: 0; border-top: 0; padding-top: 0; }
+  .av-page .av-ranges { justify-content: flex-start; max-width: 460px; }
+  .av-page .av-top, .av-page .av-price { max-width: 100%; }
+}
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
