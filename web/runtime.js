@@ -300,7 +300,7 @@
       sellAbove: inn ? sma4 : null, // a close above this is above the 5-day average
     };
   }
-  // the plan's semis trend on Friday closes: OUT when a weekly close is >15% below the 52-week high, back IN above the 30-week average
+  // the plan's semis trend on Friday closes: OUT when a weekly close is >15% below the 52-week high; back IN when it is again within 15% of that high and above the 30-week average
   function trendOf(rows) {
     if (!rows || rows.length < 300) return null;
     const wk = [], key = (d) => { const t = Date.parse(d + 'T00:00:00Z'); return t - ((new Date(t).getUTCDay() + 6) % 7) * 864e5; };
@@ -312,7 +312,8 @@
     for (let i = 51; i < wk.length; i++) {
       let hi = 0, sm = 0; for (let j = i - 51; j <= i; j++) hi = Math.max(hi, wk[j].close); for (let j = i - 29; j <= i; j++) sm += wk[j].close; sm /= 30;
       const c = wk[i].close;
-      if (inn && c < 0.85 * hi) { inn = false; since = wk[i].date; } else if (!inn && c > sm) { inn = true; since = wk[i].date; }
+      const next = c >= 0.85 * hi && (inn || c > sm);
+      if (next !== inn) { inn = next; since = wk[i].date; }
     }
     return { inn, since, date: wk[wk.length - 1].date, close: wk[wk.length - 1].close };
   }

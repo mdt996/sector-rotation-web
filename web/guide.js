@@ -13,14 +13,14 @@
   const redraw = () => { for (const n of ['today', 'pfolio', 'plan']) SRApp.renderDraw(n); };
   const go = (tab, sub) => { if (window.appShowTab) window.appShowTab(tab, sub); };
 
-  // ---- the two plans (both tested on the app's 15-year basis, see the Plan tab's 15 years) ----
+  // ---- the two plans (tested on 2000-2026 and audited in Nov 2026, see the Plan tab's test) ----
   const DEFL = [['ZPDS', 'XLP', 'Consumer staples'], ['ZPDU', 'XLU', 'Utilities'], ['ZPDH', 'XLV', 'Health care']];
-  const HAVENS = { cash: { t: 'CASH', name: 'Cash (Revolut)', study: 'smhplan' } }; // gold miners failed the 25-year test (more swings than the S&P 500)
+  const HAVENS = { cash: { t: 'CASH', name: 'Cash (Revolut)', study: 'smhplan' } }; // gold miners failed the 2000-2026 test (more swings than the S&P 500)
   const PLANS = {
     smh: {
       name: 'Semis on trend + defensive',
-      line: 'Half in semiconductors (SEC0) while they trend; after a 15% fall that half waits in cash until SEC0\'s US twin closes above its 30-week average. Half in staples, utilities and health care.',
-      risk: 'Passed the 2000–2011 blind test. After French tax (31.4% on each sale) it earned about what the S&P 500 did, with far smaller drops (−38% vs −55%). About 7 trades a year.',
+      line: 'Half in semiconductors (SEC0) while they trend; after a 15% fall that half waits in cash until SEC0\'s US twin is back within 15% of its high and above its 30-week average. Half in staples, utilities and health care.',
+      risk: 'Audited Nov 2026. Its real edge is smaller drops (worst −35% vs −55% for the S&P 500), not return: after costs and French tax it earned 6.3% a year vs 6.8% for the S&P 500 (2000–2026). About 14 orders a year. Semis were picked knowing they won.',
       study: (p) => (HAVENS[p.haven] || HAVENS.cash).study,
       targets: (inn, p) => { const hv = HAVENS[p.haven] || HAVENS.cash; return [inn ? { t: 'SEC0', us: 'SMH', name: 'Semiconductors', w: 0.5 } : { t: hv.t, us: hv.us, name: hv.name, w: 0.5 },
         ...DEFL.map(([t, us, name]) => ({ t, us, name, w: 0.5 / 3 }))]; },
@@ -28,7 +28,7 @@
     core: {
       name: 'Nasdaq + defensive',
       line: '50% Nasdaq-100, 50% staples, utilities and health care. Reset to target every January and July.',
-      risk: 'Passed the blind test; 2 trades a year, so little tax drag: slightly ahead of the S&P 500 after tax since 2004. But in the 2000–02 tech crash it fell further (−58% vs −55%).',
+      risk: 'Audited Nov 2026. After costs and French tax: 7.2% a year vs 6.8% for the S&P 500 (2000–2026), with slightly smaller swings. Few orders (about 8 a year), so little tax drag. But in the 2000–02 tech crash it fell further (−58% vs −55%).',
       study: () => 'qqqdef',
       targets: () => [{ t: 'SXRV', us: 'QQQ', name: 'Nasdaq-100', w: 0.5 }, ...DEFL.map(([t, us, name]) => ({ t, us, name, w: 0.5 / 3 }))],
     },
@@ -76,19 +76,24 @@
     return mon + 4 * 864e5 + (21 * 60 + 15) * 60e3;
   }
   const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+  // Semis trend on Friday closes. IN while the close is within 15% of the highest close of the last 52 weeks.
+  // After an exit, back IN only when the close is again within 15% of that high AND above its 30-week average
+  // (until build 24 the average alone brought it back, so it went in and out week after week during recoveries).
   function computeSignal(w) {
     if (w.length < 110) return { error: 'not enough history' };
+    const closes = w.map((x) => x.close), L = w.length - 1;
+    const stopAt = (i) => 0.85 * Math.max(...closes.slice(i - 51, i + 1)), smaAt = (i) => mean(closes.slice(i - 29, i + 1));
     let inn = true, since = w[51].end;
-    for (let i = 51; i < w.length; i++) {
-      const c = w[i].close, hi = Math.max(...w.slice(i - 51, i + 1).map((x) => x.close)), sma = mean(w.slice(i - 29, i + 1).map((x) => x.close));
-      if (inn && c < 0.85 * hi) { inn = false; since = w[i].end; } else if (!inn && c > sma) { inn = true; since = w[i].end; }
+    for (let i = 51; i <= L; i++) {
+      const c = closes[i], near = c >= stopAt(i), next = near && (inn || c > smaAt(i));
+      if (next !== inn) { inn = next; since = w[i].end; }
     }
-    const L = w.length - 1, closes = w.map((x) => x.close);
+    // next Friday's levels: the new close joins both windows, so they are taken over the last 51 and 29 closes
+    const stop = 0.85 * Math.max(...closes.slice(L - 50)), avg = mean(closes.slice(L - 28));
     return {
       inn, since, close: closes[L], at: w[L].end,
-      // next Friday: out if it closes below 85% of the 52-week high; back in if it closes above the new 30-week average
-      exitAt: 0.85 * Math.max(...closes.slice(L - 50)), backAt: mean(closes.slice(L - 28)),
-      hist: w.slice(-52).map((x, k, a) => ({ end: x.end, close: x.close, sma: mean(closes.slice(L - 51 + k - 29, L - 51 + k + 1)), stop: 0.85 * Math.max(...closes.slice(L - 51 + k - 51, L - 51 + k + 1)) })),
+      exitAt: stop, backAt: Math.max(stop, avg), backWhy: avg >= stop ? 'avg' : 'high', avg, stop,
+      hist: w.slice(-52).map((x, k) => ({ end: x.end, close: x.close, sma: smaAt(L - 51 + k), stop: stopAt(L - 51 + k) })),
     };
   }
   async function loadSignal(force) {
@@ -233,7 +238,7 @@
     const lo = d3.min(d, (r) => Math.min(r.close, r.stop)), hi = d3.max(d, (r) => Math.max(r.close, r.sma));
     const y = d3.scaleLinear().domain([lo * 0.97, hi * 1.02]).range([H - m.b, m.t]);
     const svg = d3.select(box).append('svg').attr('class', 'g-spark').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('height', H).attr('role', 'img')
-      .attr('aria-label', 'SMH weekly closes over the last year, with its 20-week average and the 15% stop');
+      .attr('aria-label', 'SMH weekly closes over the last year, with its 30-week average and the 15% stop');
     const line = (k) => d3.line().x((r, i) => x(i)).y((r) => y(r[k]));
     svg.append('path').datum(d).attr('d', line('stop')).attr('class', 'g-sp-stop');
     svg.append('path').datum(d).attr('d', line('sma')).attr('class', 'g-sp-sma');
@@ -422,7 +427,7 @@
     if (!rows.length) c.appendChild(el('div', 'g-line g-muted', 'No swing setups: none of these funds is in a bear market.'));
     if (calm.length) c.appendChild(el('div', 'g-hint', 'No setup now: ' + calm.join(', ') + '.'));
     const waiting = st.P && st.p.id === 'smh' && st.inn === false ? (st.cur.CASH || 0) : 0;
-    c.appendChild(el('div', 'g-hint', (waiting > 50 ? `Size: up to the ${eur(waiting)} waiting in cash for semis. ` : '') + 'Rule from the 2000–2026 test: while a fund is below its 200-day average, buy after a very sharp drop (RSI-2 below 5); sell at the first close above the 5-day average, or after 10 days. Signals come after the US close (22:00 Paris); act at the next open.'));
+    c.appendChild(el('div', 'g-hint', (waiting > 50 ? `Size: up to the ${eur(waiting)} waiting in cash for semis. ` : '') + 'Rule: while a fund is below its 200-day average, buy after a very sharp drop (RSI-2 below 5); sell at the first close above the 5-day average, or after 10 days. Audited Nov 2026: it only works if you trade at the next Xetra open (09:00); a day late, the gain is gone. After fees and tax it adds little (0 to 1.5 points a year in the test), and these 7 funds were picked knowing they bounced best. Optional.'));
   }
   function signalRow(box) {
     if (!sig || sig.error) return;
@@ -537,7 +542,7 @@
     const S = (k) => rows.find((r) => r.key === k);
     const nums = (parent, s) => {
       const n = parent.appendChild(el('div', 'g-plan-n'));
-      for (const [v, lab] of [[pct(s.cagr), 'a year'], [d3.format('.1%')(s.vol), 'volatility'], [pct(s.max_dd), 'worst drop']]) { const d = n.appendChild(el('div')); d.appendChild(el('b', '', v)); d.appendChild(el('span', '', lab)); }
+      for (const [v, lab] of [[pct(s.cagr_tax != null ? s.cagr_tax : s.cagr), s.cagr_tax != null ? 'a year after tax' : 'a year'], [d3.format('.1%')(s.vol), 'volatility'], [pct(s.max_dd), 'worst drop']]) { const d = n.appendChild(el('div')); d.appendChild(el('b', '', v)); d.appendChild(el('span', '', lab)); }
     };
     box.replaceChildren();
     box.appendChild(el('h2', 'g-h2', 'Your plan'));
@@ -553,7 +558,7 @@
     for (const id of ['smh', 'core']) opt(id, PLANS[id].name, PLANS[id].line, PLANS[id].study(p));
     opt(null, 'No plan', 'Just track my holdings and the market.', null);
     const spy = S('spy');
-    if (spy) box.appendChild(el('p', 'g-muted g-sub', `S&P 500 in the same test: ${pct(spy.cagr)} a year, volatility ${d3.format('.1%')(spy.vol)}, worst drop ${pct(spy.max_dd)}. June 2000 – Oct 2026, dividends included, before tax. Past results, not a promise.`));
+    if (spy) box.appendChild(el('p', 'g-muted g-sub', `S&P 500 just held, same test: ${pct(spy.cagr_tax != null ? spy.cagr_tax : spy.cagr)} a year after tax, volatility ${d3.format('.1%')(spy.vol)}, worst drop ${pct(spy.max_dd)}. June 2000 – Nov 2026, after 0.35% per order and 31.4% French tax on gains. Past results, not a promise.`));
     if (!st.P) return;
     // what stays outside the plan
     const PT = planTickers(p), keep = keepSet(p, H);
@@ -591,7 +596,7 @@
       }
     }
     tc.appendChild(el('div', 'g-hint', st.P.risk));
-    box.appendChild(btn('See the 25-year test', '', () => go('plan', 1)));
+    box.appendChild(btn('See the 26-year test', '', () => go('plan', 1)));
   });
 
   // live: Today and Portfolio follow the prices (every 10 s while open); the semis signal every 30 minutes

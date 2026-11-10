@@ -171,11 +171,11 @@ dash.draw('bts', (tbody) => {
     tr.setAttribute('data-key', s.key);
     const cell = SR.cells(tr);
     cell(s.label, '', false);
-    cell(SR.pct(s.cagr), SR.signCls(s.cagr), true, 'Per year');
+    cell(SR.pct(s.cagr_tax), SR.signCls(s.cagr_tax), true, 'A year, after tax');
+    cell(SR.pct(s.cagr), SR.signCls(s.cagr), true, 'Before tax');
     cell(f1(s.vol), '', true, 'Volatility');
-    cell(d3.format('.2f')(s.ratio), '', true, 'Return ÷ volatility');
     cell(f1(s.max_dd), 'neg', true, 'Worst drop');
-    cell(SR.pct(s.cagr_2011_18), SR.signCls(s.cagr_2011_18), true, 'Blind test 2000–11');
+    cell(SR.pct(s.cagr_2011_18), SR.signCls(s.cagr_2011_18), true, '2000–11');
     cell(SR.pct(s.cagr_2019_26), SR.signCls(s.cagr_2019_26), true, '2011–26');
   }
 });

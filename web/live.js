@@ -163,7 +163,7 @@
     const sRsi = stat('Weekly RSI (14)'), sFv = stat('Fair value: bear · base · bull', 'z-fv'), sVs = stat('Price vs base fair value', 'z-fv');
     const sAcc = stat('Low part of 2-year range', 'z-acc'), sFair = stat('Middle', 'z-fair'), sTp = stat('High part', 'z-tp');
     const how = wrap.appendChild(el('button', 'sr-more av-how', 'What these mean')); how.type = 'button';
-    const howText = wrap.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated: in a 15-year test of the sectors, the next 3 months averaged about −0.2% against +2.7% for a normal week, so it is a reason not to add (trimming is optional). It is the only signal that held up. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
+    const howText = wrap.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated, for the US sector funds only: over 1999–2026 the 3 months after such a week averaged +0.6% against +2.5% otherwise, and it also held on the years never used to build it (1999–2010). A reason not to add; trimming is optional. It did not hold for semiconductors, the Nasdaq, the S&P 500 or single stocks, so it is not flagged there. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
     howText.hidden = true;
     const fvText = wrap.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
@@ -241,8 +241,9 @@
       const c = y1 && now ? now / y1 - 1 : null;
       s1y.textContent = fmtPct(c); s1y.className = cls(c);
       const wr = weeklyRsi(daily);
-      sRsi.textContent = wr == null ? '—' : Math.round(wr) + (wr > 70 ? ' · overheated: don\'t add' : '');
-      sRsi.className = wr > 70 ? 'sr-hot' : '';
+      const hotOk = /^XL[A-Z]{1,2}$/.test(String(inst.symbol || '')); // tested on the sector funds only
+      sRsi.textContent = wr == null ? '—' : Math.round(wr) + (wr > 70 ? (hotOk ? ' · overheated: don\'t add' : ' · high') : '');
+      sRsi.className = wr > 70 && hotOk ? 'sr-hot' : '';
       sAcc.textContent = L ? `${fmtP(L.acc[0])} – ${fmtP(L.acc[1])}` : 'Not enough history';
       sFair.textContent = L ? `${fmtP(L.fair[0])} – ${fmtP(L.fair[1])}` : '—';
       sTp.textContent = L ? `${fmtP(L.tp[0])} – ${fmtP(L.tp[1])}` : '—';

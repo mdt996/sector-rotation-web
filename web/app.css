@@ -533,7 +533,6 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
   .sr-read { margin: 0; font-size: var(--cds-font-size-body); line-height: 1.55; max-width: 80ch; min-height: 3em; }
   .sr-bts td:first-child { font-weight: var(--cds-font-weight-medium); white-space: normal; min-width: 11rem; }
   @container (max-width: 640px) { .sr-bts th:nth-child(6), .sr-bts td:nth-child(6), .sr-bts th:nth-child(7), .sr-bts td:nth-child(7) { display: none; } .sr-bts th { white-space: normal; } }
-  @container (max-width: 420px) { .sr-bts th:nth-child(4), .sr-bts td:nth-child(4) { display: none; } }
   .sr-splits td:first-child { font-weight: var(--cds-font-weight-medium); white-space: normal; min-width: 8rem; }
   .sr-splits td:nth-child(2) { white-space: normal; min-width: 12rem; }
   @container (max-width: 640px) { .sr-splits th:nth-child(4), .sr-splits td:nth-child(4), .sr-splits th:nth-child(7), .sr-splits td:nth-child(7) { display: none; } .sr-splits th { white-space: normal; } .sr-splits td:nth-child(2) { min-width: 8rem; } }

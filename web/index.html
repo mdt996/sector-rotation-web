@@ -116,7 +116,7 @@
         <p class="sr-note">Each holding read through the US fund or stock it follows (a European semiconductor ETF through SMH, for example), with the rotation rule's yardstick: its 12-month return without the latest month. As strong as the weakest of the rule's picks: Hold, strong. Weaker: Hold, lagging, with the rule's strongest pick as the alternative. Down over the year: Reduce. Long-term holds are never told to sell, only when adding looks timely. Returns are converted to euros. With euro amounts (typed in the app's Settings), each holding shows its share of the total, and a suggested move shows the euros to shift each week, a quarter at a time. Click a row to open its chart.</p>
       </div>
     </div>
-    <div class="sr-folio-sum app-sum"><div data-draw="foliototal" data-source="portfolio"></div><div><b>Overheated (weekly RSI above 70, don't add):</b> <span data-draw="foliolist" data-kind="hot" data-source="portfolio">—</span></div><div class="app-muted" data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</div></div>
+    <div class="sr-folio-sum app-sum"><div data-draw="foliototal" data-source="portfolio"></div><div><b>Overheated sector funds (weekly RSI above 70, don't add):</b> <span data-draw="foliolist" data-kind="hot" data-source="portfolio">—</span></div><div class="app-muted" data-draw="foliofx" data-source="portfolio" data-field="eurusd_1m" data-row="0">—</div></div>
     <div class="sr-tablewrap">
       <table class="sr-table sr-folio" data-source="portfolio" data-row-key="ticker">
         <thead>
@@ -253,25 +253,25 @@
   <section class="sr-card" id="backtest">
     <div class="sr-card-head">
       <div>
-        <h2 class="sr-h2">25 years: the two plans against the S&amp;P 500</h2>
-        <p class="sr-note">Weekly closes June 2000 – October 2026 with dividends reinvested, before tax (Yahoo Finance history, research only; the app's prices stay live from eToro). Friday decisions, trades at the next week's open, 0.1% per trade, cash earning the US T-bill rate. Every rule was fixed using 2011–2026 only, then run once on 2000–2011, which nothing was tuned on (the blind test). <b>Semis on trend + defensive:</b> half in SMH, in cash after a 15% fall from its 52-week high, back when it closes above its 30-week average; half in staples, utilities and health care. <b>Nasdaq + defensive:</b> 50% Nasdaq-100, 50% the same defensives, reset every 6 months. The reliable gain is lower volatility and smaller drops; beating the S&amp;P 500's return held in some periods and not others. After French tax (31.4% on each sale), the semis plan earned about what the S&amp;P 500 did.</p>
+        <h2 class="sr-h2">26 years: the two plans against the S&amp;P 500, after costs and tax</h2>
+        <p class="sr-note">June 2000 – November 2026, weekly, dividends reinvested (Yahoo Finance history, research only; the app's prices stay live from eToro). Decisions on Friday's close, orders at the next open, 0.35% per order (Revolut fee and spread), cash at the US T-bill rate. <b>After tax</b> takes 31.4% of each year's realised gains and of the final sale. <b>Audited in November 2026</b> with a second, independent engine on daily data: the arithmetic matched; costs, tax and the wording were corrected. <b>What holds:</b> both plans swing less than the S&amp;P 500, and the semis plan's worst drop was a third smaller. <b>What does not:</b> a reliable extra return. After tax the semis plan earned less than the S&amp;P 500; over 2000–2011 it beat the S&amp;P 500's return from only 2 of 41 start months (Nasdaq + defensive: from all 41), while its drops were smaller from all 41. Semiconductors were chosen knowing they had won: the same rule on the other semis fund (SOXX) trailed the S&amp;P 500. About 1,600 rule variants were tried in all, so the best ones look better than they are. In euros since December 2003, after costs and tax: semis plan about 8.5% a year, Nasdaq + defensive 10.7%, S&amp;P 500 9.5%.</p>
       </div>
     </div>
     <div class="sr-bt-tiles">
       <div class="sr-bt-tile">
         <div class="sr-kpi-label"><i class="sr-key" data-key="smhplan"></i>Semis on trend + defensive</div>
-        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=smhplan" data-field="cagr">—</span> <small>a year</small></div>
-        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=smhplan" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=smhplan" data-field="max_dd">—</span></div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=smhplan" data-field="cagr_tax">—</span> <small>a year after tax</small></div>
+        <div class="sr-kpi-sub">before tax <span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=smhplan" data-field="cagr">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=smhplan" data-field="max_dd">—</span></div>
       </div>
       <div class="sr-bt-tile">
         <div class="sr-kpi-label"><i class="sr-key" data-key="qqqdef"></i>Nasdaq + defensive 50/50</div>
-        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=qqqdef" data-field="cagr">—</span> <small>a year</small></div>
-        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="max_dd">—</span></div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=qqqdef" data-field="cagr_tax">—</span> <small>a year after tax</small></div>
+        <div class="sr-kpi-sub">before tax <span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=qqqdef" data-field="cagr">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=qqqdef" data-field="max_dd">—</span></div>
       </div>
       <div class="sr-bt-tile">
         <div class="sr-kpi-label"><i class="sr-key" data-key="spy"></i>S&amp;P 500 (SPY), just held</div>
-        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=spy" data-field="cagr">—</span> <small>a year</small></div>
-        <div class="sr-kpi-sub">volatility <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=spy" data-field="vol">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=spy" data-field="max_dd">—</span></div>
+        <div class="sr-kpi-val"><span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=spy" data-field="cagr_tax">—</span> <small>a year after tax</small></div>
+        <div class="sr-kpi-sub">before tax <span data-draw="sv" data-fmt="sgn1" data-source="study_rules" data-where="key=spy" data-field="cagr">—</span> · worst drop <span data-draw="sv" data-fmt="pct1" data-source="study_rules" data-where="key=spy" data-field="max_dd">—</span></div>
       </div>
     </div>
     <div class="sr-chart sr-bt dash-skeleton" data-draw="bt" data-source="study_curve"></div>
@@ -280,11 +280,11 @@
         <thead>
           <tr>
             <th data-field="label">Strategy</th>
-            <th data-field="cagr" class="num">Per year</th>
+            <th data-field="cagr_tax" class="num">A year, after tax</th>
+            <th data-field="cagr" class="num">Before tax</th>
             <th data-field="vol" class="num">Volatility</th>
-            <th data-field="ratio" class="num">Return ÷ volatility</th>
             <th data-field="max_dd" class="num">Worst drop</th>
-            <th data-field="cagr_2011_18" class="num">Blind test 2000–11</th>
+            <th data-field="cagr_2011_18" class="num">2000–11</th>
             <th data-field="cagr_2019_26" class="num">2011–26</th>
           </tr>
         </thead>

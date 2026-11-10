@@ -513,8 +513,9 @@ dash.calc('portfolio', {
     const amt = h.amount > 0 ? h.amount : null;
     const base = { ticker: h.ticker, name: h.name, tracks: h.tracks, match: h.match || null, long_term: lt, note: h.note || '', amount: amt, share: amt && total ? r4(amt / total) : null };
     if (!m || !r) return { ...base, verdict: 'No data', into: null, into_revolut: null };
-    const sc = r.score, hot = !!r.overheated;
-    // the only signal that held up in the 15-year test: weekly RSI above 70 (don't add; trimming is optional)
+    // weekly RSI above 70 (don't add; trimming optional): held up for the US sector funds, also on 1999-2010 which was never used to build it.
+    // It did not hold for semis, the Nasdaq, the S&P 500 or single stocks (Nov 2026 audit), so it is flagged for sector funds only.
+    const sc = r.score, hot = !!r.overheated && /^XL[A-Z]{1,2}$/.test(h.tracks || '');
     let verdict;
     if (r.rsi_w == null) verdict = lt ? 'Long term: hold' : 'Too new to judge';
     else if (hot) verdict = lt ? 'Long term: overheated, don\'t add' : 'Overheated: don\'t add, trim optional';
