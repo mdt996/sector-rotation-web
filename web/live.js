@@ -138,7 +138,7 @@
     try {
       const p = await window.SRSync.getFile('packs/' + id + '.json'), cur = cache.get(id + '/OneDay');
       if (!p || !Array.isArray(p.rows) || p.rows.length < 80 || (cur && cur.rows.length >= p.rows.length)) return false;
-      keep(id + '/OneDay', { at: p.at || 0, fullAt: p.at || 0, all: !!p.all, rows: unpack(p.rows) }); stats.pack++;
+      keep(id + '/OneDay', { at: p.at || 0, fullAt: p.at || 0, all: true, rows: unpack(p.rows) }); stats.pack++;   // a pack is the whole published history (eToro gives 1000 daily candles at most): only the latest candles are asked after it
       return true;
     } catch (e) { return false; }
   }
@@ -370,6 +370,12 @@
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
       taBox.appendChild(el('div', 'ta-h', 'Technical analysis' + (frame.k === '1D' ? '' : ' · daily candles')));
       taBox.appendChild(el('div', 'ta-line', `${A.above200 == null ? 'No 200-day average yet' : (A.above200 ? 'Above' : 'Below') + ' its 200-day average'}, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
+      // the same grade as the screener's ranking: the signal, its age and the rest of the chart, with how often that situation worked
+      const J = window.SRScreen && window.SRScreen.judge ? window.SRScreen.judge(A.signals) : null;
+      if (J && J.buy) {
+        const c = J.buy.cell, nm = `${shortName(J.buy.id)}, ${J.buy.ago ? '1 to 3 days old' : 'fresh'}, ${window.SRScreen.GR[J.buy.g]}`, f1 = (x) => (x * 100).toFixed(1) + '%';
+        taBox.appendChild(el('div', 'ta-line ta-grade', `Screener rank: ${nm}. ` + (!c ? 'This situation was not measured in the test.' : c.ok ? `This situation worked ${f1(c.win)} of ${c.n.toLocaleString('en-US')} times in the test; any day ${f1(c.base)}.` : `No edge in the test for this situation: ${f1(c.win)} of ${c.n.toLocaleString('en-US')} times; any day ${f1(c.base)}.`)));
+      }
       if (A.young) taBox.appendChild(el('div', 'ta-line ta-muted', `Young asset: ${A.days} days of history. Levels and signals are read from what exists; its own history test needs about 16 months.`));
       if (geo && (geo.lines.length || geo.gaps.length)) {
         const tl = taBox.appendChild(el('div', 'ta-tl'));

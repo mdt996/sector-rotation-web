@@ -338,15 +338,15 @@
   function scoutCard(box) {
     if (!window.SRScreen || !window.SRTA) return;
     window.SRScreen.load(); window.SRScreen.loadWide();
-    const T = window.SRScreen.top(4), S = (window.SR_TASTATS || {}).by || {}, c = card(box, 'scout', 'Scouted today');
-    if (!T.length) c.appendChild(el('div', 'g-line g-muted', `No tested buy signal in the last 3 days among the ${window.SRScreen.count()} assets watched.`));
+    const T = window.SRScreen.top(4), c = card(box, 'scout', 'Scouted today');
+    if (!T.length) c.appendChild(el('div', 'g-line g-muted', `No buy situation that passed the test in the last 3 days among the ${window.SRScreen.count()} assets watched.`));
     for (const r of T) {
       const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button'; b.addEventListener('click', () => window.SRScreen.open(r));
       b.appendChild(el('span', 'g-pill g-buy', r.sym));
-      b.appendChild(el('span', 'g-wrow-t', `${window.SRScreen.SHORT[r.buy.id] || r.buy.name}, ${window.SRScreen.ago(r.buy)} · support ${pct(r.sup)}, resistance ${pct(r.res)}${r.rr ? ', reward/risk ' + Math.min(9.9, r.rr).toFixed(1) : ''}`));
-      b.appendChild(el('b', 'g-wrow-g', p0(S[r.buy.id].win)));
+      b.appendChild(el('span', 'g-wrow-t', `${window.SRScreen.SHORT[r.buy.id] || r.buy.id}, ${window.SRScreen.when(r, r.buy)}, ${window.SRScreen.GR[r.buy.g]} · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
+      b.appendChild(el('b', 'g-wrow-g', p0(r.buy.cell.win)));
     }
-    if (T.length) c.appendChild(el('div', 'g-hint', 'Fresh signals with at least 1.5 of reward for 1 of risk. The percentage is how often that signal worked on 79 assets; buying on any day worked 54%. Tap for the chart, the levels and the asset\'s own test.'));
+    if (T.length) c.appendChild(el('div', 'g-hint', 'The best-ranked of the screener. The percentage is how often that exact situation (signal, age, rest of the chart) worked in the history test; buying on any day worked 54%. Tap for the chart, the levels and the asset\'s own test.'));
     const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
     const l = c.appendChild(el('button', 'g-link', 'Open the screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
     const l2 = c.appendChild(el('button', 'g-link g-link2', 'Analyse any asset')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
