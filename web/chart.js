@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true }; // a clean chart: two averages, RSI, the nearest levels
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true }; // a clean chart: two averages, RSI, the nearest levels
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -36,7 +36,7 @@
     opts = opts || {};
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
-    let autos = [];
+    let autos = [], marks = [];
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
 
@@ -53,7 +53,7 @@
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
-    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps' };
+    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps', sig: 'Buy and sell entries with their outcome' };
     for (const k of Object.keys(IND_LABEL)) {
       const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
@@ -153,6 +153,7 @@
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
+      const tagYs = [];
       if (ind.tl) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
         const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xEdge = W / hr;
@@ -162,10 +163,29 @@
           ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, (d.agree ? 2.6 : d.scale === 'long-term' ? 1.8 : 1.3) * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(xe * hr, (y1 + (y2 - y1) * (xe - x1) / (x2 - x1)) * r); ctx.stroke();
           if (d.agree && xLast != null && xLast > x1) { const yl = y1 + (y2 - y1) * (xLast - x1) / (x2 - x1); ctx.beginPath(); ctx.arc(xLast * hr, yl * r, 6 * r, 0, 7); ctx.lineWidth = Math.max(1, 1.6 * r); ctx.stroke(); }   // ring: where the line meets another level today
           for (const q of d.pts || []) { const qx = xOf(q.t), qy = yOf(q.p); if (qx == null || qy == null) continue; ctx.beginPath(); ctx.arc(qx * hr, qy * r, 3 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }
+          if (d.tag) {   // what the line is and its value today, at its right end
+            const ye = y1 + (y2 - y1) * (xe - x1) / (x2 - x1), tw = ctx.measureText(d.tag).width + 10 * hr, H = sc.bitmapSize.height;
+            let yt = ye; while (tagYs.some((u) => Math.abs(u - yt) < 16)) yt -= 16;   // tags never sit on top of each other
+            if (yt * r > 14 * r && yt * r < H - 6 * r) { tagYs.push(yt); const bx = xe * hr - tw - 2 * hr, by = (yt - 8) * r; ctx.fillStyle = col; roundRect(ctx, bx, by, tw, 15 * r, 4 * r); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(d.tag, bx + 5 * hr, by + 11 * r); }
+          }
         } else if (d.type === 'box') {
           ctx.fillStyle = 'rgba(138,143,152,0.18)'; ctx.fillRect(x1 * hr, Math.min(y1, y2) * r, (xe - x1) * hr, Math.max(1, Math.abs(y2 - y1) * r));
           label(ctx, 'gap', x1 * hr + 4 * hr, Math.min(y1, y2) * r - 3 * r, '#8a8f98', 'left');
         }
+      }
+      if (ind.sig && marks.length) {   // entries of the signals, each with its exit: green = buy, red = sell; the exit dot is green when it worked, red when it failed
+        const G = '#1f9d55', R = '#d64545', sp = chart.timeScale().options().barSpacing || 6, lastT = bars.length ? bars[bars.length - 1].time : 0;
+        marks.forEach((m, k) => {
+          const x = xOf(m.a.t), yb = yOf(m.side > 0 ? m.a.lo : m.a.hi); if (x == null || yb == null) return;
+          const col = m.side > 0 ? G : R, d = m.side > 0 ? 1 : -1, y0 = yb + d * 5, s = Math.max(4.5, Math.min(7, sp * 0.9));
+          if (m.e && m.x) { const xe2 = xOf(m.e.t), ye2 = yOf(m.e.p), xx = xOf(m.x.t), yx = yOf(m.x.p);
+            if (xe2 != null && ye2 != null && xx != null && yx != null) { const oc = m.st === 'win' ? G : R; ctx.strokeStyle = oc; ctx.lineWidth = Math.max(1, 1.1 * r); ctx.setLineDash([3 * hr, 3 * hr]); ctx.beginPath(); ctx.moveTo(xe2 * hr, ye2 * r); ctx.lineTo(xx * hr, yx * r); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(xx * hr, yx * r, 3.2 * r, 0, 7); ctx.fillStyle = oc; ctx.fill(); } }
+          ctx.beginPath(); ctx.moveTo(x * hr, y0 * r); ctx.lineTo((x - s) * hr, (y0 + d * s * 1.5) * r); ctx.lineTo((x + s) * hr, (y0 + d * s * 1.5) * r); ctx.closePath();
+          if (m.tested) { ctx.fillStyle = col; ctx.fill(); } else { ctx.fillStyle = dark() ? '#16181e' : '#fff'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.4 * r); ctx.stroke(); }
+          const recent = k >= marks.length - 2 || (lastT && lastT - m.a.t <= 30 * (frame.sec || 86400));   // words only on the latest entries: older ones are explained on tap
+          if (m.tag && recent && sp >= 3) { const tw = ctx.measureText(m.tag).width + 8 * hr, bx = Math.max(2 * hr, Math.min(W - tw - 60 * hr, x * hr - tw / 2)), by = (y0 + d * (s * 1.5 + 4) + (d > 0 ? 0 : -14)) * r;
+            ctx.fillStyle = dark() ? 'rgba(22,24,30,0.9)' : 'rgba(255,255,255,0.92)'; roundRect(ctx, bx, by, tw, 14 * r, 3 * r); ctx.fill(); ctx.fillStyle = col; ctx.fillText(m.tag, bx + 4 * hr, by + 10.5 * r); }
+        });
       }
       ctx.lineWidth = Math.max(1, 1.3 * r);
       const all = drawings.concat(draft ? [draft] : []);
@@ -262,6 +282,7 @@
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null || x2 === x1 || ev.point.x < x1) continue;
         const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: d.now != null ? d.now : candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
       }
+      if (ind.sig) for (const m of marks) { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); if (x == null || y == null) continue; const yy = y + (m.side > 0 ? 12 : -12); if (Math.abs(x - ev.point.x) < 12 && Math.abs(yy - ev.point.y) < 16) { hit = { p: m.e ? m.e.p : (m.side > 0 ? m.a.lo : m.a.hi), label: m.full, kind: m.side > 0 ? 'buy' : 'sell' }; break; } }
       if (!hit && ind.tl) for (const d of autos) if (d.type === 'box') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), y2 = yOf(d.b.p); if (x1 == null || y1 == null || y2 == null || ev.point.x < x1) continue;
         if (ev.point.y >= Math.min(y1, y2) - 4 && ev.point.y <= Math.max(y1, y2) + 4) hit = { p: (d.a.p + d.b.p) / 2, label: d.full || 'gap', kind: d.kind };
@@ -269,6 +290,7 @@
       opts.onPick(hit);
     });
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
+    root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
     root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
@@ -362,6 +384,7 @@
 slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }, isFull: () => root.classList.contains('is-full'),
       setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
+      setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };

@@ -54,7 +54,7 @@
   // events[t] = list of signal ids that fired at the close of day t
   function scan(bars, opts) {
     const P = prep(bars), { n, c, h, l, s50, s200, rsi } = P, ev = new Array(n);
-    const from = Math.max(200, (opts && opts.from) || 0);
+    const short = !!(opts && opts.short), from = Math.max(short ? 60 : 200, (opts && opts.from) || 0);   // short: an asset with under a year of history
     let ihK = 0, ilK = 0;                         // pivots known so far: ph[0..ihK), pl[0..ilK)
     const ups = [], downs = [];                   // unfilled gaps
     let tlS = null, tlR = null, lastHi = -99, lastLo = -99, fibKey = '', fibHit = {};
@@ -68,7 +68,8 @@
       for (let i = downs.length - 1; i >= 0; i--) { const g = downs[i]; if (t - g.at > 120) downs.splice(i, 1); else if (h[t] >= g.edge * 0.995) { if (t >= from) e.push('gap_res'); downs.splice(i, 1); } }
       if (l[t] > h[t - 1] * 1.01) ups.push({ edge: h[t - 1], at: t });
       if (h[t] < l[t - 1] * 0.99) downs.push({ edge: l[t - 1], at: t });
-      if (t < from || s200[t - 1] == null) { ev[t] = e.length ? [...new Set(e)] : null; continue; }
+      if (t < from || (!short && s200[t - 1] == null)) { ev[t] = e.length ? [...new Set(e)] : null; continue; }
+      const has200 = s200[t - 1] != null;
       const hs = [], ls = [];
       for (let i = ihK - 1; i >= 0 && P.ph[i] >= t - LOOK; i--) hs.push(P.ph[i]);
       for (let i = ilK - 1; i >= 0 && P.pl[i] >= t - LOOK; i--) ls.push(P.pl[i]);
@@ -86,12 +87,12 @@
       // moving averages
       const above = (s, k) => { for (let j = t - k; j < t; j++) if (!(c[j] > s[j])) return false; return true; };
       const below = (s, k) => { for (let j = t - k; j < t; j++) if (!(c[j] < s[j])) return false; return true; };
-      if (c[t] > s200[t] && above(s50, 10) && l[t] <= s50[t] * 1.005 && c[t] >= s50[t] * 0.98) e.push('ma50_sup');
-      if (c[t] < s200[t] && below(s50, 10) && h[t] >= s50[t] * 0.995 && c[t] <= s50[t] * 1.02) e.push('ma50_res');
-      if (above(s200, 20) && l[t] <= s200[t] * 1.005 && c[t] >= s200[t] * 0.98) e.push('ma200_sup');
-      if (below(s200, 20) && h[t] >= s200[t] * 0.995 && c[t] <= s200[t] * 1.02) e.push('ma200_res');
-      if (s50[t] > s200[t] && s50[t - 1] <= s200[t - 1]) e.push('golden');
-      if (s50[t] < s200[t] && s50[t - 1] >= s200[t - 1]) e.push('death');
+      if ((!has200 || c[t] > s200[t]) && above(s50, 10) && l[t] <= s50[t] * 1.005 && c[t] >= s50[t] * 0.98) e.push('ma50_sup');
+      if ((!has200 || c[t] < s200[t]) && below(s50, 10) && h[t] >= s50[t] * 0.995 && c[t] <= s50[t] * 1.02) e.push('ma50_res');
+      if (has200 && above(s200, 20) && l[t] <= s200[t] * 1.005 && c[t] >= s200[t] * 0.98) e.push('ma200_sup');
+      if (has200 && below(s200, 20) && h[t] >= s200[t] * 0.995 && c[t] <= s200[t] * 1.02) e.push('ma200_res');
+      if (has200 && s50[t] > s200[t] && s50[t - 1] <= s200[t - 1]) e.push('golden');
+      if (has200 && s50[t] < s200[t] && s50[t - 1] >= s200[t - 1]) e.push('death');
       // RSI
       if (rsi[t] < 30 && rsi[t - 1] >= 30) e.push('rsi30');
       if (rsi[t] > 70 && rsi[t - 1] <= 70) e.push('rsi70');
@@ -124,8 +125,8 @@
       }
       // new 1-year closing highs and lows (first in 20 days)
       let mx = -Infinity, mn = Infinity; for (let j = t - LOOK; j < t; j++) if (j >= 0) { if (c[j] > mx) mx = c[j]; if (c[j] < mn) mn = c[j]; }
-      if (c[t] > mx) { if (t - lastHi > 20) e.push('hi250'); lastHi = t; }
-      if (c[t] < mn) { if (t - lastLo > 20) e.push('lo250'); lastLo = t; }
+      if (c[t] > mx) { if (t - lastHi > 20 && (!short || t >= LOOK)) e.push('hi250'); lastHi = t; }
+      if (c[t] < mn) { if (t - lastLo > 20 && (!short || t >= LOOK)) e.push('lo250'); lastLo = t; }
       // head and shoulders (three pivots, the middle one the extreme, shoulders within 6%), on the break of the neckline
       if (ilK >= 3) { const [a, b, d] = [P.pl[ilK - 3], P.pl[ilK - 2], P.pl[ilK - 1]];
         if (d - a >= 20 && d - a <= 150 && t - d <= 40 && l[b] <= 0.96 * Math.min(l[a], l[d]) && Math.abs(l[a] / l[d] - 1) <= 0.06) { let N = -Infinity; for (let j = a; j <= d; j++) if (h[j] > N) N = h[j]; if (c[t] > N && c[t - 1] <= N) e.push('ihs'); } }
@@ -170,8 +171,8 @@
   // The picture today for one asset: every level, merged into zones where several fall within 1.5% of each other,
   // the nearest support and resistance, and the signals of the last 5 bars. `live` is the live price, if any.
   function analyze(bars, live) {
-    const n = bars.length; if (n < 260) return null;
-    const R = scan(bars, { from: n - 130 }), P = R.P, t = n - 1, { c, h, l } = P, px = live > 0 ? live : c[t], raw = [];
+    const n = bars.length; if (n < 80) return null;
+    const young = n < 260, R = scan(bars, { from: Math.max(young ? 60 : 0, n - 130), short: young }), P = R.P, t = n - 1, { c, h, l } = P, px = live > 0 ? live : c[t], raw = [];
     const add = (p, k) => { if (p > 0 && isFinite(p)) raw.push({ p, k }); };
     add(P.s20[t], '20-day average'); add(P.s50[t], '50-day average'); add(P.s200[t], '200-day average');
     const hs = P.ph.filter((p) => p + K <= t && p >= t - LOOK), ls = P.pl.filter((p) => p + K <= t && p >= t - LOOK);
@@ -189,8 +190,8 @@
       if (l[g] > h[g - 1] * 1.01) { let m = Infinity; for (let j = g; j <= t; j++) if (l[j] < m) m = l[j]; if (m > h[g - 1] * 1.005) add(h[g - 1], 'gap to fill'); }
       if (h[g] < l[g - 1] * 0.99) { let m = -Infinity; for (let j = g; j <= t; j++) if (h[j] > m) m = h[j]; if (m < l[g - 1] * 0.995) add(l[g - 1], 'gap to fill'); }
     }
-    let mx = -Infinity, mn = Infinity; for (let j = t - LOOK + 1; j <= t; j++) { if (h[j] > mx) mx = h[j]; if (l[j] < mn) mn = l[j]; }
-    add(mx, '1-year high'); add(mn, '1-year low');
+    let mx = -Infinity, mn = Infinity; for (let j = Math.max(0, t - LOOK + 1); j <= t; j++) { if (h[j] > mx) mx = h[j]; if (l[j] < mn) mn = l[j]; }
+    add(mx, young ? 'high since listing' : '1-year high'); add(mn, young ? 'low since listing' : '1-year low');
     raw.sort((x, y) => x.p - y.p);
     const levels = []; let g = [];
     const flush = () => { if (g.length) { const kinds = [...new Set(g.map((x) => x.k))], p = g.reduce((s2, x) => s2 + x.p, 0) / g.length; levels.push({ p, kinds, n: kinds.length, side: p >= px ? 'res' : 'sup', dist: p / px - 1 }); } g = []; };
@@ -210,7 +211,7 @@
       if (dn && G0.pattern === 'Triangle') add2('tri_brk_dn');
       if (dn && G0.pattern === 'Rising wedge') add2('wedge_rise_brk');
     }
-    return { price: px, date: bars[t].date, rsi: P.rsi[t], atr: P.atr[t], above50: px > P.s50[t], above200: px > P.s200[t], s50: P.s50[t], s200: P.s200[t], levels, below, above,
+    return { price: px, date: bars[t].date, rsi: P.rsi[t], atr: P.atr[t], above50: px > P.s50[t], above200: P.s200[t] == null ? null : px > P.s200[t], young, days: n, s50: P.s50[t], s200: P.s200[t], levels, below, above,
       sup: below[0] || null, res: above[0] || null, rr: below[0] && above[0] ? above[0].dist / -below[0].dist : null, signals, chg5: c[t] / c[t - 5] - 1, chg20: c[t] / c[t - 20] - 1 };
   }
   // The history test for ONE asset on its own candles (same rule as the big test: next open, +2 ATR before -2 ATR within 20 days),
@@ -319,6 +320,40 @@
     for (const L of pick) if (pick.some((q) => q !== L && Math.abs(q.now / L.now - 1) <= tolA)) L.agree = L.agree.concat('another trendline');
     return pick.sort((x, y) => Math.abs(x.now - px) - Math.abs(y.now - px));   // nearest to the price first
   }
+  // Daily candles grouped into weeks (Monday to Friday): the long-term chart and its signals, with no extra request.
+  function weekly(bars) {
+    const out = [];
+    for (const r of bars) {
+      const d = new Date(r.date + 'T00:00:00Z'), k = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 864e5).toISOString().slice(0, 10), w = out[out.length - 1];
+      if (w && w.week === k) { if (r.high > w.high) w.high = r.high; if (r.low < w.low) w.low = r.low; w.close = r.close; w.last = r.date; } else out.push({ week: k, date: k, last: r.date, open: r.open, high: r.high, low: r.low, close: r.close });
+    }
+    return out;
+  }
+  // Every entry the given signals produced on these candles, with its exit, by the rule of the history test: in at the next
+  // open, out at +2 ATR (target) or -2 ATR (stop), or after 20 candles. One trade per side at a time. `ids` = the signals to mark.
+  function trades(bars, ids) {
+    const n = bars.length; if (n < 80) return [];
+    const short = n < 260, { P, events } = scan(bars, { short }), out = [], busy = { 1: -1, [-1]: -1 }, want = new Set(ids || []);
+    for (let t = short ? 60 : 200; t < n; t++) {
+      const e = (events[t] || []).filter((id) => want.has(id)); if (!e.length) continue;
+      for (const side of [1, -1]) {
+        const mine = e.filter((id) => SIDE[id] === side); if (!mine.length || t <= busy[side]) continue;
+        const A = P.atr[t], tr = { side, ids: mine, name: NAME[mine[0]], t, date: bars[t].date, res: 'open', i: null, j: null, en: null, ex: null, pct: null };
+        if (t + 1 < n && A > 0) {
+          const en = P.o[t + 1], up = en + 2 * A, dn = en - 2 * A; tr.i = t + 1; tr.en = en; tr.stop = side > 0 ? dn : up; tr.target = side > 0 ? up : dn;
+          for (let j = t + 1; j <= Math.min(n - 1, t + 20); j++) {
+            const hu = P.h[j] >= up, hd = P.l[j] <= dn;
+            if (hu || hd) { const good = side > 0 ? hu && !hd : hd && !hu; tr.j = j; tr.ex = good ? tr.target : tr.stop; tr.res = good ? 'win' : 'loss'; tr.how = good ? 'target' : 'stop'; break; }
+          }
+          if (tr.j == null && t + 20 <= n - 1) { tr.j = t + 20; tr.ex = P.c[t + 20]; tr.res = side * (tr.ex - en) > 0 ? 'win' : 'loss'; tr.how = '20 candles'; }
+          if (tr.ex != null) tr.pct = side * (tr.ex / en - 1);
+          busy[side] = tr.j == null ? n : tr.j;
+        } else busy[side] = n;
+        out.push(tr);
+      }
+    }
+    return out;
+  }
   // Gaps not filled yet, anywhere in the bars given, nearest to the price first.
   function openGaps(b, max) {
     const n = b.length, t = n - 1; if (n < 30) return [];
@@ -331,7 +366,7 @@
     const mid = (g) => (g.top + g.bottom) / 2;
     return out.filter((g) => Math.abs(mid(g) / px - 1) < 0.3).sort((x, y) => Math.abs(mid(x) - px) - Math.abs(mid(y) - px)).slice(0, max || 5);
   }
-  const API = { prep, scan, analyze, backtest, geometry, trendlines, openGaps, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
+  const API = { prep, scan, analyze, backtest, geometry, trendlines, openGaps, weekly, trades, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
   root.SRTA = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
 })(typeof window !== 'undefined' ? window : globalThis);

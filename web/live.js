@@ -169,6 +169,7 @@
     const sub = wrap.appendChild(el('div', 'av-sub', hasKeys() ? 'Connecting…' : 'Add your eToro keys in Settings for live prices.'));
     const frames = wrap.appendChild(el('div', 'av-ranges'));
     for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); load(true); }); }
+    const verdictEl = wrap.appendChild(el('div', 'av-verdict'));   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
     const stats = side.appendChild(el('dl', 'av-stats'));
@@ -188,11 +189,11 @@
       if (!pickBox) { pickBox = el('div', 'av-pick'); box.insertAdjacentElement('afterend', pickBox); }
       const q = live(), px = q ? q.price : (daily.length ? daily[daily.length - 1].close : null);
       pickBox.hidden = !hit;
-      if (hit) pickBox.textContent = `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
+      if (hit) pickBox.textContent = hit.kind === 'buy' || hit.kind === 'sell' ? hit.label + '.' : `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
       if (ch && ch.note) ch.note(hit ? pickBox.textContent : '');   // the same line inside the chart when it is in full view
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
-    const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames); } else { wrap.insertBefore(frames, box); } };
+    const onFull = (on) => { if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); wrap.insertBefore(verdictEl, box); } };
     const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     chFit = () => { if (ch.fit) ch.fit(); };
@@ -219,21 +220,49 @@
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
     let taKey = '', taVal = null, taBt = null;
+    let TR = [];   // the entries drawn on the chart
+    const horizon = () => (frame.sec >= 604800 ? 'Long-term trade (weekly candles)' : frame.sec >= 86400 ? 'Swing trade (daily candles)' : `Day trade (${frame.k} candles)`);
+    const dayOf = (i) => new Date(bars[i].time * 1000).toISOString().slice(0, frame.sec >= 86400 ? 10 : 16).replace('T', ' ');
+    const shortName = (id) => (window.SRScreen && window.SRScreen.SHORT && window.SRScreen.SHORT[id]) || window.SRTA.NAME[id];
+    function tradeMark(tr) {
+      const b = bars[tr.t], move = tr.ex != null ? tr.ex / tr.en - 1 : null, mv = move == null ? '' : tr.side > 0 ? fmtPct(move) : (move < 0 ? 'fell ' : 'rose ') + (Math.abs(move) * 100).toFixed(1) + '%';
+      const tag = `${tr.side > 0 ? 'BUY' : 'SELL'} · ${shortName(tr.ids[0])}${tr.res === 'open' ? '' : (tr.res === 'win' ? ' ✓ ' : ' ✕ ') + mv}`;
+      const full = `${tr.side > 0 ? 'Buy' : 'Sell'} signal of ${dayOf(tr.t)}: ${tr.name}. ` + (tr.i == null ? 'Entry at the next open' : `In at ${fmtP(tr.en)} at the next open; ` + (tr.j == null ? `still open, target ${fmtP(tr.target)}, stop ${fmtP(tr.stop)}` : `out at ${fmtP(tr.ex)} on ${dayOf(tr.j)} (${tr.how}): ${mv}, ${tr.res === 'win' ? 'it worked' : 'it failed'}`));
+      return { side: tr.side, st: tr.res, tested: frame.sec === 86400, tag, full, a: { t: b.time, lo: b.low, hi: b.high }, e: tr.i != null ? { t: bars[tr.i].time, p: tr.en } : null, x: tr.j != null ? { t: bars[tr.j].time, p: tr.ex } : null };
+    }
+    function drawVerdict() {
+      const ST = window.SR_TASTATS || {}, G0 = ST.by || {}, WK = (ST.wk || {}).by || {}, n = bars.length, H = horizon(), q0 = (x) => Math.round(x * 100) + '%';
+      verdictEl.replaceChildren(); verdictEl.className = 'av-verdict';
+      if (n < 80) { verdictEl.appendChild(el('b', '', `${H}: not enough candles yet on this timeframe.`)); return; }
+      const last = TR.filter((x) => x.res === 'open').pop();
+      const prob = (id) => (frame.sec === 86400 ? (G0[id] ? `On 79 assets this signal worked ${q0(G0[id].win)} of the time; any day ${q0(G0[id].base)}.` : '')
+        : frame.sec > 86400 ? (WK[id] ? `On weekly candles it worked ${q0(WK[id].win)} of ${WK[id].n.toLocaleString('en-US')} times on 79 assets; any week ${q0(WK[id].base)}: no reliable edge.` : 'Not tested on weekly candles.')
+          : 'Not tested across assets on intraday candles: judge it by its record on this chart.');
+      if (last) {
+        const ago = n - 1 - last.t;
+        verdictEl.classList.add(last.side > 0 ? 'is-buy' : 'is-sell');
+        verdictEl.appendChild(el('b', '', `${H}: ${last.side > 0 ? 'BUY' : 'SELL'} signal ${ago === 0 ? 'on the last candle' : ago === 1 ? '1 candle ago' : ago + ' candles ago'} · ${last.name}.`));
+        verdictEl.appendChild(el('span', '', ' ' + prob(last.ids[0]) + (last.en != null ? ` In at ${fmtP(last.en)} · target ${fmtP(last.target)} · stop ${fmtP(last.stop)}.` : ' Entry at the next open.')));
+      } else verdictEl.appendChild(el('b', '', `${H}: no entry now.`));
+      const done = TR.filter((x) => x.res !== 'open'), bu = done.filter((x) => x.side > 0), se = done.filter((x) => x.side < 0), w = (a) => a.filter((x) => x.res === 'win').length;
+      verdictEl.appendChild(el('span', 'av-verdict-rec', done.length ? ` Past entries on this chart: ${bu.length ? `${bu.length} buy${bu.length > 1 ? 's' : ''}, ${w(bu)} worked` : 'no buy'}${se.length ? `; ${se.length} sell warning${se.length > 1 ? 's' : ''}, ${w(se)} worked` : ''}. Tap a marker for its story.` : ' No past entry on this chart.'));
+    }
     let geo = null; // trendlines, gaps and wedge on the timeframe shown
     const lineText = (x) => `${x.edge ? x.edge.toLowerCase() + ' edge: ' : x.scale ? x.scale + ' ' : ''}${x.m > 0 ? 'rising' : 'falling'} ${x.kind === 'sup' ? 'support' : 'resistance'} line, ${x.touches} touches${x.cross ? ', crossed ' + (x.cross === 1 ? 'once' : x.cross + ' times') : ''}${x.agree && x.agree.length ? '; today it meets ' + x.agree.join(', ') : ''}`;
     const taBars = () => daily.map((r) => ({ date: r.date, open: r.open, high: r.high, low: r.low, close: r.close }));
     function taNow() {
-      if (!window.SRTA || daily.length < 260) return null;
+      if (!window.SRTA || daily.length < 80) return null;   // from about four months of daily candles
       const key = inst.id + '|' + daily.length + '|' + daily[daily.length - 1].date;
       if (key !== taKey) { const b = taBars(); taKey = key; taVal = window.SRTA.analyze(b); taBt = window.SRTA.backtest(b); }
       return taVal;
     }
     function drawTA() {
       taBox.replaceChildren();
-      const A = taNow(); if (!A) { if (daily.length) taBox.appendChild(el('p', 'av-note', 'Technical analysis needs about a year of daily history.')); return; }
+      const A = taNow(); if (!A) { if (daily.length) taBox.appendChild(el('p', 'av-note', 'Technical analysis needs about four months of daily history (80 days).')); return; }
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
       taBox.appendChild(el('div', 'ta-h', 'Technical analysis' + (frame.k === '1D' ? '' : ' · daily candles')));
-      taBox.appendChild(el('div', 'ta-line', `${A.above200 ? 'Above' : 'Below'} its 200-day average, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
+      taBox.appendChild(el('div', 'ta-line', `${A.above200 == null ? 'No 200-day average yet' : (A.above200 ? 'Above' : 'Below') + ' its 200-day average'}, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
+      if (A.young) taBox.appendChild(el('div', 'ta-line ta-muted', `Young asset: ${A.days} days of history. Levels and signals are read from what exists; its own history test needs about 16 months.`));
       if (geo && (geo.lines.length || geo.gaps.length)) {
         const tl = taBox.appendChild(el('div', 'ta-tl'));
         tl.appendChild(el('div', 'ta-line', `Trendlines and gaps on the ${frame.k} chart` + (geo.pattern ? ` · ${geo.pattern}: the two edges converge; a break out of it is one of the tested signals.` : '')));
@@ -316,11 +345,19 @@
           const maxL = box.clientWidth < 560 ? 3 : 4, TL = window.SRTA.trendlines ? window.SRTA.trendlines(src, maxL, lv) : [];   // elastic lines, long-term and recent; those that agree with a level come first
           if (TL.length || strict.length) geo.lines = strict.concat(TL.filter((x) => !strict.some((q) => Math.abs(q.now / x.now - 1) < 0.03 && Math.abs(q.m - x.m) / x.now < 0.0005))).slice(0, maxL);   // the edges of a wedge or triangle count in the total
           if (window.SRTA.openGaps) geo.gaps = window.SRTA.openGaps(src, 5);
-          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, scale: Ln.scale, agree: (Ln.agree || []).length, now: Ln.now, full: lineText(Ln) + `, drawn from ${day(Ln.i)} on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
+          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, scale: Ln.scale, agree: (Ln.agree || []).length, now: Ln.now, tag: `${Ln.kind === 'sup' ? 'support' : 'resistance'} ${fmtP(Ln.now)}`, full: lineText(Ln) + `, drawn from ${day(Ln.i)} on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
           for (const g of geo.gaps) A2.push({ type: 'box', kind: g.bottom >= src[src.length - 1].close ? 'res' : 'sup', full: `gap ${g.dir} of ${day(g.i)}, not filled yet: ${fmtP(g.bottom)} to ${fmtP(g.top)}`, a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
         }
         ch.setAuto(A2);
       }
+      // entries on the timeframe shown: day trades on intraday candles, swing trades on daily ones, long-term trades on weekly ones
+      TR = [];
+      if (window.SRTA && window.SRTA.trades && ch.setTrades) {
+        const G0 = (window.SR_TASTATS || {}).by || {}, okIds = Object.keys(G0).filter((k) => G0[k].ok);
+        if (bars.length >= 80) TR = window.SRTA.trades(bars.map((x, i) => ({ date: dayOf(i), open: x.open, high: x.high, low: x.low, close: x.close })), okIds);
+        ch.setTrades(TR.map(tradeMark));
+      }
+      drawVerdict();
       drawTA();
       } catch (e) { if (window.console) console.error(e); taBox.replaceChildren(el('p', 'av-note', 'The technical analysis could not be computed for this asset (' + String((e && e.message) || e).slice(0, 80) + '). The chart itself is complete.')); }
     }
