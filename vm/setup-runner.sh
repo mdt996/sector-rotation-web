@@ -15,9 +15,9 @@ if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! co
 fi
 DIR="$HOME/actions-runner"; mkdir -p "$DIR"; cd "$DIR"
 if [ ! -x ./config.sh ]; then
-  # the whole answer is read before it is searched: a reader that stops early makes curl report a write failure
-  J="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)"
-  V="$(printf '%s\n' "$J" | sed -n -E 's/.*"tag_name": *"v([^"]+)".*/\1/p')"; V="${V%%[[:space:]]*}"
+  # the latest version: from the address GitHub redirects to (no request limit), else from its API, read whole before it is searched
+  V="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/actions/runner/releases/latest 2>/dev/null | sed -n -E 's#.*/tag/v([0-9.]+)$#\1#p' || true)"
+  if [ -z "$V" ]; then J="$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest || true)"; V="$(printf '%s\n' "$J" | sed -n -E 's/.*"tag_name": *"v([^"]+)".*/\1/p')"; V="${V%%[[:space:]]*}"; fi
   [ -n "$V" ] || { echo "Could not read the runner's latest version from GitHub."; exit 1; }
   echo "== Downloading GitHub's runner $V for $ARCH"
   curl -fsSL -o runner.tar.gz "https://github.com/actions/runner/releases/download/v${V}/actions-runner-linux-${ARCH}-${V}.tar.gz"
