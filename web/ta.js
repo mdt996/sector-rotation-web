@@ -43,7 +43,7 @@
     tl_brk_up_conf: [1, 'Trendline break confirmed the next day'], tl_brk_up_fail: [-1, 'Trendline break failed within 5 days'] };
   const SIDE = { tri_brk_up: 1, wedge_fall_brk: 1, tri_brk_dn: -1, wedge_rise_brk: -1, sup3: 1, sup4: 1, res3: -1, res4: -1, sup: 1, ma50_sup: 1, ma200_sup: 1, fib_sup: 1, tl_sup: 1, gap_sup: 1, rsi30: 1, div_bull: 1, golden: 1, brk_up: 1, tl_brk_up: 1, hi250: 1, ihs: 1, cup: 1, conf2: 1, conf3: 1,
     res: -1, ma50_res: -1, ma200_res: -1, fib_res: -1, tl_res: -1, gap_res: -1, rsi70: -1, div_bear: -1, death: -1, brk_dn: -1, tl_brk_dn: -1, lo250: -1, hs: -1, conf2_res: -1, conf3_res: -1 };
-  const NAME = { tri_brk_up: 'Break up out of a triangle', wedge_fall_brk: 'Break up out of a falling wedge', tri_brk_dn: 'Break down out of a triangle', wedge_rise_brk: 'Break down out of a rising wedge', sup3: 'Touch of a support made of 3+ pivots', sup4: 'Touch of a support made of 4+ pivots', res3: 'Touch of a resistance made of 3+ pivots', res4: 'Touch of a resistance made of 4+ pivots', sup: 'Touch of a horizontal support', res: 'Touch of a horizontal resistance', ma50_sup: 'Pullback to the 50-day average in an uptrend', ma50_res: 'Rally to the 50-day average in a downtrend',
+  const NAME = { model: 'Buy score above the bar', tri_brk_up: 'Break up out of a triangle', wedge_fall_brk: 'Break up out of a falling wedge', tri_brk_dn: 'Break down out of a triangle', wedge_rise_brk: 'Break down out of a rising wedge', sup3: 'Touch of a support made of 3+ pivots', sup4: 'Touch of a support made of 4+ pivots', res3: 'Touch of a resistance made of 3+ pivots', res4: 'Touch of a resistance made of 4+ pivots', sup: 'Touch of a horizontal support', res: 'Touch of a horizontal resistance', ma50_sup: 'Pullback to the 50-day average in an uptrend', ma50_res: 'Rally to the 50-day average in a downtrend',
     ma200_sup: 'Touch of the 200-day average from above', ma200_res: 'Touch of the 200-day average from below', fib_sup: 'Fibonacci retracement of a rise (38-62%)', fib_res: 'Fibonacci retracement of a fall (38-62%)',
     tl_sup: 'Touch of a rising trendline', tl_res: 'Touch of a falling trendline', tl_brk_up: 'Break above a falling trendline', tl_brk_dn: 'Break below a rising trendline', gap_sup: 'Fill of a gap up', gap_res: 'Fill of a gap down',
     rsi30: 'RSI falls below 30', rsi70: 'RSI rises above 70', div_bull: 'Bullish RSI divergence', div_bear: 'Bearish RSI divergence', golden: 'Golden cross (50 over 200)', death: 'Death cross (50 under 200)',
@@ -338,7 +338,8 @@
       const e = (events[t] || []).filter((id) => want.has(id)); if (!e.length) continue;
       for (const side of [1, -1]) {
         const mine = e.filter((id) => SIDE[id] === side); if (!mine.length || t <= busy[side]) continue;
-        const A = P.atr[t], tr = { side, ids: mine, name: NAME[mine[0]], t, date: bars[t].date, res: 'open', i: null, j: null, en: null, ex: null, pct: null };
+        const A = P.atr[t], tr = { side, ids: mine, name: NAME[mine[0]], t, date: bars[t].date, res: 'open', i: null, j: null, en: null, ex: null, pct: null, atr: A };
+        if (A > 0) { tr.estEn = P.c[t]; tr.estStop = P.c[t] - side * 2 * A; tr.estTarget = P.c[t] + side * 2 * A; }   // before the entry candle exists: the levels counted from the signal's close
         if (t + 1 < n && A > 0) {
           const en = P.o[t + 1], up = en + 2 * A, dn = en - 2 * A; tr.i = t + 1; tr.en = en; tr.stop = side > 0 ? dn : up; tr.target = side > 0 ? up : dn;
           for (let j = t + 1; j <= Math.min(n - 1, t + 20); j++) {
@@ -366,7 +367,73 @@
     const mid = (g) => (g.top + g.bottom) / 2;
     return out.filter((g) => Math.abs(mid(g) / px - 1) < 0.3).sort((x, y) => Math.abs(mid(x) - px) - Math.abs(mid(y) - px)).slice(0, max || 5);
   }
-  const API = { prep, scan, analyze, backtest, geometry, trendlines, openGaps, weekly, trades, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
+  // ---- the buy model (tools/ml): one score per candle, from 29 inputs in units of the asset's own volatility ----
+  // The inputs and the trees are an exact port of tools/ml/feat.py and final.py (unit test: test/fixtures/tamodel-parity.json).
+  // Fitted on daily candles of 79 assets; out of sample it holds on daily, 4-hour and 1-hour candles (tastats.js, "model").
+  let MODEL = root.SR_TAMODEL || null;
+  const setModel = (m) => { MODEL = m || null; };
+  const FEATS = ['z1', 'z3', 'z5', 'z10', 'z20', 'z60', 'z120', 'z250', 'dma20', 'dma50', 'dma200', 'sl50', 'sl200', 'rsi14', 'rsi2', 'pos20', 'pos60', 'pos250', 'dhi250', 'dlo250', 'volr', 'clv', 'body', 'rng', 'gap', 'streak', 'bb', 'macdh', 'atrp'];
+  function feats(bars) {
+    const n = bars.length, o = new Float64Array(n), h = new Float64Array(n), l = new Float64Array(n), c = new Float64Array(n);
+    for (let i = 0; i < n; i++) { o[i] = bars[i].open; h[i] = bars[i].high; l[i] = bars[i].low; c[i] = bars[i].close; }
+    const nan = () => new Float64Array(n).fill(NaN);
+    const wilder = (x, k) => { const out = nan(); let a = 0; for (let i = 1; i < n; i++) { if (i <= k) a += x[i] / k; else a = (a * (k - 1) + x[i]) / k; if (i >= k) out[i] = a; } return out; };
+    const sma = (x, k) => { const out = nan(); let s = 0; for (let i = 0; i < n; i++) { s += x[i]; if (i >= k) s -= x[i - k]; if (i >= k - 1) out[i] = s / k; } return out; };
+    const ema = (x, k) => { const a = 2 / (k + 1), out = new Float64Array(n); out[0] = x[0]; for (let i = 1; i < n; i++) out[i] = out[i - 1] + a * (x[i] - out[i - 1]); return out; };
+    const roll = (x, k, hi) => { const out = nan(); for (let i = k - 1; i < n; i++) { let m = x[i]; for (let j = i - k + 1; j < i; j++) if (hi ? x[j] > m : x[j] < m) m = x[j]; out[i] = m; } return out; };
+    const rsi = (k) => { const u = new Float64Array(n), d = new Float64Array(n); for (let i = 1; i < n; i++) { const x = c[i] - c[i - 1]; u[i] = Math.max(x, 0); d[i] = Math.max(-x, 0); } const up = wilder(u, k), dn = wilder(d, k), out = nan(); for (let i = 0; i < n; i++) if (!isNaN(up[i])) out[i] = ((dn[i] === 0 ? 100 : 100 - 100 / (1 + up[i] / dn[i])) - 50) / 10; return out; };
+    const tr = new Float64Array(n); tr[0] = h[0] - l[0]; for (let i = 1; i < n; i++) tr[i] = Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
+    const atr = wilder(tr, 14), F = {}, lc = c.map(Math.log), div = (f) => { const out = nan(); for (let i = 0; i < n; i++) out[i] = f(i); return out; };
+    for (const k of [1, 3, 5, 10, 20, 60, 120, 250]) F['z' + k] = div((i) => (i >= k ? (lc[i] - lc[i - k]) / ((atr[i] / c[i]) * Math.sqrt(k)) : NaN));
+    const s20 = sma(c, 20), s50 = sma(c, 50), s200 = sma(c, 200);
+    F.dma20 = div((i) => (c[i] - s20[i]) / atr[i]); F.dma50 = div((i) => (c[i] - s50[i]) / atr[i]); F.dma200 = div((i) => (c[i] - s200[i]) / atr[i]);
+    F.sl50 = div((i) => (i >= 10 ? (s50[i] - s50[i - 10]) / atr[i] : NaN)); F.sl200 = div((i) => (i >= 20 ? (s200[i] - s200[i - 20]) / atr[i] : NaN));
+    F.rsi14 = rsi(14); F.rsi2 = rsi(2);
+    for (const k of [20, 60, 250]) { const hh = roll(h, k, true), ll = roll(l, k, false); F['pos' + k] = div((i) => (hh[i] > ll[i] ? (c[i] - ll[i]) / (hh[i] - ll[i]) : 0.5)); if (k === 250) { F.dhi250 = div((i) => (hh[i] - c[i]) / atr[i]); F.dlo250 = div((i) => (c[i] - ll[i]) / atr[i]); } }
+    const t100 = sma(tr, 100); F.volr = div((i) => atr[i] / t100[i]);
+    F.clv = div((i) => (h[i] > l[i] ? (c[i] - l[i]) / (h[i] - l[i]) : 0.5)); F.body = div((i) => (c[i] - o[i]) / atr[i]); F.rng = div((i) => (h[i] - l[i]) / atr[i]); F.gap = div((i) => (o[i] - (i ? c[i - 1] : c[0])) / atr[i]);
+    const st = new Float64Array(n); for (let i = 1; i < n; i++) st[i] = c[i] > c[i - 1] ? (st[i - 1] > 0 ? st[i - 1] + 1 : 1) : c[i] < c[i - 1] ? (st[i - 1] < 0 ? st[i - 1] - 1 : -1) : 0;
+    F.streak = div((i) => Math.max(-8, Math.min(8, st[i])));
+    const s2 = sma(c.map((x) => x * x), 20); F.bb = div((i) => { const sd = Math.sqrt(Math.max(s2[i] - s20[i] * s20[i], 0)); return sd > 0 ? (c[i] - s20[i]) / (2 * sd) : 0; });
+    const e12 = ema(c, 12), e26 = ema(c, 26), mac = e12.map((x, i) => x - e26[i]), sig = ema(mac, 9); F.macdh = div((i) => (mac[i] - sig[i]) / atr[i]);
+    F.atrp = div((i) => atr[i] / c[i]);
+    return { F, atr, o, h, l, c };
+  }
+  // the model's score of every candle (NaN where there is not yet a year of candles behind it)
+  function mscore(bars, pre) {
+    const n = bars.length, out = new Float64Array(n).fill(NaN); if (!MODEL || n < 261) return out;
+    const { F } = pre || feats(bars), cols = MODEL.names.map((k) => F[k]), clip = MODEL.clip, x = new Float64Array(cols.length), T = MODEL.trees;
+    for (let i = 260; i < n; i++) {
+      let ok = true; for (let j = 0; j < cols.length; j++) { const v = cols[j][i]; if (isNaN(v)) { ok = false; break; } x[j] = Math.max(-clip, Math.min(clip, Math.fround(v))); }
+      if (!ok) continue;
+      let s = MODEL.base;
+      for (let k = 0; k < T.length; k++) { const f = T[k][0], th = T[k][1], L = T[k][2], R = T[k][3], leaf = T[k][5]; let q = 0; while (!leaf[q]) q = x[f[q]] <= th[q] ? L[q] : R[q]; s += T[k][4][q]; }
+      out[i] = 1 / (1 + Math.exp(-s));
+    }
+    return out;
+  }
+  // The entries the model would have given on these candles and how each ended: BUY when the score passes the bar and no
+  // buy is open; in at the next open; out at +2 ATR (target), -2 ATR (stop) or after 20 candles. The same trade as the test.
+  function mtrades(bars) {
+    const n = bars.length; if (!MODEL || n < 262) return [];
+    const pre = feats(bars), p = mscore(bars, pre), { atr, o, h, l, c, F } = pre, out = []; let busy = -1;
+    for (let t = 260; t < n; t++) {
+      if (!(p[t] >= MODEL.buy) || t <= busy) continue;
+      const A = atr[t], tr = { side: 1, ids: ['model'], name: NAME.model, t, date: bars[t].date, res: 'open', i: null, j: null, en: null, ex: null, pct: null, atr: A, score: p[t], strong: p[t] >= MODEL.strong,
+        state: { rsi: F.rsi14[t] * 10 + 50, dma50: F.dma50[t], dma200: F.dma200[t], sl200: F.sl200[t], dhi250: F.dhi250[t] } };
+      if (A > 0) { tr.estEn = c[t]; tr.estStop = c[t] - 2 * A; tr.estTarget = c[t] + 2 * A; }
+      if (t + 1 < n && A > 0) {
+        const en = o[t + 1], up = en + 2 * A, dn = en - 2 * A; tr.i = t + 1; tr.en = en; tr.stop = dn; tr.target = up;
+        for (let j = t + 1; j <= Math.min(n - 1, t + 20); j++) { const hu = h[j] >= up, hd = l[j] <= dn; if (hu || hd) { const good = hu && !hd; tr.j = j; tr.ex = good ? up : dn; tr.res = good ? 'win' : 'loss'; tr.how = good ? 'target' : 'stop'; break; } }
+        if (tr.j == null && t + 20 <= n - 1) { tr.j = t + 20; tr.ex = c[t + 20]; tr.res = tr.ex > en ? 'win' : 'loss'; tr.how = '20 candles'; }
+        if (tr.ex != null) tr.pct = tr.ex / en - 1;
+        busy = tr.j == null ? n : tr.j;
+      } else busy = n;
+      out.push(tr);
+    }
+    return out;
+  }
+  const API = { prep, scan, analyze, backtest, geometry, trendlines, openGaps, weekly, trades, feats, mscore, mtrades, setModel, FEATS, model: () => MODEL, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
   root.SRTA = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
 })(typeof window !== 'undefined' ? window : globalThis);

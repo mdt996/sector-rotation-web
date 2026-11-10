@@ -13,7 +13,7 @@
   const YAHOO = { EURUSD: 'EURUSD=X' }; // Yahoo's symbol where it differs
   const STALE_MS = 55 * 60 * 1000;
   const DEFAULT_PARAMS = { range: '3M', view: 'Sector', tgrp: 'all', sort: 'r1m', dir: 'desc', tf: 'D' };
-  const DEFAULT_CONFIG = { source: 'etoro', apiKey: '', userKey: '', notify: true, notifyGo: true, notifyPhase: true, notifyWatch: true, notifyRegime: true, notifyHoldings: true, watch: 'SMH, GDX, SIL, IBIT, QQQ', holdings: '' };
+  const DEFAULT_CONFIG = { source: 'etoro', apiKey: '', userKey: '', alerts: [], notifyAlerts: true, notify: true, notifyGo: true, notifyPhase: true, notifyWatch: true, notifyRegime: true, notifyHoldings: true, watch: 'SMH, GDX, SIL, IBIT, QQQ', holdings: '' };
 
   const loaders = {}, calcs = {}, draws = {}, onDataFns = [], listeners = [];
   const store = {};
@@ -328,16 +328,61 @@
   }
   // fresh buy signals that passed the history test, on what you hold (ta.js is loaded in the app and in the background check)
   function taSignals() {
-    const TA = window.SRTA, ST = window.SR_TASTATS && window.SR_TASTATS.by;
-    if (!TA || !ST) return [];
+    const TA = window.SRTA, st = ((window.SR_TASTATS || {}).model || {})['1D'];
+    if (!TA || !TA.mtrades || !st) return [];
     const out = [], seen = new Set();
     for (const h of (store.holdings && store.holdings.data) || []) {
-      const d = store[h.tracks]; if (!d || d.status !== 'ok' || seen.has(h.tracks) || !d.data || d.data.length < 260) continue;
+      const d = store[h.tracks]; if (!d || d.status !== 'ok' || seen.has(h.tracks) || !d.data || d.data.length < 262) continue;
       seen.add(h.tracks);
-      const A = TA.analyze(d.data); if (!A) continue;
-      for (const x of A.signals) if (x.ago === 0 && x.side > 0 && ST[x.id] && ST[x.id].ok) out.push({ sym: h.tracks, t: h.ticker, id: x.id, date: x.date, win: ST[x.id].win, name: x.name });
+      for (const x of TA.mtrades(d.data)) if (x.t === d.data.length - 1) out.push({ sym: h.tracks, t: h.ticker, id: 'model', date: x.date, win: (x.strong && st.strong ? st.strong : st.buy).win, base: st.buy.base, name: x.strong ? 'strong buy signal' : 'buy signal' });
     }
     return out;
+  }
+  // ---- signal alerts on chosen assets ----------------------------------------------------------
+  // cfg.alerts = [{ id, sym, name, f: ['1D', '4H'] }]: the assets and candle sizes the user asked to be told about.
+  // The hourly background check reads their closed candles, replays the app's own entries (ta.js trades) and reports a
+  // signal the first time its candle is seen. "seen" (kept with the last summary) is the last candle examined per alert.
+  const ALERT_IV = { '30m': ['ThirtyMinutes', 1800], '1H': ['OneHour', 3600], '4H': ['FourHours', 14400], '1D': ['OneDay', 86400], '1W': ['OneWeek', 604800] };
+  const px = (x) => (x >= 1000 ? x.toFixed(0) : x >= 10 ? x.toFixed(2) : String(+x.toPrecision(4)));
+  function alertText(x) {
+    const pc = (v) => (v >= 0 ? '+' : '−') + (Math.abs(v) * 100).toFixed(1) + '%';
+    if (x.kind === 'exit') return `EXIT ${x.sym} · ${x.f}: ${x.how === 'target' ? 'target reached' : x.how === 'stop' ? 'stop hit' : '20 candles passed'} at ${px(x.ex)} (${pc(x.ex / x.en - 1)} from the buy at ${px(x.en)}).`;
+    return `BUY ${x.sym} · ${x.f}${x.strong ? ' · strong signal' : ''}. Buy at the next open (about ${px(x.en)}) · stop ${px(x.stop)} · target ${px(x.target)}.` + (x.win != null ? ` Signals like this worked ${Math.round(x.win * 100)}% in the test; any ${x.f === '1D' ? 'day' : 'candle'} ${Math.round(x.base * 100)}%.` : x.weak ? ` Not reliable on ${x.f} candles in the test.` : '');
+  }
+  async function alertCheck(seen, now) {
+    const cfg = config(), TA = window.SRTA, MS = (window.SR_TASTATS || {}).model || {}, out = { seen: {}, events: [] };
+    if (!TA || !TA.mtrades || !Array.isArray(cfg.alerts) || !(cfg.apiKey && cfg.userKey)) return out;
+    now = now || Date.now(); seen = seen || {};
+    for (const a of cfg.alerts.slice(0, 20)) for (const f of (Array.isArray(a.f) && a.f.length ? a.f : ['1D']).slice(0, 5)) {
+      const iv = ALERT_IV[f], key = a.id + '|' + f; if (!iv || !a.id) continue;
+      if (seen[key] != null) out.seen[key] = seen[key];   // kept if this read fails
+      try {
+        const r = await etoroSend(`https://public-api.etoro.com/api/v1/market-data/instruments/${a.id}/history/candles/desc/${iv[0]}/600`, etoroHeaders(cfg.apiKey, cfg.userKey), 1);
+        if (r.status !== 200) continue;
+        const rows = ((((JSON.parse(r.body).candles || [{}])[0] || {}).candles) || []).map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close }))
+          .filter((c) => c.t > 0 && c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0).sort((x, y) => x.t - y.t);
+        while (rows.length && rows[rows.length - 1].t + iv[1] * 1000 > now) rows.pop();   // the candle still forming is not read
+        if (rows.length < 262) continue;   // the model needs a year of candles of this size
+        const n = rows.length, lastT = rows[n - 1].t, since = seen[key] != null ? seen[key] : rows[n - 2].t;   // a new alert starts with the last closed candle only
+        out.seen[key] = lastT;
+        const st = MS[f], sym = a.sym || String(a.id);
+        for (const x of TA.mtrades(rows)) {
+          const band = st && st.ok ? (x.strong && st.strong ? st.strong : st.buy) : null;
+          if (rows[x.t].t > since && x.t >= n - 3 && x.estEn != null) out.events.push({ kind: 'buy', id: a.id, sym, f, side: 1, strong: !!x.strong, at: rows[x.t].t, en: x.i != null ? x.en : x.estEn, stop: x.i != null ? x.stop : x.estStop, target: x.i != null ? x.target : x.estTarget, win: band ? band.win : null, base: band ? band.base : null, weak: !!(st && !st.ok) });
+          if (x.j != null && rows[x.j].t > since && x.j >= n - 3) out.events.push({ kind: 'exit', id: a.id, sym, f, at: rows[x.j].t, how: x.how, en: x.en, ex: x.ex });   // the sell side of a buy: its target, its stop or its time limit
+        }
+      } catch (e) { /* the next check reads it again */ }
+    }
+    return out;
+  }
+  // an alert is one asset on one candle size: switched on or off from the asset's page
+  function hasAlert(id, f) { return (config().alerts || []).some((a) => a.id === id && (a.f || ['1D']).includes(f)); }
+  function toggleAlert(inst, f) {
+    const cfg = config(), L = Array.isArray(cfg.alerts) ? cfg.alerts.map((a) => ({ ...a, f: (a.f || ['1D']).slice() })) : [], a = L.find((x) => x.id === inst.id);
+    let on;
+    if (a && a.f.includes(f)) { a.f = a.f.filter((x) => x !== f); on = false; } else if (a) { a.f.push(f); on = true; } else { L.push({ id: inst.id, sym: inst.symbol, name: inst.name || '', f: [f] }); on = true; }
+    saveConfig({ ...cfg, alerts: L.filter((x) => x.f.length) });
+    return on;
   }
   function summarize() {
     const M = (store.metrics && store.metrics.data) || [], RU = (store.rule && store.rule.data) || [];
@@ -383,7 +428,7 @@
     }
     if (cfg.notifySwing !== false && cur.ta) {
       const old = new Set((prev.ta || []).map((x) => x.sym + x.id + x.date));
-      for (const x of cur.ta) if (!old.has(x.sym + x.id + x.date)) ev.push(`Buy signal on ${x.t}${x.t !== x.sym ? ' (' + x.sym + ')' : ''}: ${x.name}. In the test it worked ${Math.round(x.win * 100)}% of the time; buying on any day, 54%.`);
+      for (const x of cur.ta) if (!old.has(x.sym + x.id + x.date)) ev.push(`Buy signal on ${x.t}${x.t !== x.sym ? ' (' + x.sym + ')' : ''}: ${x.name}. Signals like this worked ${Math.round(x.win * 100)}% in the test; buying on any day, ${Math.round((x.base || 0.54) * 100)}%.`);
     }
     if (cfg.notifySwing !== false && cur.swing) {
       const held = new Set((cur.holdings || []).flatMap((h) => [h.ticker, h.tracks]));
@@ -402,6 +447,7 @@
         ev.push(`Your ${h.ticker}: ${p.verdict} → ${h.verdict}${h.into ? ` (rotate into ${h.into})` : ''}`);
       }
     }
+    if (cfg.notifyAlerts !== false && Array.isArray(cur.al)) for (const x of cur.al) ev.push(alertText(x));   // already limited to candles not seen before
     if (cfg.notifyWatch !== false) {
       const watch = String(cfg.watch || '').toUpperCase().split(/[^A-Z]+/).filter(Boolean);
       for (const s of watch) {
@@ -497,5 +543,5 @@
   }
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
+  window.SRApp = { DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, alertCheck, alertText, hasAlert, toggleAlert, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();

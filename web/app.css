@@ -563,10 +563,37 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .av-verdict.is-sell { border-left-color: #d64545; }
 .av-verdict-rec { color: var(--color-fg-muted); }
 .ch.is-full .ch-slot .av-verdict { flex: 1 1 100%; margin: 0; font-size: 12.5px; padding: 5px 9px; }
-@media (max-width: 700px), (max-height: 500px) {   /* phone full view: one line, the chart keeps the room */
-  .ch.is-full .ch-slot .av-verdict { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ch.is-full .ch-slot .av-verdict > span { display: none; }
-}
+/* the signal card: BUY or SELL, then the three prices in large figures, then one small line */
+.cfg-alert { font: inherit; font-size: 13px; margin: 3px 6px 3px 0; padding: 7px 11px; min-height: 36px; border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel, #fff); color: var(--color-fg); cursor: pointer; }
+.av-bell { font: inherit; font-size: 12.5px; font-weight: 600; margin-left: auto; align-self: center; min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel, #fff); color: var(--color-fg); cursor: pointer; white-space: nowrap; }
+.av-bell.is-on { border-color: var(--sr-c1); color: var(--sr-c1); background: color-mix(in srgb, var(--sr-c1) 10%, var(--color-panel)); }
+.av-bellnote { font-size: 12.5px; line-height: 1.4; padding: 7px 10px; margin: 4px 0; border-radius: 9px; background: color-mix(in srgb, var(--sr-c1) 10%, var(--color-panel)); }
+.tc-h { font-size: 11.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--color-fg-muted); margin-bottom: 5px; }
+.tc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tc-side { font-size: 13px; font-weight: 800; letter-spacing: .05em; padding: 3px 10px; border-radius: 7px; color: #fff; background: #1f9d55; }
+.tc.is-sell .tc-side { background: #d64545; }
+.tc-what { font-size: 13px; color: var(--color-fg-muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-res { font-size: 12px; font-weight: 700; letter-spacing: .02em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--color-border-line); color: var(--color-fg-muted); white-space: nowrap; }
+.tc.is-win .tc-res { color: var(--color-ok); border-color: color-mix(in srgb, var(--color-ok) 45%, transparent); }
+.tc.is-loss .tc-res { color: var(--color-bad); border-color: color-mix(in srgb, var(--color-bad) 45%, transparent); }
+.tc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.tc-cell { display: grid; gap: 1px; padding: 7px 9px; border-radius: 9px; background: color-mix(in srgb, var(--color-fg) 5%, transparent); min-width: 0; }
+.tc-cell small { font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--color-fg-muted); }
+.tc-cell b { font-size: 18px; line-height: 1.15; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-cell i { font-style: normal; font-size: 11.5px; color: var(--color-fg-muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-stop b { color: var(--color-bad); } .tc-target b { color: var(--color-ok); }
+.tc-cell:nth-child(4) { grid-column: 1 / -1; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 8px; } .tc-cell:nth-child(4) b { font-size: 15px; }
+.tc-foot { font-size: 12px; line-height: 1.4; color: var(--color-fg-muted); margin-top: 7px; }
+.tc-none { font-size: 15px; font-weight: 700; }
+.tc-line { display: none; }
+.av-pick.is-card { max-width: none; background: var(--color-panel, #fff); border-color: var(--color-border-line); padding: 10px 11px; }
+div.av-pick { max-width: none; }
+.tc-mixed { color: var(--color-fg); }
+/* full view: the card becomes its one-line form, the chart keeps the room */
+.ch.is-full .ch-slot .av-verdict .tc-h, .ch.is-full .ch-slot .av-verdict .tc-top, .ch.is-full .ch-slot .av-verdict .tc-grid, .ch.is-full .ch-slot .av-verdict .tc-foot { display: none; }
+.ch.is-full .ch-slot .av-verdict .tc-line { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch.is-full .ch-slot .av-verdict .tc-none { font-size: 12.5px; }
+@media (max-width: 380px) { .tc-cell b { font-size: 16px; } .tc-cell { padding: 6px 7px; } }
 @media (max-width: 700px) { .ch.is-full .ch-note:not(:empty) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } }
 @media (max-height: 500px) { .ch.is-full .ch-slot .av-verdict { display: none; } .ch.is-full .ch-note:not(:empty) { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; } }
 /* leaving the full view: a labelled button first in the bar (the square icon alone was not enough) */

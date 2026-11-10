@@ -385,6 +385,8 @@
     <h3>Alerts</h3>
     <label class="opt"><input type="checkbox" id="cfg-notify"><span>Notify me when something changes (checked about every hour, on completed daily closes)</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-holdon"><span>One of my holdings gets a new verdict, e.g. Hold → Rotate out</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-alerton"><span>A buy or sell signal on an asset I set an alert for</span></label>
+    <p class="hint sub" id="cfg-alertlist"></p>
     <label class="opt sub"><input type="checkbox" id="cfg-regime"><span>The market regime changes</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-go"><span>The rotation rule's Friday picks change</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-phase"><span>An ETF changes phase, e.g. Leading → Weakening</span></label>
@@ -423,6 +425,7 @@
 <script src="lightweight-charts.js"></script>
 <script src="chart.js"></script>
 <script src="fair.js"></script>
+<script src="tamodel.js"></script>
 <script src="ta.js"></script>
 <script src="tastats.js"></script>
 <script src="live.js"></script>

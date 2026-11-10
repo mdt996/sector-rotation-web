@@ -245,6 +245,7 @@
   const FRAMES = [
     { k: '5m', iv: 'FiveMinutes', n: 1000, sec: 300, show: 140 },
     { k: '15m', iv: 'FifteenMinutes', n: 1000, sec: 900, show: 140 },
+    { k: '30m', iv: 'ThirtyMinutes', n: 1000, sec: 1800, show: 140 },
     { k: '1H', iv: 'OneHour', n: 1000, sec: 3600, show: 140 },
     { k: '4H', iv: 'FourHours', n: 1000, sec: 14400, show: 140 },
     { k: '1D', iv: 'OneDay', n: 1000, sec: 86400, show: 160 },
@@ -255,7 +256,7 @@
   function assetView(root, inst, opts) {
     opts = opts || {};
     const who = 'view' + (++vid);
-    let frame = FRAMES.find((f) => f.k === lsGet('sr.frame', '1D')) || FRAMES[4], bars = [], daily = [], prev = null, L = null, dead = false, hovering = false;
+    let frame = FRAMES.find((f) => f.k === lsGet('sr.frame', '1D')) || FRAMES.find((f) => f.k === '1D'), bars = [], daily = [], prev = null, L = null, dead = false, hovering = false;
     root.replaceChildren();
     const page = root.appendChild(el('div', 'av-page' + (opts.embed ? ' is-embed' : ''))); let chFit = null;
     const fitPage = () => { const w = page.clientWidth >= 980; if (w !== page.classList.contains('is-wide')) { page.classList.toggle('is-wide', w); if (chFit) chFit(); } };   // two columns when the page itself is wide enough
@@ -267,13 +268,26 @@
     idt.appendChild(el('div', 'av-sym', inst.symbol));
     idt.appendChild(el('div', 'av-name', [inst.name, inst.exchange].filter(Boolean).join(' · ')));
     if (opts.picker) top.appendChild(opts.picker);
+    // signal alert for this asset on the candle size shown (the phone's hourly background check sends it)
+    const bell = top.appendChild(el('button', 'av-bell')); bell.type = 'button';
+    const ALERT_OK = ['30m', '1H', '4H', '1D', '1W'];
+    const drawBell = () => { const can = ALERT_OK.includes(frame.k), on = can && SRApp.hasAlert && SRApp.hasAlert(inst.id, frame.k); bell.hidden = !can || !SRApp.toggleAlert; bell.classList.toggle('is-on', !!on); bell.textContent = on ? `Alert on · ${frame.k}` : `Alert me · ${frame.k}`; bell.setAttribute('aria-pressed', String(!!on)); bell.title = 'A notification on this phone when a buy or sell signal appears on these candles'; };
+    bell.addEventListener('click', () => {
+      const on = SRApp.toggleAlert(inst, frame.k); drawBell();
+      try { if (on && window.Native && Native.notificationsAllowed && !Native.notificationsAllowed() && Native.requestNotificationPermission) Native.requestNotificationPermission(); } catch (e) { /* asked in Settings instead */ }
+      if (window.SRSync && window.SRSync.pushSoon) window.SRSync.pushSoon();
+      bellNote.textContent = on ? `Alert set: this phone will notify you when a buy or sell signal appears on ${inst.symbol}, ${frame.k} candles. Checked every hour in the background.` : `Alert removed for ${inst.symbol}, ${frame.k} candles.`; bellNote.hidden = false;
+      clearTimeout(bellTimer); bellTimer = setTimeout(() => { bellNote.hidden = true; }, 7000);
+    });
+    const bellNote = wrap.appendChild(el('div', 'av-bellnote')); bellNote.hidden = true; let bellTimer = 0;
     const priceRow = wrap.appendChild(el('div', 'av-price'));
     const last = priceRow.appendChild(el('span', 'av-last', '—'));
     const chg = priceRow.appendChild(el('span', 'av-chg', ''));
     const badge = priceRow.appendChild(el('span', 'av-zone', ''));
     const sub = wrap.appendChild(el('div', 'av-sub', hasKeys() ? 'Connecting…' : 'Add your eToro keys in Settings for live prices.'));
     const frames = wrap.appendChild(el('div', 'av-ranges'));
-    for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); load(true); }); }
+    for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); drawBell(); load(true); }); }
+    drawBell();
     const verdictEl = wrap.appendChild(el('div', 'av-verdict'));   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
@@ -293,8 +307,9 @@
     function showPick(hit) {
       if (!pickBox) { pickBox = el('div', 'av-pick'); box.insertAdjacentElement('afterend', pickBox); }
       const q = live(), px = q ? q.price : (daily.length ? daily[daily.length - 1].close : null);
-      pickBox.hidden = !hit;
-      if (hit) pickBox.textContent = hit.kind === 'buy' || hit.kind === 'sell' ? hit.label + '.' : `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
+      pickBox.hidden = !hit; pickBox.classList.toggle('is-card', !!(hit && hit.tr));
+      if (hit && hit.tr) { const card = tradeCard(hit.tr); pickBox.replaceChildren(card); if (ch && ch.note) ch.note(card.querySelector('.tc-line').textContent); return; }   // a buy or sell marker: its card
+      if (hit) pickBox.textContent = `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
       if (ch && ch.note) ch.note(hit ? pickBox.textContent : '');   // the same line inside the chart when it is in full view
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
@@ -328,32 +343,58 @@
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
     let taKey = '', taVal = null, taBt = null;
-    let TR = [];   // the entries drawn on the chart
+    let TR = [], scoreNow = null;   // the entries drawn on the chart; the model's score of the last candle when no buy is open
     const horizon = () => (frame.sec >= 604800 ? 'Long-term trade (weekly candles)' : frame.sec >= 86400 ? 'Swing trade (daily candles)' : `Day trade (${frame.k} candles)`);
     const dayOf = (i) => new Date(bars[i].time * 1000).toISOString().slice(0, frame.sec >= 86400 ? 10 : 16).replace('T', ' ');
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const shortDay = (i) => { const d = new Date(bars[i].time * 1000), y = d.getUTCFullYear() !== new Date().getUTCFullYear() ? ' ' + String(d.getUTCFullYear()).slice(2) : ''; return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}${y}` + (frame.sec >= 86400 ? '' : ' ' + d.toISOString().slice(11, 16)); };   // 5 Nov, 5 Nov 24, 5 Nov 15:30
     const shortName = (id) => (window.SRScreen && window.SRScreen.SHORT && window.SRScreen.SHORT[id]) || window.SRTA.NAME[id];
     function tradeMark(tr) {
       const b = bars[tr.t], move = tr.ex != null ? tr.ex / tr.en - 1 : null, mv = move == null ? '' : tr.side > 0 ? fmtPct(move) : (move < 0 ? 'fell ' : 'rose ') + (Math.abs(move) * 100).toFixed(1) + '%';
       const tag = `${tr.side > 0 ? 'BUY' : 'SELL'} · ${shortName(tr.ids[0])}${tr.res === 'open' ? '' : (tr.res === 'win' ? ' ✓ ' : ' ✕ ') + mv}`;
       const full = `${tr.side > 0 ? 'Buy' : 'Sell'} signal of ${dayOf(tr.t)}: ${tr.name}. ` + (tr.i == null ? 'Entry at the next open' : `In at ${fmtP(tr.en)} at the next open; ` + (tr.j == null ? `still open, target ${fmtP(tr.target)}, stop ${fmtP(tr.stop)}` : `out at ${fmtP(tr.ex)} on ${dayOf(tr.j)} (${tr.how}): ${mv}, ${tr.res === 'win' ? 'it worked' : 'it failed'}`));
-      return { side: tr.side, st: tr.res, tested: frame.sec === 86400, tag, full, a: { t: b.time, lo: b.low, hi: b.high }, e: tr.i != null ? { t: bars[tr.i].time, p: tr.en } : null, x: tr.j != null ? { t: bars[tr.j].time, p: tr.ex } : null };
+      return { side: tr.side, st: tr.res, tested: !!(((window.SR_TASTATS || {}).model || {})[frame.k] || {}).ok, tag, full, tr, a: { t: b.time, lo: b.low, hi: b.high }, e: tr.i != null ? { t: bars[tr.i].time, p: tr.en } : null, x: tr.j != null ? { t: bars[tr.j].time, p: tr.ex } : null };
+    }
+    // One signal, the same way everywhere: BUY or SELL, the price to act at, the stop, the target, and how it ended.
+    // The three prices are the first thing read; the reason and the odds are one small line under them.
+    function tradeCard(tr, o) {
+      o = o || {}; const buy = tr.side > 0, pend = tr.i == null, en = pend ? tr.estEn : tr.en, stop = pend ? tr.estStop : tr.stop, target = pend ? tr.estTarget : tr.target, ap = pend ? '≈ ' : '';
+      const q = live(), px = q ? q.price : null, pc = (x) => (x >= 0 ? '+' : '−') + (Math.abs(x) * 100).toFixed(1) + '%';
+      const c = el('div', 'tc ' + (buy ? 'is-buy' : 'is-sell') + ' is-' + (pend ? 'pending' : tr.res));
+      const top = c.appendChild(el('div', 'tc-top'));
+      top.appendChild(el('span', 'tc-side', buy ? 'BUY' : 'SELL'));
+      top.appendChild(el('span', 'tc-what', tr.ids[0] === 'model' ? `${tr.strong ? 'Strong signal' : 'Signal'} of ${shortDay(tr.t)}` : `${shortName(tr.ids[0])} · ${shortDay(tr.t)}`));
+      const move = tr.ex != null ? tr.side * (tr.ex / tr.en - 1) : px && en && !pend ? tr.side * (px / en - 1) : null;
+      top.appendChild(el('span', 'tc-res', pend ? 'AT THE NEXT OPEN' : tr.res === 'open' ? 'OPEN' + (move != null ? ' ' + pc(move) : '') : (tr.res === 'win' ? 'WORKED ' : 'FAILED ') + pc(move)));
+      const g = c.appendChild(el('div', 'tc-grid')), cell = (lab, v, sub) => { const d = g.appendChild(el('div', 'tc-cell')); d.appendChild(el('small', '', lab)); d.appendChild(el('b', '', v)); if (sub) d.appendChild(el('i', '', sub)); return d; };
+      if (en != null) {
+        cell(buy ? 'Buy at' : 'Sell at', ap + fmtP(en), pend ? 'next open' : shortDay(tr.i));
+        cell('Stop', ap + fmtP(stop), pc(stop / en - 1)).classList.add('tc-stop');
+        cell('Target', ap + fmtP(target), pc(target / en - 1)).classList.add('tc-target');
+        if (tr.j != null) cell('Out at', fmtP(tr.ex), `${shortDay(tr.j)} · ${tr.how}`);
+      }
+      if (o.foot) c.appendChild(el('div', 'tc-foot', o.foot));
+      c.appendChild(el('div', 'tc-line', `${buy ? 'BUY' : 'SELL'} ${shortDay(tr.t)}` + (en != null ? ` · ${buy ? 'in' : 'at'} ${ap}${fmtP(en)} · stop ${fmtP(stop)} · target ${fmtP(target)}` : '') + (pend ? '' : tr.res === 'open' ? ' · open' : tr.res === 'win' ? ' · worked ' + pc(move) : ' · failed ' + pc(move))));   // the one-line form of the full view
+      return c;
     }
     function drawVerdict() {
-      const ST = window.SR_TASTATS || {}, G0 = ST.by || {}, WK = (ST.wk || {}).by || {}, n = bars.length, H = horizon(), q0 = (x) => Math.round(x * 100) + '%';
+      const ST = window.SR_TASTATS || {}, n = bars.length, H = horizon(), f1 = (x) => (x * 100).toFixed(1) + '%';
       verdictEl.replaceChildren(); verdictEl.className = 'av-verdict';
-      if (n < 80) { verdictEl.appendChild(el('b', '', `${H}: not enough candles yet on this timeframe.`)); return; }
+      if (n < 80) { verdictEl.appendChild(el('div', 'tc-none', `${H}: not enough candles yet on this timeframe.`)); return; }
       const last = TR.filter((x) => x.res === 'open').pop();
-      const prob = (id) => (frame.sec === 86400 ? (G0[id] ? `On 79 assets this signal worked ${q0(G0[id].win)} of the time; any day ${q0(G0[id].base)}.` : '')
-        : frame.sec > 86400 ? (WK[id] ? `On weekly candles it worked ${q0(WK[id].win)} of ${WK[id].n.toLocaleString('en-US')} times on 79 assets; any week ${q0(WK[id].base)}: no reliable edge.` : 'Not tested on weekly candles.')
-          : 'Not tested across assets on intraday candles: judge it by its record on this chart.');
-      if (last) {
-        const ago = n - 1 - last.t;
-        verdictEl.classList.add(last.side > 0 ? 'is-buy' : 'is-sell');
-        verdictEl.appendChild(el('b', '', `${H}: ${last.side > 0 ? 'BUY' : 'SELL'} signal ${ago === 0 ? 'on the last candle' : ago === 1 ? '1 candle ago' : ago + ' candles ago'} · ${last.name}.`));
-        verdictEl.appendChild(el('span', '', ' ' + prob(last.ids[0]) + (last.en != null ? ` In at ${fmtP(last.en)} · target ${fmtP(last.target)} · stop ${fmtP(last.stop)}.` : ' Entry at the next open.')));
-      } else verdictEl.appendChild(el('b', '', `${H}: no entry now.`));
-      const done = TR.filter((x) => x.res !== 'open'), bu = done.filter((x) => x.side > 0), se = done.filter((x) => x.side < 0), w = (a) => a.filter((x) => x.res === 'win').length;
-      verdictEl.appendChild(el('span', 'av-verdict-rec', done.length ? ` Past entries on this chart: ${bu.length ? `${bu.length} buy${bu.length > 1 ? 's' : ''}, ${w(bu)} worked` : 'no buy'}${se.length ? `; ${se.length} sell warning${se.length > 1 ? 's' : ''}, ${w(se)} worked` : ''}. Tap a marker for its story.` : ' No past entry on this chart.'));
+      // the odds in a few words, from the model's record on candles of this size (cases it never saw)
+      const M = (ST.model || {})[frame.k], unit = frame.k === '1D' ? 'day' : 'candle', big = (x) => x.toLocaleString('en-US');
+      const odds = (tr) => { if (!M) return `Not tested on ${frame.k} candles`; if (!M.ok) return `Not reliable on ${frame.k} candles: its edge was not steady in the test`; const b = tr.strong && M.strong ? M.strong : M.buy; return `Worked ${f1(b.win)} of ${big(b.n)} cases the model had never seen; any ${unit} ${f1(b.base)}`; };
+      const words = (tr) => { const z = tr.state; if (!z) return ''; const av = frame.k === '1D' ? 'day' : 'candle', w = [`RSI ${Math.round(z.rsi)}`]; w.push(`${Math.abs(z.dma50).toFixed(1)} ATR ${z.dma50 < 0 ? 'under' : 'over'} its 50-${av} average`); w.push(z.dma200 >= 0 ? `above its ${z.sl200 > 0 ? 'rising' : 'falling'} 200-${av} average` : `below its ${z.sl200 > 0 ? 'rising' : 'falling'} 200-${av} average`); return w.join(', '); };
+      const done = TR.filter((x) => x.res !== 'open'), w = done.filter((x) => x.res === 'win').length;
+      const rec = done.length ? `Earlier on this chart: ${w} of ${done.length} worked` : 'No earlier signal on this chart';
+      verdictEl.appendChild(el('div', 'tc-h', H));
+      if (last) { verdictEl.classList.add('is-buy'); verdictEl.appendChild(tradeCard(last, { foot: [odds(last), words(last), rec].filter(Boolean).join('. ') + '.' })); }
+      else {
+        verdictEl.appendChild(el('div', 'tc-none', bars.length < 262 ? 'No signal: a year of candles is needed.' : 'No buy signal now.'));
+        const mdl = window.SRTA && window.SRTA.model && window.SRTA.model();
+        verdictEl.appendChild(el('div', 'tc-foot', (scoreNow != null && isFinite(scoreNow) && mdl ? `Score ${Math.round(scoreNow * 100)}; a buy starts at ${Math.round(mdl.buy * 100)}. ` : '') + rec + '. Tap a marker on the chart for its prices.'));
+      }
     }
     let geo = null; // trendlines, gaps and wedge on the timeframe shown
     const lineText = (x) => `${x.edge ? x.edge.toLowerCase() + ' edge: ' : x.scale ? x.scale + ' ' : ''}${x.m > 0 ? 'rising' : 'falling'} ${x.kind === 'sup' ? 'support' : 'resistance'} line, ${x.touches} touches${x.cross ? ', crossed ' + (x.cross === 1 ? 'once' : x.cross + ' times') : ''}${x.agree && x.agree.length ? '; today it meets ' + x.agree.join(', ') : ''}`;
@@ -370,12 +411,6 @@
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
       taBox.appendChild(el('div', 'ta-h', 'Technical analysis' + (frame.k === '1D' ? '' : ' · daily candles')));
       taBox.appendChild(el('div', 'ta-line', `${A.above200 == null ? 'No 200-day average yet' : (A.above200 ? 'Above' : 'Below') + ' its 200-day average'}, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
-      // the same grade as the screener's ranking: the signal, its age and the rest of the chart, with how often that situation worked
-      const J = window.SRScreen && window.SRScreen.judge ? window.SRScreen.judge(A.signals) : null;
-      if (J && J.buy) {
-        const c = J.buy.cell, nm = `${shortName(J.buy.id)}, ${J.buy.ago ? '1 to 3 days old' : 'fresh'}, ${window.SRScreen.GR[J.buy.g]}`, f1 = (x) => (x * 100).toFixed(1) + '%';
-        taBox.appendChild(el('div', 'ta-line ta-grade', `Screener rank: ${nm}. ` + (!c ? 'This situation was not measured in the test.' : c.ok ? `This situation worked ${f1(c.win)} of ${c.n.toLocaleString('en-US')} times in the test; any day ${f1(c.base)}.` : `No edge in the test for this situation: ${f1(c.win)} of ${c.n.toLocaleString('en-US')} times; any day ${f1(c.base)}.`)));
-      }
       if (A.young) taBox.appendChild(el('div', 'ta-line ta-muted', `Young asset: ${A.days} days of history. Levels and signals are read from what exists; its own history test needs about 16 months.`));
       if (geo && (geo.lines.length || geo.gaps.length)) {
         const tl = taBox.appendChild(el('div', 'ta-tl'));
@@ -384,21 +419,14 @@
         for (const g of geo.gaps) { const mid = (g.top + g.bottom) / 2, r = tl.appendChild(el('div', 'ta-tlr ' + (mid < px ? 'is-sup' : 'is-res'))); r.appendChild(el('span', 'ta-tlp', fmtP(mid))); r.appendChild(el('span', 'ta-tld', fmtPct(mid / px - 1))); r.appendChild(el('span', 'ta-tlt', `open gap ${g.dir}, ${fmtP(g.bottom)} to ${fmtP(g.top)}`)); }
       }
       if (geo && geo.lines.some((x) => x.agree && x.agree.length)) taBox.appendChild(el('div', 'ta-line ta-muted', 'Bold = the line meets another level today. Tested on 79 assets: a touch of a rising line worked 52% of the time with such an agreement and 53% without (any day 54%), so agreement is shown but does not raise the ranking.'));
-      // signals that passed the history test are shown in full; the other patterns seen are folded away, with their record
-      const sg = taBox.appendChild(el('div', 'ta-sigs')), okS = A.signals.filter((x) => G[x.id] && G[x.id].ok), restS = A.signals.filter((x) => !(G[x.id] && G[x.id].ok));
-      const sigCard = (host, x) => {
-        const r = host.appendChild(el('div', 'ta-sig ' + (x.side > 0 ? 'is-buy' : 'is-sell') + (G[x.id] && G[x.id].ok ? ' is-ok' : '')));
-        r.appendChild(el('b', '', (x.side > 0 ? 'Buy signal: ' : 'Sell signal: ') + x.name));
-        r.appendChild(el('span', 'ta-when', x.ago === 0 ? 'today' : x.ago === 1 ? 'yesterday' : x.ago + ' days ago'));
-        const mine = B && B.by[x.id], g = G[x.id];
-        r.appendChild(el('div', 'ta-rec', (mine ? `On this asset: worked ${mine.w} of ${mine.n} times (${p0(mine.win)}); any day ${p0(mine.base)}.${mine.n < 15 ? ' Few cases.' : ''}` : 'On this asset: no earlier case in its history.')
-          + (g ? ` On 79 assets: ${p0(g.win)} of ${g.n.toLocaleString('en-US')}; any day ${p0(g.base)}.${g.ok ? '' : ' No reliable edge.'}` : '')));
-      };
-      if (!okS.length) sg.appendChild(el('div', 'ta-line ta-muted', A.signals.length ? 'No tested signal in the last 5 days.' : 'No signal in the last 5 days.'));
-      for (const x of okS) sigCard(sg, x);
-      if (restS.length) {
-        const d = sg.appendChild(el('details', 'ta-rest')); d.appendChild(el('summary', '', `${restS.length} other pattern${restS.length > 1 ? 's' : ''} seen, with no reliable edge in the test: ${[...new Set(restS.map((x) => x.name.toLowerCase()))].slice(0, 3).join(', ')}${restS.length > 3 ? '…' : ''}`));
-        for (const x of restS) sigCard(d, x);
+      // the chart patterns seen in the last 5 days are context, not signals: folded away, each with its record on 79 assets
+      if (A.signals.length) {
+        const d = taBox.appendChild(el('details', 'ta-rest')); d.appendChild(el('summary', '', `${A.signals.length} chart pattern${A.signals.length > 1 ? 's' : ''} seen in the last 5 days (context, not signals)`));
+        for (const x of A.signals) {
+          const r = d.appendChild(el('div', 'ta-sig ' + (x.side > 0 ? 'is-buy' : 'is-sell'))), g = G[x.id];
+          r.appendChild(el('b', '', (x.side > 0 ? 'Bullish: ' : 'Bearish: ') + x.name)); r.appendChild(el('span', 'ta-when', x.ago === 0 ? 'today' : x.ago === 1 ? 'yesterday' : x.ago + ' days ago'));
+          if (g) r.appendChild(el('div', 'ta-rec', `On 79 assets: ${p0(g.win)} of ${g.n.toLocaleString('en-US')}; any day ${p0(g.base)}.`));
+        }
       }
       const lv = taBox.appendChild(el('div', 'ta-lv'));
       const row = (z) => { const r = lv.appendChild(el('div', 'ta-lvr ' + (z.side === 'res' ? 'is-res' : 'is-sup'))); r.appendChild(el('span', 'ta-d', pc(z.p / px - 1))); r.appendChild(el('b', '', fmtP(z.p))); r.appendChild(el('span', 'ta-k', z.kinds.join(' + '))); if (z.n >= 3) r.appendChild(el('span', 'ta-n', z.n + ' agree')); };
@@ -421,7 +449,7 @@
       if (B) {
         const best = Object.entries(B.by).filter(([id, x]) => x.n >= 8 && G[id]).sort((u, v) => v[1].edge - u[1].edge);
         const t = taBox.appendChild(el('details', 'ta-bt')); t.appendChild(el('summary', '', `History test on this asset (${B.from.slice(0, 4)}–${B.to.slice(0, 4)}, ${B.days} days)`));
-        t.appendChild(el('p', 'av-note', `Success = up 2 average daily ranges before down 2, within 20 days, entering at the next open (the reverse for sell signals). Buying on any day here: ${p0(B.anyBuy)}. First half / second half is the walk-forward check: a signal counts only if it helped in both.`));
+        t.appendChild(el('p', 'av-note', `The asset's own past, not a forecast: across 566 asset-and-pattern pairs, the record before 2015 said nothing about the record after. Success = up 2 average daily ranges before down 2, within 20 days, entering at the next open (the reverse for sell signals). Buying on any day here: ${p0(B.anyBuy)}. First half / second half is the walk-forward check: a signal counts only if it helped in both.`));
         for (const [id, x] of best) { const r = t.appendChild(el('div', 'ta-btr')); r.appendChild(el('span', 'ta-k', window.SRTA.NAME[id])); r.appendChild(el('b', '', `${p0(x.win)} of ${x.n}`)); r.appendChild(el('span', 'ta-d ' + (x.edge > 0.03 && x.e1 > 0 && x.e2 > 0 ? 'up' : ''), `${pc(x.edge)} · halves ${x.e1 == null ? '–' : pc(x.e1)} / ${x.e2 == null ? '–' : pc(x.e2)}`)); }
         if (!best.length) t.appendChild(el('p', 'av-note', 'Too few cases on this asset to judge any signal.'));
       }
@@ -467,8 +495,9 @@
       // entries on the timeframe shown: day trades on intraday candles, swing trades on daily ones, long-term trades on weekly ones
       TR = [];
       if (window.SRTA && window.SRTA.trades && ch.setTrades) {
-        const G0 = (window.SR_TASTATS || {}).by || {}, okIds = Object.keys(G0).filter((k) => G0[k].ok);
-        if (bars.length >= 80) TR = window.SRTA.trades(bars.map((x, i) => ({ date: dayOf(i), open: x.open, high: x.high, low: x.low, close: x.close })), okIds);
+        // the buy model's entries on these candles (one open at a time), each with its exit: the sell side of a buy is its stop, its target or its time limit
+        if (window.SRTA.mtrades && bars.length >= 262) TR = window.SRTA.mtrades(bars.map((x, i) => ({ date: dayOf(i), open: x.open, high: x.high, low: x.low, close: x.close })));
+        scoreNow = window.SRTA.mscore && bars.length >= 262 && !TR.some((x) => x.res === 'open') ? (() => { const p = window.SRTA.mscore(bars.map((x) => ({ open: x.open, high: x.high, low: x.low, close: x.close }))); return p[p.length - 1]; })() : null;
         ch.setTrades(TR.map(tradeMark));
       }
       drawVerdict();
@@ -575,7 +604,7 @@
       clearInterval(waiting); box.classList.remove('is-loading');
       if (dead) return;
       if (!d.length && !rows.length) { noData(); return; }
-      if (!rows.length && d.length) { rows = d; frame = FRAMES[4]; sub.textContent = 'No intraday prices for this listing: showing daily candles.'; }
+      if (!rows.length && d.length) { rows = d; frame = FRAMES.find((f) => f.k === '1D'); sub.textContent = 'No intraday prices for this listing: showing daily candles.'; }
       daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
       bars = toBars(rows);
       if (!lastLoad) lastLoad = { quick: false, ms: Date.now() - t0 };

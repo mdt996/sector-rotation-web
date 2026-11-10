@@ -51,6 +51,11 @@
     $('cfg-watch').value = c.watch || '';
     $('cfg-regime').checked = c.notifyRegime !== false;
     $('cfg-holdon').checked = c.notifyHoldings !== false;
+    $('cfg-alerton').checked = c.notifyAlerts !== false;
+    { const L = Array.isArray(c.alerts) ? c.alerts : [], box = $('cfg-alertlist'); box.replaceChildren();   // the alerts set on asset pages, each removable here
+      if (!L.length) box.textContent = 'No alert set. Open an asset and tap "Alert me" above its chart.';
+      for (const a of L) { const b = document.createElement('button'); b.type = 'button'; b.className = 'cfg-alert'; b.textContent = `${a.sym} · ${(a.f || ['1D']).join(', ')}  ✕`; b.title = 'Remove this alert';
+        b.addEventListener('click', () => { const cur = SRApp.config(); SRApp.saveConfig({ ...cur, alerts: (cur.alerts || []).filter((x) => x.id !== a.id) }); b.remove(); if (window.SRSync && window.SRSync.pushSoon) window.SRSync.pushSoon(); }); box.appendChild(b); } }
     $('cfg-holdings').value = c.holdings || '';
     $('cfg-sync').value = c.syncToken || '';
     if (window.SRSync) window.SRSync.showStatus();
@@ -130,6 +135,7 @@
       watch: $('cfg-watch').value,
       notifyRegime: $('cfg-regime').checked,
       notifyHoldings: $('cfg-holdon').checked,
+      notifyAlerts: $('cfg-alerton').checked,
       holdings: $('cfg-holdings').value.trim(),
     });
     const prevToken = SRApp.config().syncToken || '';

@@ -46,55 +46,42 @@
     try { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) { wide = j; packSet = new Set(j.packs || []); } } catch (e) { /* keeps the last one */ }
     wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
   }
-  // ---- the ranking: how often the exact situation worked in the history test (tools/ta/bt_rank.js and rank_final.js) ----
-  const RK = () => (window.SR_TASTATS || {}).rank || { cells: {}, n: 0, assets: 0, grades: {}, not: {} };
-  const GR = { A: 'clean chart', B: 'contested chart', M: 'sell signal too' };
-  // sigs = every signal of the last 5 days ({ id, ago }). Mixed: a tested sell signal in the last 3 days. Clean: at most one bearish signal of any kind. Contested: two or more.
-  function judge(sigs) {
-    const S = stats(), SIDE = window.SRTA.SIDE, ok3 = sigs.filter((x) => x.ago <= 3 && S[x.id] && S[x.id].ok);
-    const buys = ok3.filter((x) => SIDE[x.id] > 0), sells = ok3.filter((x) => SIDE[x.id] < 0), bear = sigs.filter((x) => SIDE[x.id] < 0).length, bull = sigs.filter((x) => SIDE[x.id] > 0).length;
-    const g = sells.length ? 'M' : bear <= 1 ? 'A' : 'B', C = RK().cells; let best = null;
-    for (const x of buys) {
-      let c = C[x.id + '|' + g + '|' + (x.ago ? 1 : 0)] || null;
-      if (!c && g !== 'M' && x.ago === 0) { const q = S[x.id]; c = { n: q.n, win: q.win, base: q.base, edge: q.edge, ok: true, score: Math.max(0, Math.min(q.p1, q.p2)) }; }   // triangle and wedge breakouts: measured on the day itself only
-      const y = { id: x.id, ago: x.ago, date: x.date || null, g, cell: c, score: c && c.ok ? c.score : 0, edge: c ? c.edge : -1 };
-      if (!best || y.score > best.score || (y.score === best.score && y.edge > best.edge)) best = y;
-    }
-    return { buy: best, sell: sells.sort((x, y) => x.ago - y.ago)[0] || null, nb: buys.length, bear, bull };
-  }
+  // ---- the ranking: the buy model's score of the last candle (ta.js mscore; its record is in tastats.js, "model") ----
+  const MDL = () => (window.SRTA && window.SRTA.model && window.SRTA.model()) || null, MST = () => ((window.SR_TASTATS || {}).model || {});
   // one list for everything: this device's own analysis (yours, the funds, the world board: live) and the nightly scan
   function all() {
-    const M = new Map(), out = [], seen = new Set(), Q = window.SRLive ? window.SRLive.quotes : new Map(), today = new Date().toISOString().slice(0, 10);
+    const M = new Map(), out = [], seen = new Set(), Q = window.SRLive ? window.SRLive.quotes : new Map(), today = new Date().toISOString().slice(0, 10), md = MDL(), bar = md ? md.buy : 2, bar2 = md ? md.strong : 2;
     if (wide) for (const r of wide.rows) M.set(r.id, r);
+    const grade = (o) => { o.buy = o.ms != null && o.ms >= bar; o.strong = o.ms != null && o.ms >= bar2; return o; };
     for (const r of rows()) {
       if (!r.A) continue; const m = M.get(r.id) || {}, A = r.A; seen.add(r.id);
-      out.push({ sym: r.sym, id: r.id, name: r.name, group: r.group, mine: r.group === 'Yours', cls: m.cls || (r.group === 'Funds' ? 'ETF' : null), sec: m.sec || null, cap: m.cap || null, sales: m.sales || null, pe: m.pe || null, pop: m.pop || null, px: r.px, chg: r.chg, c5: A.chg5, c20: A.chg20, rsi: A.rsi,
-        sup: r.sup, res: r.res, rr: A.rr, stop: A.sup ? A.sup.p - 0.5 * A.atr : null, target: A.res ? A.res.p : null, last: A.date, J: judge(A.signals), live: true });
+      out.push(grade({ sym: r.sym, id: r.id, name: r.name, group: r.group, mine: r.group === 'Yours', cls: m.cls || (r.group === 'Funds' ? 'ETF' : null), sec: m.sec || null, cap: m.cap || null, sales: m.sales || null, pe: m.pe || null, pop: m.pop || null, px: r.px, chg: r.chg, c5: A.chg5, c20: A.chg20, rsi: A.rsi,
+        sup: r.sup, res: r.res, rr: A.rr, ms: r.ms, stop: A.atr > 0 ? A.price - 2 * A.atr : null, target: A.atr > 0 ? A.price + 2 * A.atr : null, last: A.date, live: true }));
     }
     if (wide) for (const r of wide.rows) {
       if (seen.has(r.id)) continue;
       const q = Q.get(r.id), px = q && q.price > 0 ? q.price : r.px, chg = q && q.price > 0 && r.px ? (r.d < today ? px / r.px - 1 : (1 + r.c1) * px / r.px - 1) : r.c1;
-      out.push({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: r.cap || null, sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
-        sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, stop: r.stop == null ? null : r.stop, target: r.target == null ? null : r.target, last: r.d, J: judge(r.sig || []), live: !!q, scanned: true });
+      out.push(grade({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: r.cap || null, sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
+        sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true }));
     }
     return out;
   }
-  const tier = (r) => (r.J.buy ? (r.J.buy.score > 0 ? 0 : 1) : 2);
-  // 1. situations that passed the test, best first (then freshest); 2. signals whose situation showed no edge; 3. no signal: nearest to its support first
-  const rankOrder = (a, b) => tier(a) - tier(b) || (a.J.buy && b.J.buy ? b.J.buy.score - a.J.buy.score || a.J.buy.ago - b.J.buy.ago || b.J.buy.edge - a.J.buy.edge : 0) || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup);
-  // the home page's shortlist: the best-ranked situations that passed the test
-  function top(n) { return all().filter((r) => tier(r) === 0).sort(rankOrder).slice(0, n).map((r) => ({ ...r, buy: r.J.buy })); }
+  const tier = (r) => (r.buy ? 0 : 1);
+  // 1. the assets with a buy signal now, highest score first; 2. the others, by score; an asset without a year of candles has no score and comes last
+  const rankOrder = (a, b) => tier(a) - tier(b) || (a.ms == null) - (b.ms == null) || (b.ms || 0) - (a.ms || 0) || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup);
+  // the home page's shortlist: the highest scores among the buy signals
+  function top(n) { return all().filter((r) => r.buy).sort(rankOrder).slice(0, n); }
   function rows() {
     const S = stats(), out = [], today = new Date().toISOString().slice(0, 10);
     for (const u of universe()) {
       if (!u.rows || u.rows.length < 260) { if (u.group === 'World') out.push({ ...u, A: null }); continue; }
       const n = u.rows.length, key = n + '|' + u.rows[n - 1].date; let c = cache.get(u.sym);
-      if (!c || c.key !== key) { c = { key, A: window.SRTA.analyze(u.rows) }; cache.set(u.sym, c); }
+      if (!c || c.key !== key) { c = { key, A: window.SRTA.analyze(u.rows), ms: null }; if (window.SRTA.mscore && n >= 262) { const p = window.SRTA.mscore(u.rows); c.ms = isFinite(p[n - 1]) ? p[n - 1] : null; } cache.set(u.sym, c); }
       const A = c.A; if (!A) continue;
       const q = window.SRLive && window.SRLive.quotes.get(u.id), px = q ? q.price : A.price, prev = u.rows[n - 1].date >= today && n > 1 ? u.rows[n - 2].close : u.rows[n - 1].close;
       const sig = A.signals.filter((x) => x.ago <= 3 && S[x.id] && S[x.id].ok);
       const buy = sig.filter((x) => x.side > 0).sort((a, b) => S[b.id].edge - S[a.id].edge)[0] || null, sell = sig.filter((x) => x.side < 0)[0] || null;
-      out.push({ ...u, A, px, chg: px / prev - 1, buy, sell, sup: A.sup ? A.sup.p / px - 1 : null, res: A.res ? A.res.p / px - 1 : null, score: buy ? S[buy.id].edge : 0 });
+      out.push({ ...u, A, ms: c.ms, px, chg: px / prev - 1, buy, sell, sup: A.sup ? A.sup.p / px - 1 : null, res: A.res ? A.res.p / px - 1 : null, score: buy ? S[buy.id].edge : 0 });
     }
     return out;
   }
@@ -112,18 +99,8 @@
     if (isMac() && detail && detail.offsetParent !== null && window.SRLive.assetView) select(r);   // only when the screener itself is on screen
     else if (window.SRLive.openAsset) window.SRLive.openAsset({ id: r.id, symbol: r.sym, name: r.name, exchange: '' });
   };
-  const ago = (x) => (x.ago === 0 ? 'today' : x.ago === 1 ? 'yesterday' : x.ago + ' days ago');
-  // the day a signal fired, in words. A scanned row only knows "n candles before its last one": the date is walked back over weekdays (every day for crypto).
-  const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], iso = (d) => d.toISOString().slice(0, 10);
-  function when(r, x) {
-    let date = x.date;
-    if (!date && r.last) { const d = new Date(r.last + 'T12:00:00Z'); for (let k = x.ago; k > 0;) { d.setUTCDate(d.getUTCDate() - 1); if (r.cls === 'Crypto' || (d.getUTCDay() !== 0 && d.getUTCDay() !== 6)) k--; } date = iso(d); }
-    if (!date) return ago(x);
-    const now = new Date(), y = new Date(now.getTime() - 864e5), d = new Date(date + 'T12:00:00Z');
-    return date === iso(now) ? 'today' : date === iso(y) ? 'yesterday' : DAY[d.getUTCDay()] + ' ' + d.getUTCDate();
-  }
   const big = (x) => '$' + (x >= 1e12 ? (x / 1e12).toFixed(x >= 1e13 ? 0 : 1) + 'T' : x >= 1e9 ? (x / 1e9).toFixed(x >= 1e11 ? 0 : 1) + 'B' : Math.max(1, Math.round(x / 1e6)) + 'M');
-  const p1 = (x) => (x * 100).toFixed(1) + '%';
+  const p1 = (x) => (x * 100).toFixed(1) + '%', sc100 = (x) => Math.round(x * 100);
   // filters and sorting, kept on the device
   const FK = 'sr.scf', F0 = { sort: 'rank', cls: '', sec: '', size: '', sales: '', rsi: '', sig: '' }, F = { ...F0 };
   try { const j = JSON.parse(localStorage.getItem(FK) || '{}'); for (const k of Object.keys(F0)) if (typeof j[k] === 'string') F[k] = j[k]; } catch (e) { /* defaults */ }
@@ -132,7 +109,7 @@
   const SIZE = { mega: ['Over $200B', 200e9, Infinity], large: ['$10B to $200B', 10e9, 200e9], mid: ['$2B to $10B', 2e9, 10e9], small: ['Under $2B', 0, 2e9] };
   const SALES = { big: ['Revenue over $50B', 50e9, Infinity], mid: ['Revenue $5B to $50B', 5e9, 50e9], small: ['Revenue under $5B', 0, 5e9] };
   const RSIB = { lo: ['RSI below 30', 0, 30], mlo: ['RSI 30 to 50', 30, 50], mhi: ['RSI 50 to 70', 50, 70], hi: ['RSI above 70', 70, 101] };
-  const SIG = { buy: 'Buy: passed the test', fresh: 'Buy: passed, fresh', any: 'Buy: any tested signal', sell: 'Sell: tested signal' };   // all within the last 3 days; fresh = fired at the latest close
+  const SIG = { buy: 'Buy signal now', strong: 'Strong buy signal now' };
   const inB = (v, B) => v != null && v >= B[1] && v < B[2];
   function pass(r) {
     if (F.cls === '@mine' ? !r.mine : F.cls && r.cls !== F.cls) return false;
@@ -140,31 +117,29 @@
     if (F.size && !inB(r.cap, SIZE[F.size])) return false;
     if (F.sales && !inB(r.sales, SALES[F.sales])) return false;
     if (F.rsi && !inB(r.rsi, RSIB[F.rsi])) return false;
-    const b = r.J.buy;
-    if (F.sig === 'buy' && !(b && b.score > 0)) return false;
-    if (F.sig === 'fresh' && !(b && b.score > 0 && b.ago === 0)) return false;
-    if (F.sig === 'any' && !b) return false;
-    if (F.sig === 'sell' && !r.J.sell) return false;
+    if (F.sig === 'buy' && !r.buy) return false;
+    if (F.sig === 'strong' && !r.strong) return false;
     return true;
   }
   const by = (f, dir) => (a, b) => { const x = f(a), y = f(b), nx = x == null || !isFinite(x), ny = y == null || !isFinite(y); return nx - ny || (nx ? 0 : dir * (x - y)); };   // assets without the figure go last
-  const SORTS = { rank: ['our ranking', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
+  const SORTS = { rank: ['our ranking (buy score)', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
     day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
     rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)] };
-  const cellName = (k) => { const [id, g, fr] = k.split('|'); return (SHORT[id] || id) + ', ' + (fr === '1' ? '1 to 3 days old' : 'fresh') + ', ' + GR[g]; };
+  const oddsText = (r) => { const st = MST()['1D']; if (!st) return ''; const b = r.strong && st.strong ? st.strong : st.buy; return `Signals like this worked ${p1(b.win)} of ${b.n.toLocaleString('en-US')} cases the model had never seen; any day, ${p1(b.base)}.`; };
   function howBox() {
-    const R = RK(), N = R.not || {}, d = el('details', 'sc-how'); d.open = howOpen; d.addEventListener('toggle', () => { howOpen = d.open; });
+    const S = MST(), md = MDL(), d = el('details', 'sc-how'); d.open = howOpen; d.addEventListener('toggle', () => { howOpen = d.open; });
     d.appendChild(el('summary', '', 'How the ranking works'));
-    const P = (t) => d.appendChild(el('p', '', t)), n = (x) => (x || 0).toLocaleString('en-US');
-    P('1. First come the assets where a buy signal that passed the history test fired in the last 3 days. Four passed: trendline break, RSI divergence, Fibonacci pullback, RSI below 30.');
-    P(`2. Their order is how often that exact situation worked in the test: the signal, its age (fresh = fired at the latest close, or 1 to 3 days old) and the rest of the chart (clean = at most one bearish signal in the last 5 days; contested = two or more; mixed = a tested sell signal at the same time). The test: ${n(R.n)} readings on ${R.assets} assets since the 1990s. "Worked" = up 2 ATR before down 2 ATR within 20 days, buying at the next open. Buying on any day worked ${R.all ? p1(R.all.base) : '54%'}. The rank is the edge in the weaker of the two test periods (to 2014, from 2015), so one lucky period cannot lift it.`);
-    const t = d.appendChild(el('div', 'sc-howt')); t.appendChild(el('b', '', 'Situation, best first')); t.appendChild(el('b', 'sc-n', 'Worked')); t.appendChild(el('b', 'sc-n', 'Edge'));
-    for (const [k, c] of Object.entries(R.cells).filter((x) => x[1].ok).sort((x, y) => y[1].score - x[1].score)) { t.appendChild(el('span', '', cellName(k))); t.appendChild(el('span', 'sc-n', p1(c.win))); t.appendChild(el('span', 'sc-n', '+' + (c.score * 100).toFixed(1))); }
-    P('Edge = points above "any day" in the weaker period. "Worked" is over the whole test.');
-    if (R.grades && R.grades.M) P(`3. Then the signals whose situation did not beat "any day" (grey label). Every mixed one is there: ${p1(R.grades.M.win)} worked against ${p1(R.grades.M.base)} on any day.`);
-    P('4. Last, the assets without a signal, nearest to their support first.');
-    if (N.bull0) P(`What does not move the rank, because it did not change the odds in the test: more signals agreeing (${p1(N.bull0.win)} with no other bullish signal, ${p1(N.bull3.win)} with three or more), reward to risk (${p1(N.rrLow.win)} below 1, ${p1(N.rrHigh.win)} above 3), a support made of several levels (${p1(N.sup1.win)} with one, ${p1(N.sup3.win)} with three or more) and being above the 200-day average (${p1(N.up200.win)} against ${p1(N.dn200.win)}, and it reverses between the two periods). They are shown on each row for your own reading.`);
-    P('The edges are small: 55 to 59% against 54%. The stop is half an ATR under the support, the target is the first resistance. Analysis, not advice.');
+    const P = (t) => d.appendChild(el('p', '', t)), n = (x) => (x || 0).toLocaleString('en-US'), D1 = S['1D'];
+    if (!D1 || !md) { P('The model is not loaded yet.'); return d; }
+    P(`1. Every asset gets one score from 0 to 100 on its latest daily candle. The score comes from a model that reads 29 measures of the chart, all in units of the asset's own volatility: how far the price is from its 20, 50 and 200-day averages and from its 1-year high and low, its moves over 1 day to 1 year, RSI, and the shape of the last candle.`);
+    P(`2. A buy signal is a score of ${sc100(md.buy)} or more (${sc100(md.strong)} for a strong one): the best 5% and 2% of the scores of the past. The list shows these first, highest score first, then the other assets by score.`);
+    P(`3. The record, on cases the model had never seen (it was fitted on the years before each 3-year block since 1999, then judged on the block; ${n(D1.bars)} days of ${D1.assets} assets). "Worked" = up 2 ATR before down 2 ATR within 20 candles, buying at the next open.`);
+    const t = d.appendChild(el('div', 'sc-howt')); t.appendChild(el('b', '', 'Candles')); t.appendChild(el('b', 'sc-n', 'Buy signals')); t.appendChild(el('b', 'sc-n', 'Any candle'));
+    for (const k of ['1D', '4H', '1H', '30m', '1W']) { const x = S[k]; if (!x || !x.buy) continue; t.appendChild(el('span', '', k + (x.ok ? '' : ' (not reliable)'))); t.appendChild(el('span', 'sc-n', p1(x.buy.win))); t.appendChild(el('span', 'sc-n', p1(x.buy.base))); }
+    P('On 4-hour and 1-hour candles the daily model was applied as it is, including to 40 assets it had never seen. On 30-minute and weekly candles its edge was not steady: signals there are drawn hollow.');
+    if (S.drivers) P(`4. What the model mostly buys: a pullback inside a longer rise. The typical signal is just under its 50-day average, above a rising 200-day average, RSI in the mid-40s. Buying at a 1-year high did worse than buying on any day (${p1(S.drivers.list[4].win)} against ${p1(S.drivers.any)}), and so did buying after a steep rise of the 200-day average (${p1(S.drivers.list[5].win)}).`);
+    P('5. What did not help when tested the same way, and is not used: sell signals (the model\'s best sell scores worked 47.3% against 47.4% on any day), the market\'s own state (from 14 points worse in 2008-2010 to 16 better in 2011-2013), an asset\'s own past record (no link between before and after 2015), counting how many signals agree, and reward to risk. The sell side of a buy is its stop, its target or 20 candles.');
+    P('The edge is small: about 57% against 54%. Four signals in ten fail, which is why each comes with a stop. Analysis, not advice.');
     return d;
   }
   function rowEl(r) {
@@ -173,15 +148,10 @@
     const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0.0005 ? 'up' : r.chg < -0.0005 ? 'down' : ''), pct(r.chg)));
     const m = [r.mine ? 'Yours' : null, r.cls === 'Stocks' ? r.sec || 'Stock' : r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null, r.sales ? 'revenue ' + big(r.sales) : null, r.pe > 0 ? 'P/E ' + (r.pe >= 100 ? Math.round(r.pe) : r.pe.toFixed(1)) : null].filter(Boolean);
     if (m.length) b.appendChild(el('span', 'sc-m', m.join(' · ')));
-    const y = b.appendChild(el('span', 'sc-y')), B = r.J.buy;
-    if (B) { y.appendChild(el('span', 'g-pill ' + (B.score > 0 ? 'g-buy' : 'g-watch'), (SHORT[B.id] || B.id) + ' · ' + when(r, B))); y.appendChild(el('span', 'sc-g', GR[B.g])); }
-    if (r.J.sell) y.appendChild(el('span', 'g-pill g-sell', (SHORT[r.J.sell.id] || r.J.sell.id) + ' · ' + when(r, r.J.sell)));
-    y.appendChild(el('span', 'sc-t', `RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}${r.rr ? ' · reward/risk ' + Math.min(9.9, r.rr).toFixed(1) : ''}`));
-    if (B) {
-      const c = B.cell, n = c ? c.n.toLocaleString('en-US') : '';
-      const t = !c ? 'This situation was not measured in the test.' : c.ok ? `This situation worked ${p1(c.win)} of ${n} times in the test; any day, ${p1(c.base)}.` : `No edge in the test for this situation: ${p1(c.win)} of ${n} times; any day, ${p1(c.base)}.`;
-      b.appendChild(el('span', 'sc-rec', t + (B.score > 0 && r.stop && r.target ? ` Stop ${fmt(r.stop)} · target ${fmt(r.target)}.` : '')));
-    }
+    const y = b.appendChild(el('span', 'sc-y'));
+    if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));
+    y.appendChild(el('span', 'sc-t', `${r.buy || r.ms == null ? '' : 'score ' + sc100(r.ms) + ' · '}RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}`));
+    if (r.buy) b.appendChild(el('span', 'sc-rec', oddsText(r) + (r.stop && r.target ? ` Stop ${fmt(r.stop)} · target ${fmt(r.target)}.` : '')));
     return b;
   }
   dash.draw('screener', (outer) => {
@@ -231,7 +201,7 @@
     sel('sales', 'Any revenue', Object.entries(SALES).map(([k, x]) => [k, x[0]]));
     sel('rsi', 'Any RSI', Object.entries(RSIB).map(([k, x]) => [k, x[0]]));
     const L = ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
-    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => tier(r) === 0).length} with a buy situation that passed the test` : '')));
+    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
     if (active || F.sort !== 'rank') { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; saveF(); SRApp.renderDraw('screener'); }); }
     const list = box.appendChild(el('div', 'sc-list')), vis = L.slice(0, shown);
     for (const r of vis) list.appendChild(rowEl(r));
@@ -239,10 +209,10 @@
     if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `Show ${Math.min(60, L.length - shown)} more (${L.length - shown} left)`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...R.map((r) => r.id), ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)].filter(Boolean));
-    box.appendChild(el('p', 'g-hint', 'Support and resistance are the nearest zones made of averages, pivots, Fibonacci levels, trendlines and gaps. Market value, revenue and P/E are eToro\'s figures, in dollars. Scanned assets show the price of the scan until their live price arrives. Analysis, not advice.'));
+    box.appendChild(el('p', 'g-hint', 'The score is that of the latest daily candle. Stop and target are 2 ATR either side of that close. Support and resistance are the nearest zones made of averages, pivots, Fibonacci levels, trendlines and gaps. Market value, revenue and P/E are eToro\'s figures, in dollars. Scanned assets show the price of the scan until their live price arrives. Analysis, not advice.'));
     if (two && selId == null && outer.offsetParent !== null) { const first = L.find((r) => r.id); if (first) select(first); }   // the best-ranked asset is shown first
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
   let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
-  window.SRScreen = { packs: () => packSet, rows, all, judge, when, GR, load, open, ago, SHORT, top, loadWide, filters: F, count: () => all().length, record: () => (wide ? wide.record : null) };
+  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null) };
 })();

@@ -283,7 +283,7 @@
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null || x2 === x1 || ev.point.x < x1) continue;
         const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: d.now != null ? d.now : candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
       }
-      if (ind.sig) for (const m of marks) { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); if (x == null || y == null) continue; const yy = y + (m.side > 0 ? 12 : -12); if (Math.abs(x - ev.point.x) < 12 && Math.abs(yy - ev.point.y) < 16) { hit = { p: m.e ? m.e.p : (m.side > 0 ? m.a.lo : m.a.hi), label: m.full, kind: m.side > 0 ? 'buy' : 'sell' }; break; } }
+      if (ind.sig) for (const m of marks) { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); if (x == null || y == null) continue; const yy = y + (m.side > 0 ? 12 : -12); if (Math.abs(x - ev.point.x) < 12 && Math.abs(yy - ev.point.y) < 16) { hit = { p: m.e ? m.e.p : (m.side > 0 ? m.a.lo : m.a.hi), label: m.full, tr: m.tr || null, kind: m.side > 0 ? 'buy' : 'sell' }; break; } }
       if (!hit && ind.tl) for (const d of autos) if (d.type === 'box') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), y2 = yOf(d.b.p); if (x1 == null || y1 == null || y2 == null || ev.point.x < x1) continue;
         if (ev.point.y >= Math.min(y1, y2) - 4 && ev.point.y <= Math.max(y1, y2) + 4) hit = { p: (d.a.p + d.b.p) / 2, label: d.full || 'gap', kind: d.kind };
