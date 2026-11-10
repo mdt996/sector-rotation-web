@@ -9,8 +9,8 @@
 
   // ---- formatting ---------------------------------------------------------------
   const fmtP = (x) => (x == null || !isFinite(x) ? '—' : x >= 1000 ? d3.format(',.2f')(x) : x >= 1 ? d3.format('.2f')(x) : d3.format('.4~g')(x));
-  const fmtPct = (x) => (x == null || !isFinite(x) ? '—' : (x > 0 ? '+' : x < 0 ? '−' : '') + d3.format('.2%')(Math.abs(x)));
-  const fmtEur = (x, signed) => (x == null || !isFinite(x) ? '—' : (signed ? (x > 0 ? '+' : x < 0 ? '−' : '') : '') + '€' + d3.format(',.0f')(Math.abs(x)));
+  const fmtPct = (x) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format('.2%')(Math.abs(x)); return (/^0\.0*%$/.test(s) ? '' : x > 0 ? '+' : '−') + s; };   // no sign on what rounds to zero
+  const fmtEur = (x, signed) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(',.0f')(Math.abs(x)); return (signed && s !== '0' ? (x > 0 ? '+' : '−') : '') + '€' + s; };
   const cls = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
   const el = (tag, className, text) => { const e = document.createElement(tag); if (className) e.className = className; if (text != null) e.textContent = text; return e; };
   const hhmm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -231,7 +231,7 @@
       taBox.replaceChildren();
       const A = taNow(); if (!A) { if (daily.length) taBox.appendChild(el('p', 'av-note', 'Technical analysis needs about a year of daily history.')); return; }
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
-      taBox.appendChild(el('div', 'ta-h', 'Technical analysis'));
+      taBox.appendChild(el('div', 'ta-h', 'Technical analysis' + (frame.k === '1D' ? '' : ' · daily candles')));
       taBox.appendChild(el('div', 'ta-line', `${A.above200 ? 'Above' : 'Below'} its 200-day average, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
       if (geo && (geo.lines.length || geo.gaps.length)) {
         const tl = taBox.appendChild(el('div', 'ta-tl'));
@@ -306,8 +306,8 @@
           geo = window.SRTA.geometry(src);
           const strict = geo.pattern ? geo.lines.map((x) => Object.assign({ edge: geo.pattern }, x)) : [];   // the two edges of a wedge or triangle stay drawn
           const An = taNow(), strong = /^(50|200)-day average|^Fibonacci|^gap|^1-year|^pivots ×([3-9]|\d\d)/, lv = An ? An.levels.map((z) => ({ p: z.p, label: z.kinds.filter((k) => strong.test(k)).join(' + ') })).filter((z) => z.label) : [];   // only the levels that count: the two averages, Fibonacci, gaps, 3+ pivots, the year's extremes
-          const TL = window.SRTA.trendlines ? window.SRTA.trendlines(src, box.clientWidth < 560 ? 3 : 4, lv) : [];   // elastic lines, long-term and recent; those that agree with a level come first
-          if (TL.length || strict.length) geo.lines = strict.concat(TL.filter((x) => !strict.some((q) => Math.abs(q.now / x.now - 1) < 0.03 && Math.abs(q.m - x.m) / x.now < 0.0005))).slice(0, 5);
+          const maxL = box.clientWidth < 560 ? 3 : 4, TL = window.SRTA.trendlines ? window.SRTA.trendlines(src, maxL, lv) : [];   // elastic lines, long-term and recent; those that agree with a level come first
+          if (TL.length || strict.length) geo.lines = strict.concat(TL.filter((x) => !strict.some((q) => Math.abs(q.now / x.now - 1) < 0.03 && Math.abs(q.m - x.m) / x.now < 0.0005))).slice(0, maxL);   // the edges of a wedge or triangle count in the total
           if (window.SRTA.openGaps) geo.gaps = window.SRTA.openGaps(src, 5);
           for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, scale: Ln.scale, agree: (Ln.agree || []).length, now: Ln.now, full: lineText(Ln) + `, drawn from ${day(Ln.i)} on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
           for (const g of geo.gaps) A2.push({ type: 'box', kind: g.bottom >= src[src.length - 1].close ? 'res' : 'sup', full: `gap ${g.dir} of ${day(g.i)}, not filled yet: ${fmtP(g.bottom)} to ${fmtP(g.top)}`, a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
@@ -332,7 +332,9 @@
       const q = live(), price = q ? q.price : null;
       sPrev.textContent = fmtP(prev);
       const today = daily.length && daily[daily.length - 1].date >= todayET() ? daily[daily.length - 1] : null;
-      sDay.textContent = today ? `${fmtP(Math.min(today.low, price || today.low))} – ${fmtP(Math.max(today.high, price || today.high))}` : '—';
+      const lastDay = daily.length ? daily[daily.length - 1] : null;   // before the open or at the weekend: the last session's range, named as such
+      sDay.textContent = today ? `${fmtP(Math.min(today.low, price || today.low))} – ${fmtP(Math.max(today.high, price || today.high))}` : lastDay ? `${fmtP(lastDay.low)} – ${fmtP(lastDay.high)}` : '—';
+      if (sDay.previousElementSibling) sDay.previousElementSibling.textContent = today || !lastDay ? 'Today' : 'Last session';
       const yr = daily.filter((r) => r.t >= Date.now() - 365 * 864e5);
       sYear.textContent = yr.length ? `${fmtP(d3.min(yr, (r) => r.low))} – ${fmtP(d3.max(yr, (r) => r.high))}` : '—';
       const y1 = yr.length ? yr[0].close : null, now = price || (daily.length ? daily[daily.length - 1].close : null);
@@ -492,7 +494,7 @@
     for (const r of items) box.appendChild(row(r));
     results = items;
     want('search', items.map((r) => r.id));
-    for (const r of items) if (r.prev == null) prevClose(r.id).then((p) => { r.prev = p; paintQuotes(); }).catch(() => {});
+    for (const r of items) if (r.prev == null) prevClose(r.id, 1).then((p) => { r.prev = p; paintQuotes(); }).catch(() => {});
     paintQuotes();
   }
   function listDefault() {
@@ -506,7 +508,7 @@
     if (mine.length) { box.appendChild(el('div', 'sr-res-h', 'Your holdings')); for (const r of mine) { box.appendChild(row(r)); all.push(r); } }
     results = all;
     want('search', all.map((r) => r.id));
-    for (const r of all) prevClose(r.id).then((p) => { r.prev = p; paintQuotes(); }).catch(() => {});
+    for (const r of all) prevClose(r.id, 1).then((p) => { r.prev = p; paintQuotes(); }).catch(() => {});
     paintQuotes();
   }
   function onType() {

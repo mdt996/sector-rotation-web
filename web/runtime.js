@@ -249,7 +249,13 @@
       for (const [s] of DATASETS) rows[s] = got[s] || (cache && cache.source === src && cache.rows && cache.rows[s] ? unpack(cache.rows[s]) : []);
       saveCache(src, rows);
       state.failed = errors.map((e) => e.sym);
-      if (errors.length) state.error = { kind: 'partial', message: `${errors.length} of ${DATASETS.length} ETFs didn't update (${state.failed.join(', ')}); showing the last data for them.` };
+      // an asset eToro has never sent history for (three refreshes in a row, nothing kept) stops being a daily warning: it is shown on the holding itself
+      const nd = ls.get('sr.nodata', {}) || {};
+      for (const k of Object.keys(got)) delete nd[k];
+      for (const e of errors) if (!(rows[e.sym] && rows[e.sym].length)) nd[e.sym] = (nd[e.sym] || 0) + 1;
+      ls.set('sr.nodata', nd);
+      const warn = state.failed.filter((x) => (rows[x] && rows[x].length) || (nd[x] || 0) < 3);
+      if (warn.length) state.error = { kind: 'partial', message: `${warn.length} of ${DATASETS.length} assets didn't update (${warn.join(', ')}); showing the last data for them.` };
       setDatasets(rows, { at: Date.now(), source: src }, { closedOnly: !!opts.closedOnly });
       emit();
       return true;

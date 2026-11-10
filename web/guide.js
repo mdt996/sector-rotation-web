@@ -7,7 +7,7 @@
   if (typeof document === 'undefined') return;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (label, cls, fn) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; };
-  const eur = (x, sign) => (x == null || !isFinite(x) ? '—' : (sign && x > 0 ? '+' : x < 0 ? '−' : '') + '€' + d3.format(',.0f')(Math.abs(x)));
+  const eur = (x, sign) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(',.0f')(Math.abs(x)); return (s === '0' ? '' : sign && x > 0 ? '+' : x < 0 ? '−' : '') + '€' + s; };
   const pct = (x, d = 1) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(`.${d}%`)(Math.abs(x)); return (/^0\.0*%$/.test(s) ? '' : x > 0 ? '+' : '−') + s; };
   const p0 = (x) => (x > 0 && x < 0.005 ? '<1%' : d3.format('.0%')(x)), f0 = (v) => d3.format(',.0f')(v), f2 = (v) => d3.format(',.2f')(v);
   const day = (t) => d3.utcFormat(new Date(t).getUTCFullYear() === new Date().getUTCFullYear() ? '%a %-d %b' : '%-d %b %Y')(new Date(t));

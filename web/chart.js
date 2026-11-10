@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true }; // a clean chart: two averages, RSI, the nearest levels
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true }; // a clean chart: two averages, RSI, the nearest levels
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -52,7 +52,7 @@
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
-    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels' };
+    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps' };
     for (const k of Object.keys(IND_LABEL)) {
       const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
@@ -130,7 +130,7 @@
           ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
           const txt = `${lv.label} ${fmtP(lv.p)}`, tw = ctx.measureText(txt).width, x = W - tw - Math.round(70 * hr);
           if (!clash) { // a label that would overlap another is left out; the line stays
-            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(x - 3 * hr, Math.round((ly - 13) * r), tw + 6 * hr, Math.round(12 * r));
+            ctx.fillStyle = dark() ? 'rgba(22,24,30,0.85)' : 'rgba(255,255,255,0.85)'; ctx.fillRect(x - 3 * hr, Math.round((ly - 13) * r), tw + 6 * hr, Math.round(12 * r));
             ctx.fillStyle = COL[lv.kind] || COL.act; ctx.fillText(txt, x, Math.round((ly - 3) * r));
           }
         }
@@ -152,7 +152,7 @@
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
-      if (ind.sr) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
+      if (ind.tl) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
         const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xEdge = W / hr;
         const xLast = bars.length ? xOf(bars[bars.length - 1].time) : null, sp = chart.timeScale().options().barSpacing || 6;
@@ -257,11 +257,11 @@
       if (!ev || !ev.point || tool !== 'cursor' || !opts.onPick) return;
       let hit = null, bd = 10;
       if (ind.sr) for (const lv of levels) { const y = yOf(lv.p); if (y != null && Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: lv.p, label: lv.full || lv.label, kind: lv.kind }; } }
-      if (ind.sr) for (const d of autos) if (d.type === 'line') {
+      if (ind.tl) for (const d of autos) if (d.type === 'line') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null || x2 === x1 || ev.point.x < x1) continue;
         const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: d.now != null ? d.now : candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
       }
-      if (!hit && ind.sr) for (const d of autos) if (d.type === 'box') {
+      if (!hit && ind.tl) for (const d of autos) if (d.type === 'box') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), y2 = yOf(d.b.p); if (x1 == null || y1 == null || y2 == null || ev.point.x < x1) continue;
         if (ev.point.y >= Math.min(y1, y2) - 4 && ev.point.y <= Math.max(y1, y2) + 4) hit = { p: (d.a.p + d.b.p) / 2, label: d.full || 'gap', kind: d.kind };
       }

@@ -4,7 +4,7 @@
   'use strict';
   if (typeof document === 'undefined') return;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const pct = (x, d = 1) => (x == null || !isFinite(x) ? '—' : (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x * 100).toFixed(d) + '%'), p0 = (x) => Math.round(x * 100) + '%';
+  const pct = (x, d = 1) => { if (x == null || !isFinite(x)) return '—'; const s = Math.abs(x * 100).toFixed(d); return (+s === 0 ? '' : x > 0 ? '+' : '−') + s + '%'; }, p0 = (x) => Math.round(x * 100) + '%';
   const fmt = (x) => (x >= 1000 ? d3.format(',.0f')(x) : x >= 10 ? d3.format('.2f')(x) : d3.format('.4~g')(x));
   // the wider picture: indices, the dollar, Treasuries, metals, energy, crypto (eToro instrument ids)
   const BOARD = [['SPX500', 27, 'S&P 500'], ['NSDQ100', 28, 'Nasdaq-100'], ['GER40', 32, 'Germany 40'], ['EUSTX50', 43, 'Euro Stoxx 50'], ['JPN225', 36, 'Japan 225'], ['HKG50', 38, 'Hong Kong 50'], ['CHINA50', 253, 'China A50'],
