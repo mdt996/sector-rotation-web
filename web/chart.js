@@ -47,6 +47,7 @@
     const bCursor = btn('cursor', 'Move and zoom'), bMeasure = btn('measure', 'Measure'), bFib = btn('fib', 'Fibonacci retracement'), bTrend = btn('trend', 'Trend line'), bH = btn('hline', 'Horizontal line');
     tools.appendChild(el('span', 'ch-sep'));
     const bInd = btn('ind', 'Indicators'), bUndo = btn('undo', 'Undo last drawing'), bClear = btn('clear', 'Clear drawings'), bFull = btn('full', 'Fullscreen');
+    const bClose = el('button', 'ch-close', '✕ Close'); bClose.type = 'button'; bClose.setAttribute('aria-label', 'Close the full view'); tools.insertBefore(bClose, tools.firstChild);   // the way back from the full view, always first in the bar
     const hint = root.appendChild(el('div', 'ch-hint', ''));
     const noteEl = root.appendChild(el('div', 'ch-note'));   // in full view: what the tapped line or level is
     const main = root.appendChild(el('div', 'ch-main'));
@@ -290,6 +291,7 @@
       opts.onPick(hit);
     });
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
+    root.__drawings = () => drawings.length;
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
     root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
@@ -299,6 +301,7 @@
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
     function sizeMain() { const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0; main.style.height = root.classList.contains('is-full') ? '' : (own || (340 + (np - 1) * 110)) + 'px'; }
     bFull.addEventListener('click', () => toggleFull());
+    bClose.addEventListener('click', () => toggleFull(false));
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !dead && root.classList.contains('is-full')) { e.preventDefault(); toggleFull(false); } });   // Esc leaves the full view (Mac)
     window.addEventListener('resize', () => { if (dead) return; sizeMain(); if (root.classList.contains('is-full')) { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* self-sizing */ } } });
     function toggleFull(on) {

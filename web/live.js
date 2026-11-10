@@ -35,7 +35,7 @@
     if (set.size) wanted.set(who, set); else wanted.delete(who);
     const key = [...allIds()].sort().join(',');
     if (key !== lastIds) { lastIds = key; clearTimeout(soon); soon = setTimeout(poll, 250); }
-    if (!timer) timer = setInterval(poll, POLL_MS);
+    if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 34 ? 4000 : POLL_MS); }; loop(); }   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
   }
   function allIds() { const s = new Set([FX]); for (const set of wanted.values()) for (const i of set) s.add(i); return s; }
   async function poll() {
@@ -55,22 +55,70 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 
   // ---- candles ------------------------------------------------------------------
-  const cache = new Map();
-  async function candles(id, interval, count, prio) {
-    const key = id + '/' + interval + '/' + count, hit = cache.get(key), ttl = /Day|Week/.test(interval) ? 600000 : 60000;
-    if (hit && Date.now() - hit.at < ttl) return hit.rows;
-    if (flying.has(key)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/${count}`); return flying.get(key); }   // the same read is already on its way: the screen's need moves it to the front
-    const job = fetchCandles(key, id, interval, count, prio); flying.set(key, job);
-    try { return await job; } finally { flying.delete(key); }
+  // Kept on the device (IndexedDB) so that a chart opened before appears at once, and only the candles since the last one
+  // kept are asked for. Kept per instrument and timeframe; refreshed in full once a week, or at once when a kept candle no
+  // longer matches eToro's (a split or an adjustment).
+  const SEC = { FiveMinutes: 300, FifteenMinutes: 900, OneHour: 3600, FourHours: 14400, OneDay: 86400, OneWeek: 604800 };
+  const DB = (() => {
+    let dbp = null;
+    const open = () => dbp || (dbp = new Promise((res) => {
+      const giveUp = setTimeout(() => res(null), 1500);   // a browser that never answers: work without the store
+      try { const r = indexedDB.open('sr-candles', 1); r.onupgradeneeded = () => r.result.createObjectStore('c'); r.onsuccess = () => { clearTimeout(giveUp); res(r.result); }; r.onerror = r.onblocked = () => { clearTimeout(giveUp); res(null); }; } catch (e) { clearTimeout(giveUp); res(null); }
+    }));
+    const get = async (k) => { const db = await open(); if (!db) return null; return new Promise((res) => { try { const q = db.transaction('c').objectStore('c').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch (e) { res(null); } }); };
+    const set = async (k, v) => { const db = await open(); if (!db) return; try { db.transaction('c', 'readwrite').objectStore('c').put(v, k); } catch (e) { /* not kept */ } };
+    // once per session: forget what has not been opened for 45 days
+    setTimeout(async () => { const db = await open(); if (!db) return; try { const c = db.transaction('c', 'readwrite').objectStore('c').openCursor(); c.onsuccess = () => { const cur = c.result; if (!cur) return; if (!cur.value || Date.now() - (cur.value.at || 0) > 45 * 864e5) cur.delete(); cur.continue(); }; } catch (e) { /* later */ } }, 20000);
+    return { get, set };
+  })();
+  const cache = new Map(), flying = new Map();
+  const pack = (rows) => rows.map((r) => [r.t, r.open, r.high, r.low, r.close, r.volume || 0]);
+  const unpack = (a) => a.map((x) => ({ t: x[0], date: new Date(x[0]).toISOString().slice(0, 10), open: x[1], high: x[2], low: x[3], close: x[4], volume: x[5] || 0 }));
+  async function kept(id, interval) {   // what the device has for this series, however old (null when nothing)
+    const key = id + '/' + interval; let hit = cache.get(key);
+    if (!hit) { const k = await DB.get(key); if (k && k.rows && k.rows.length) { hit = { at: k.at, fullAt: k.fullAt || 0, all: !!k.all, rows: unpack(k.rows) }; cache.set(key, hit); } }
+    return hit || null;
   }
-  const flying = new Map();
-  async function fetchCandles(key, id, interval, count, prio) {
+  const keep = (key, e) => { cache.set(key, e); DB.set(key, { at: e.at, fullAt: e.fullAt, all: e.all, rows: pack(e.rows) }); };
+  async function fetchRows(id, interval, count, prio) {
     const j = await getJSON(`/api/v1/market-data/instruments/${id}/history/candles/desc/${interval}/${count}`, prio);
     const list = (j.candles && j.candles[0] && j.candles[0].candles) || [];
-    const rows = list.map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 }))
-      .filter((r) => r.close > 0).sort((a, b) => a.t - b.t);
-    cache.set(key, { at: Date.now(), rows });
-    return rows;
+    return list.map((c) => ({ t: Date.parse(c.fromDate), date: String(c.fromDate).slice(0, 10), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0 })).filter((r) => r.close > 0).sort((a, b) => a.t - b.t);
+  }
+  const stats = { full: 0, delta: 0, fromDevice: 0 };   // how the candles were obtained this session
+  async function candles(id, interval, count, prio) {
+    const key = id + '/' + interval, ttl = /Day|Week/.test(interval) ? 600000 : 60000, now = Date.now(), hit = await kept(id, interval);
+    const enough = hit && (hit.rows.length >= count || hit.all);
+    if (enough && now - hit.at < ttl) { stats.fromDevice++; return hit.rows.slice(-count); }
+    const fkey = key + '/' + count;
+    if (flying.has(fkey)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/`); return flying.get(fkey); }   // already on its way: the screen's need moves it to the front
+    const job = (async () => {
+      if (enough && now - hit.fullAt < 7 * 864e5) {   // only the candles since the last one kept
+        const lastT = hit.rows[hit.rows.length - 1].t, n = Math.max(5, Math.ceil((now - lastT) / ((SEC[interval] || 86400) * 1000)) + 3);
+        if (n < count) {
+          const fresh = await fetchRows(id, interval, n, prio), byT = new Map(hit.rows.map((r) => [r.t, r]));
+          const overlap = fresh.filter((r) => byT.has(r.t) && r.t !== lastT), same = overlap.every((r) => Math.abs(byT.get(r.t).close / r.close - 1) < 0.02);
+          if (fresh.length && fresh[0].t <= lastT && same) {
+            for (const r of fresh) byT.set(r.t, r);
+            const rows = [...byT.values()].sort((a, b) => a.t - b.t).slice(-Math.max(count, hit.rows.length));
+            keep(key, { at: Date.now(), fullAt: hit.fullAt, all: hit.all, rows }); stats.delta++;
+            return rows.slice(-count);
+          }
+        }
+      }
+      const rows = await fetchRows(id, interval, count, prio), cur = cache.get(key); stats.full++;
+      if (cur && cur.rows.length > rows.length) {   // a longer history arrived meanwhile from another request: add to it, never shorten it
+        const byT = new Map(cur.rows.map((r) => [r.t, r])); for (const r of rows) byT.set(r.t, r);
+        keep(key, { at: Date.now(), fullAt: cur.fullAt, all: cur.all || rows.length < count, rows: [...byT.values()].sort((a, b) => a.t - b.t) });
+      } else keep(key, { at: Date.now(), fullAt: Date.now(), all: rows.length < count, rows });
+      return rows;
+    })();
+    flying.set(fkey, job);
+    try { return await job; } finally { flying.delete(fkey); }
+  }
+  // holdings and scouted assets are fetched ahead, behind everything else, so that their charts open at once
+  async function warm(ids) {
+    for (const id of ids) { try { const k = await kept(id, 'OneDay'); if (!k || k.rows.length < 300 || Date.now() - k.at > 12 * 3600e3) await candles(id, 'OneDay', 1000, 0); } catch (e) { /* next launch */ } }
   }
   // the close before today's trading day: from the app's own daily data when it has the instrument, else asked once a day
   const prevCache = new Map();
@@ -83,7 +131,7 @@
     if (own) return prevFromRows(own);
     const hit = prevCache.get(id);
     if (hit && hit.day === todayET()) return hit.price;
-    let rows = null; for (const n of [1000, 400]) { const c = cache.get(id + '/OneDay/' + n); if (c && c.rows.length) { rows = c.rows; break; } }   // daily candles already on the device
+    const k0 = await kept(id, 'OneDay'), rows = k0 && k0.rows.length && Date.now() - k0.at < 12 * 3600e3 ? k0.rows : null;   // daily candles already on the device
     const price = prevFromRows(rows || await candles(id, 'OneDay', 6, prio));
     prevCache.set(id, { day: todayET(), price }); prevKeep();
     return price;
@@ -420,7 +468,7 @@
         sub.after(b);
       }
     }
-    let retried = 0, retryBtn = null;
+    let retried = 0, retryBtn = null, loadSeq = 0, lastLoad = null;
     function failed(msg, again) {
       sub.textContent = msg; sub.className = 'av-sub';
       if (!retryBtn) { retryBtn = el('button', 'btn av-retry', 'Try again'); retryBtn.type = 'button'; retryBtn.addEventListener('click', () => { retried = 0; load(true); }); sub.insertAdjacentElement('afterend', retryBtn); }
@@ -432,15 +480,31 @@
       box.classList.add('is-loading'); if (retryBtn) retryBtn.hidden = true;
       // while waiting: say so when eToro's limit of 60 reads a minute is the reason
       const waiting = setInterval(() => { const st = SRApp.etoroState ? SRApp.etoroState() : null; if (st && st.wait > 0 && !dead) sub.textContent = `eToro allows 60 requests a minute and the limit is reached: the chart loads in about ${st.wait} s.`; }, 500);
-      let d, pc, rows;
+      let d, pc, rows, shown = false; const mine = ++loadSeq, t0 = Date.now();
+      const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
       try {
-        d = await candles(inst.id, 'OneDay', 1000); pc = await prevClose(inst.id);   // the previous close comes out of the daily candles: one read, not two
+        // 1. what the device already has: the chart appears at once
+        const kd = await kept(inst.id, 'OneDay'), kf = frame.iv === 'OneDay' ? kd : await kept(inst.id, frame.iv);
+        if (kd && kd.rows.length >= 80 && kf && kf.rows.length >= 60) { show(kd.rows.slice(-1000), kf.rows.slice(-frame.n), fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: true, ms: Date.now() - t0 }; }
+        // 2. an asset never opened: 300 candles first, the rest of its history right after
+        const first = !kd || (kd.rows.length < 1000 && !kd.all);
+        d = await candles(inst.id, 'OneDay', first ? 300 : 1000);
+        if (first && !shown && d.length) {
+          const r0 = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n).catch(() => []);
+          show(d, r0.length ? r0 : d, fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: false, ms: Date.now() - t0 };
+        }
+        if (first && d.length >= 300) d = await candles(inst.id, 'OneDay', 1000);   // the longer history: long-term lines and the asset's own test
+        pc = await prevClose(inst.id);
         rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n).catch((e) => { if (d.length) return []; throw e; });   // the timeframe failed: fall back on daily candles
       } catch (e) {
         clearInterval(waiting); box.classList.remove('is-loading');
-        if (!dead) failed(e.status === 429 ? 'eToro allows 60 requests a minute and the limit is still reached. Trying again shortly.' : e.status === 401 || e.status === 403 ? `eToro refused the keys (${e.status}). Check them in Settings.` : `eToro did not answer (${e.status || 'no connection'}).`, !(e.status === 401 || e.status === 403));
+        if (dead || mine !== loadSeq) return;
+        if (shown) { sub.textContent = `Shown from this device; eToro did not answer (${e.status || 'no connection'}).`; return; }   // the kept chart stays
+        failed(e.status === 429 ? 'eToro allows 60 requests a minute and the limit is still reached. Trying again shortly.' : e.status === 401 || e.status === 403 ? `eToro refused the keys (${e.status}). Check them in Settings.` : `eToro did not answer (${e.status || 'no connection'}).`, !(e.status === 401 || e.status === 403));
         return;
       }
+      if (mine !== loadSeq) { clearInterval(waiting); return; }
+      fit = fit && !shown;   // the update must not move a chart the user is already looking at
       clearInterval(waiting); box.classList.remove('is-loading');
       if (dead) return;
       if (!d.length && !rows.length) { noData(); return; }
@@ -454,7 +518,7 @@
     ticks.add(tick);
     want(who, [inst.id]);
     load(true);
-    const api = { id: inst.id, back: () => ch.back(), destroy() { dead = true; if (pageRO) pageRO.disconnect(); ticks.delete(tick); want(who, []); views.delete(api); ch.destroy(); } };
+    const api = { id: inst.id, timing: () => lastLoad, back: () => ch.back(), destroy() { dead = true; if (pageRO) pageRO.disconnect(); ticks.delete(tick); want(who, []); views.delete(api); ch.destroy(); } };
     views.add(api);
     return api;
   }
@@ -626,10 +690,12 @@
   SR.liveTotals = () => totals;
   SR.fmtPctLive = fmtPct; SR.fmtEurLive = fmtEur;
   ticks.add(() => { computeLive(); SRApp.renderDraw('folio'); SRApp.renderDraw('foliototal'); });
+  let warmed = false;
   function watchHoldings() {
     const H = holdingsLive();
     want('holdings', H.map((h) => h.id));
     for (const h of H) if (!storedRows(h.id)) prevClose(h.id, 1).catch(() => {});
+    if (!warmed && H.length) { warmed = true; setTimeout(() => { const ids = new Set(H.map((h) => h.id)); try { for (const r of (window.SRScreen ? window.SRScreen.top(4) : [])) if (r.id) ids.add(r.id); } catch (e) { /* holdings only */ } warm([...ids].filter(Boolean)); }, 7000); }
     (async () => { for (const h of H) if (!zonesSync(h.id)) { try { await zones(h.id); } catch (e) { /* next time */ } } SRApp.renderDraw('folio'); })();
   }
   SRApp.onChange(watchHoldings);
@@ -660,6 +726,6 @@
     if (bk) bk.addEventListener('click', back);
     watchHoldings();
   }
-  window.SRLive = { open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  window.SRLive = { candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

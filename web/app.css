@@ -549,6 +549,10 @@ body.chart-full .sc-detail { z-index: 90; }   /* the full view opened from the M
 }
 @media (max-width: 700px) { .ch.is-full .ch-note:not(:empty) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } }
 @media (max-height: 500px) { .ch.is-full .ch-slot .av-verdict { display: none; } .ch.is-full .ch-note:not(:empty) { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; } }
+/* leaving the full view: a labelled button first in the bar (the square icon alone was not enough) */
+.ch-close { display: none; }
+.ch.is-full .ch-close { display: inline-flex; align-items: center; flex: none; height: 34px; padding: 0 13px; margin-right: 6px; border: 0; border-radius: 17px; background: var(--color-fg, #111); color: var(--color-bg, #fff); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.ch.is-full .ch-btn[data-k="full"] { display: none; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
