@@ -353,35 +353,64 @@
     const l2 = c.appendChild(el('button', 'g-link g-link2', 'Analyse any asset')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
   }
 
-  // ---- Today: the practice portfolio on the eToro demo account (virtual money), run by the VM every night ----
+  // ---- Today: the practice portfolio on the eToro demo account (virtual money) ----
+  // Live from eToro every 10 seconds: positions with their running result, waiting orders, cash, closed trades.
+  // From the VM's record: which rule opened each trade, the stop and target it planned, and the daily review.
   function practiceCard(box) {
     if (!window.SRScreen || !window.SRScreen.loadPractice) return;
     window.SRScreen.loadPractice();
-    const P = window.SRScreen.practice(); if (!P) return;
-    const c = card(box, 'practice', 'Practice portfolio (eToro demo)'), usd = (x) => '$' + Math.round(x).toLocaleString('en-US'), px = (x) => (x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3) : x.toFixed(4));
-    const last = (P.log || [])[P.log.length - 1], age = (Date.now() - Date.parse(P.made)) / 3600e3, open = (P.open || []), on = open.filter((t) => t.status === 'open'), wait = open.filter((t) => t.status !== 'open');
-    const A = P.account || {}, R = (P.record || {}).all || { n: 0, won: 0, net: 0 };
-    c.appendChild(el('div', 'g-line', `${usd(A.equity || 0)} of virtual money. ${on.length} position${on.length === 1 ? '' : 's'} open, ${wait.length} order${wait.length === 1 ? '' : 's'} waiting for the market. Closed so far: ${R.n}${R.n ? ` (${R.won} with a gain, ${R.net >= 0 ? '+' : '−'}${usd(Math.abs(R.net))} after costs)` : ''}.`));
-    if (P.mode !== 'live') c.appendChild(el('div', 'g-line g-warn', `Dry run: no order is sent (${P.why || 'the switch is off'}).`));
-    if (age > 30) c.appendChild(el('div', 'g-line g-warn', `No run for ${Math.round(age)} hours: the VM may be off.`));
-    for (const t of open.slice(0, 12)) {
-      const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button';
-      b.addEventListener('click', () => window.SRScreen.open({ sym: t.s, id: t.id, name: t.n }));
-      b.appendChild(el('span', 'g-pill ' + (t.side > 0 ? 'g-buy' : 'g-sell'), t.s));
-      b.appendChild(el('span', 'g-wrow-t', `${t.side > 0 ? 'Bought' : 'Sold short'}${t.status === 'open' ? ` at ${px(t.entry)}` : ', waiting for the open'} · stop ${px(t.stop)} · target ${px(t.target)}${t.status === 'open' && !t.protectedAt && t.kind === 'real' ? ' (being set)' : ''}`));
-      b.appendChild(el('b', 'g-wrow-g', usd(t.size)));
-    }
-    if (open.length > 12) c.appendChild(el('div', 'g-hint', `and ${open.length - 12} more`));
-    const done = (P.closed || []).filter((t) => t.status === 'closed').slice(-3).reverse();
-    for (const t of done) c.appendChild(el('div', 'g-hint', `${t.s}: ${t.how}, ${t.net >= 0 ? '+' : '−'}${usd(Math.abs(t.net))}${t.r != null ? ` (${t.r > 0 ? '+' : ''}${t.r} R)` : ''}`));
-    const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1];
-    if (e) {
-      c.appendChild(el('div', 'g-card-t g-sub2', `Review of ${e.date}`));
-      for (const x of (e.health || []).slice(0, 3)) c.appendChild(el('div', 'g-line g-warn', x));
-      for (const x of (e.decisions || []).slice(0, 3)) c.appendChild(el('div', 'g-line', x));
-      for (const x of (e.questions || []).slice(0, 2)) c.appendChild(el('div', 'g-hint', x));
-    }
-    c.appendChild(el('div', 'g-hint', `Run by your VM every night${last ? `; last run ${new Date(P.made).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}. Virtual money on eToro's demo: a test of the signals, not advice. Rules: ${Math.round((P.rules || {}).risk * 10000) / 100}% of the account at risk per trade, stop and target 2 ATR away, 4 weeks at most, no leverage on these holds.`));
+    const c = card(box, 'practice', 'Practice portfolio (eToro demo)'), body = c.appendChild(el('div'));
+    const usd = (x) => (x < 0 ? '−$' : '$') + Math.round(Math.abs(x)).toLocaleString('en-US'), usd2 = (x) => (x < 0 ? '−$' : '+$') + Math.abs(x).toFixed(2), px = (x) => (x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3) : x.toFixed(4));
+    const hhmm = (t, s) => new Date(t).toLocaleTimeString('en-GB', s ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' });
+    const paint = () => {
+      if (!c.isConnected) return false;
+      const P = window.SRScreen.practice() || {}, L = window.SRScreen.demo(), D = L.p && !(L.err && Date.now() - L.at > 25000) ? L.p : null, rec = P.open || [],   // a reading older than 25 seconds with eToro refusing is no longer shown as live
+         byId = new Map(window.SRScreen.all().map((r) => [r.id, r]));
+      const known = (o) => rec.find((t) => (t.positionId && t.positionId === o.positionID) || (t.orderId && t.orderId === o.orderID)) || rec.find((t) => t.id === o.instrumentID && !t.positionId && !o.positionID) || null;
+      const name = (o, t) => (t ? t.s : (byId.get(o.instrumentID) || {}).sym || '#' + o.instrumentID);
+      if (!D && !P.made) { if (L.err) { body.textContent = ''; body.appendChild(el('div', 'g-line g-muted', L.err === 'no keys' ? 'Add your eToro keys in Settings to see the demo account here.' : `eToro did not give the demo account (answer ${L.err}).`)); } return true; }
+      body.textContent = '';
+      const row = (o, t, text, right, cls) => {
+        const b = body.appendChild(el('button', 'g-wrow')); b.type = 'button'; const sym = name(o, t);
+        b.addEventListener('click', () => window.SRScreen.open({ sym, id: o.instrumentID || o.id, name: t ? t.n : (byId.get(o.instrumentID) || {}).name || sym }));
+        b.appendChild(el('span', 'g-pill ' + ((o.isBuy != null ? o.isBuy : o.side > 0) ? 'g-buy' : 'g-sell'), sym)); b.appendChild(el('span', 'g-wrow-t', text)); b.appendChild(el('b', 'g-wrow-g' + (cls ? ' ' + cls : ''), right));
+      };
+      if (D) {
+        const pos = D.positions || [], wait = D.ordersForOpen || [], inv = pos.reduce((x, o) => x + (+o.amount || 0), 0), run = +D.unrealizedPnL || 0, value = (+D.credit || 0) + inv + run;
+        const head = body.appendChild(el('div', 'g-line')); head.appendChild(document.createTextNode(`${usd(value)} of virtual money. Open positions: ${pos.length}, running result `));
+        head.appendChild(el('b', run > 0 ? 'up' : run < 0 ? 'down' : '', usd2(run))); head.appendChild(document.createTextNode(`. Orders waiting for the market: ${wait.length}.`));
+        for (const o of pos) {
+          const t = known(o), u = o.unrealizedPnL || {}, pl = +u.pnL || 0, sl = +o.stopLossRate > 0 ? px(+o.stopLossRate) : null, tp = +o.takeProfitRate > 0 ? px(+o.takeProfitRate) : null;
+          row(o, t, `${o.isBuy ? 'Bought' : 'Sold short'} at ${px(+o.openRate)}${u.closeRate ? ` · now ${px(+u.closeRate)}` : ''} · stop ${sl || 'not set yet'} · target ${tp || 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, pl > 0 ? 'up' : pl < 0 ? 'down' : '');
+        }
+        for (const o of wait) { const t = known(o); row(o, t, `${o.isBuy ? 'Buy' : 'Short'} order of ${usd(+o.amount)}, waiting for the market to open${t ? ` · planned stop ${px(t.stop)} · target ${px(t.target)}` : ''}`, 'waiting'); }
+        const H = (L.hist || []).slice().sort((x, y) => Date.parse(y.closeTimestamp) - Date.parse(x.closeTimestamp)).filter((h) => !P.start || h.closeTimestamp >= P.start);
+        if (H.length) { const won = H.filter((h) => h.netProfit > 0).length, net = H.reduce((x, h) => x + (+h.netProfit || 0), 0); body.appendChild(el('div', 'g-hint', `Closed since the start: ${H.length} (${won} with a gain), ${usd2(net)} after costs.`)); }
+        for (const h of H.slice(0, 3)) { const t = (P.closed || []).find((q) => q.positionId === h.positionId), r = byId.get(h.instrumentId); body.appendChild(el('div', 'g-hint', `${t ? t.s : r ? r.sym : '#' + h.instrumentId}: closed at ${px(+h.closeRate)}, ${usd2(+h.netProfit)}${t && t.how ? ` (${t.how})` : ''}`)); }
+        body.appendChild(el('div', 'g-hint g-live', `Live from eToro · ${hhmm(L.at, true)}${L.err ? ' (the last reading failed; trying again)' : ''}`));
+      } else {
+        const A = P.account || {}, on = rec.filter((t) => t.status === 'open');
+        body.appendChild(el('div', 'g-line', `${usd(A.equity || 0)} of virtual money. ${on.length} open, ${rec.length - on.length} waiting for the market.`));
+        for (const t of rec.slice(0, 12)) row(t, t, `${t.side > 0 ? 'Bought' : 'Sold short'}${t.status === 'open' ? ` at ${px(t.entry)}` : ', waiting for the open'} · stop ${px(t.stop)} · target ${px(t.target)}`, usd(t.size));
+        body.appendChild(el('div', 'g-line g-warn', `Not live: ${L.err === 'no keys' ? 'this device has no eToro keys' : L.err ? `eToro did not give the demo account (answer ${L.err}); the key in this app may not have the "Trading – Demo, Read" right` : 'waiting for eToro'}. Showing the VM's record of ${hhmm(P.made)}.`));
+      }
+      if (P.made) {
+        const age = (Date.now() - Date.parse(P.made)) / 3600e3;
+        if (P.mode !== 'live') body.appendChild(el('div', 'g-line g-warn', `The VM is in dry run: it sends no order (${P.why || 'the switch is off'}).`));
+        if (age > 30) body.appendChild(el('div', 'g-line g-warn', `The VM has not run for ${Math.round(age)} hours: no new orders are being sent.`));
+      }
+      const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1];
+      if (e) {
+        body.appendChild(el('div', 'g-card-t g-sub2', `Review of ${e.date}`));
+        for (const x of (e.health || []).slice(0, 3)) body.appendChild(el('div', 'g-line g-warn', x));
+        for (const x of (e.decisions || []).slice(0, 3)) body.appendChild(el('div', 'g-line', x));
+        for (const x of (e.questions || []).slice(0, 2)) body.appendChild(el('div', 'g-hint', x));
+      }
+      const R = P.rules || {};
+      body.appendChild(el('div', 'g-hint', `Orders are placed by the program on your VM, never from this app. Virtual money on eToro's demo: a test of the signals, not advice.${R.risk ? ` Rules: ${Math.round(R.risk * 10000) / 100}% of the account at risk per trade, stop and target 2 ATR away, 4 weeks at most, no leverage on these holds.` : ''}`));
+      return true;
+    };
+    paint(); window.SRScreen.demoWatch(paint);
   }
 
   // ---- Today, card 2: holdings outside the plan (no deadline), with what-if ----

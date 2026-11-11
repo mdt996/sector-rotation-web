@@ -605,6 +605,9 @@ div.av-pick { max-width: none; }
 .g-warn { color: var(--color-warn, #b45309); font-weight: 600; }
 .g-sub2 { margin-top: 10px; font-size: 14px; }
 .g-pill.g-sell { background: color-mix(in srgb, var(--color-down, #dc2626) 14%, transparent); color: var(--color-down, #dc2626); }
+.g-wrow-g.up, .g-line b.up { color: var(--color-ok); }
+.g-wrow-g.down, .g-line b.down { color: var(--color-down, #dc2626); }
+.g-live::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-ok); margin-right: 6px; vertical-align: middle; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
