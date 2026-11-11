@@ -60,6 +60,14 @@
     } catch (e) { /* keeps the last one */ }
     wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
   }
+  // ---- the practice portfolio (eToro demo account) and its daily review: two small files from the private folder ----
+  let prac = null, review = null, pracAt = 0, pracBusy = false;
+  async function loadPractice(force) {
+    if (pracBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - pracAt < 10 * 60e3)) return;
+    pracBusy = true;
+    try { const j = await window.SRSync.getFile('practice.json'); if (j && j.made) prac = j; const v = await window.SRSync.getFile('review.json'); if (v && v.entries) review = v; } catch (e) { /* keeps the last one */ }
+    pracAt = Date.now(); pracBusy = false; SRApp.renderDraw('today');
+  }
   // ---- the ranking: the buy model's score of the last candle (ta.js mscore; its record is in tastats.js, "model") ----
   const MDL = () => (window.SRTA && window.SRTA.model && window.SRTA.model()) || null, MST = () => ((window.SR_TASTATS || {}).model || {});
   // one list for everything: this device's own analysis (yours, the funds, the world board: live) and the nightly scan
@@ -87,7 +95,9 @@
   // 1. the assets with a buy signal now, highest score first; 2. the others, by score; an asset without a year of candles has no score and comes last
   const rankOrder = (a, b) => tier(a) - tier(b) || (a.ms == null) - (b.ms == null) || (b.ms || 0) - (a.ms || 0) || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup);
   // the home page's shortlist: the highest scores among the buy signals
-  function top(n) { return all().filter((r) => r.buy).sort(rankOrder).slice(0, n); }
+  // the home card shows assets one can really trade: shares of companies worth at least $2 billion (the tested edge is smaller on tiny ones), any fund, index, commodity, currency or crypto
+  const liquid = (r) => !r.scanned || r.cls !== 'Stocks' || r.cap >= 2e9;
+  function top(n) { return all().filter((r) => r.buy && liquid(r)).sort(rankOrder).slice(0, n); }
   function rows() {
     const S = stats(), out = [], today = new Date().toISOString().slice(0, 10);
     for (const u of universe()) {
@@ -238,5 +248,5 @@
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
   let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
-  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null) };
+  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review };
 })();

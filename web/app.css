@@ -601,6 +601,11 @@ div.av-pick { max-width: none; }
 .ch.is-full .ch-close { display: inline-flex; align-items: center; flex: none; height: 34px; padding: 0 13px; margin-right: 6px; border: 0; border-radius: 17px; background: var(--color-fg, #111); color: var(--color-bg, #fff); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .ch.is-full .ch-btn[data-k="full"] { display: none; }
 
+/* the practice portfolio card */
+.g-warn { color: var(--color-warn, #b45309); font-weight: 600; }
+.g-sub2 { margin-top: 10px; font-size: 14px; }
+.g-pill.g-sell { background: color-mix(in srgb, var(--color-down, #dc2626) 14%, transparent); color: var(--color-down, #dc2626); }
+
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
   .sr * { box-sizing: border-box; }
