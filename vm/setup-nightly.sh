@@ -72,10 +72,9 @@ chmod 700 "$BASE/nightly.sh"
 at() { date -d "$1 UTC" +'%M %H'; }                       # a UTC time on this machine's own clock
 ( crontab -l 2>/dev/null | grep -v sector-rotation-nightly
   echo "$(at 01:15) * * 2-7 $BASE/nightly.sh # sector-rotation-nightly"
-  echo "$(at 08:20) * * 1-5 $BASE/nightly.sh settle # sector-rotation-nightly"
-  echo "$(at 14:45) * * 1-5 $BASE/nightly.sh settle # sector-rotation-nightly" ) | crontab -
+  echo "20 * * * 1-5 $BASE/nightly.sh settle # sector-rotation-nightly" ) | crontab -
 echo "   every night at 01:15 UTC (scan and orders), Tuesday to Sunday"
-echo "   and at 08:20 and 14:45 UTC on weekdays: stops and targets are set on what has just opened in Europe and in the US"
+echo "   and every hour at :20, Monday to Friday: stops and targets are set on what has opened, and the record the apps read is refreshed"
 echo
 echo "== Done. Nothing more is needed from GitHub's job service."
 echo "== To set stops and targets on what has opened, right now:   $BASE/nightly.sh settle ; tail -n 25 $BASE/nightly.log"
