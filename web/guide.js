@@ -354,7 +354,7 @@
   }
 
   // ---- Today: the practice portfolio on the eToro demo account (virtual money) ----
-  // Live from eToro every 10 seconds: positions with their running result, waiting orders, cash, closed trades.
+  // Live from eToro every 5 seconds: positions with their running result, waiting orders, cash, closed trades.
   // From the VM's record: which rule opened each trade, the stop and target it planned, and the daily review.
   function practiceCard(box) {
     if (!window.SRScreen || !window.SRScreen.loadPractice) return;
@@ -377,16 +377,43 @@
       };
       if (D) {
         const pos = D.positions || [], wait = D.ordersForOpen || [], inv = pos.reduce((x, o) => x + (+o.amount || 0), 0), run = +D.unrealizedPnL || 0, value = (+D.credit || 0) + inv + run;
-        const head = body.appendChild(el('div', 'g-line')); head.appendChild(document.createTextNode(`${usd(value)} of virtual money. Open positions: ${pos.length}, running result `));
-        head.appendChild(el('b', run > 0 ? 'up' : run < 0 ? 'down' : '', usd2(run))); head.appendChild(document.createTextNode(`. Orders waiting for the market: ${wait.length}.`));
+        // ---- the figures, all from eToro's own numbers at this second ----
+        const H0 = (L.hist || []).filter((h) => !P.start || String(h.closeTimestamp) >= P.start), wins = H0.filter((h) => h.netProfit > 0), loss = H0.filter((h) => h.netProfit <= 0);
+        const real = H0.reduce((x, h) => x + (+h.netProfit || 0), 0), fees = H0.reduce((x, h) => x + (+h.fees || 0), 0) + pos.reduce((x, o) => x + (+o.totalExternalFees || 0) + (+o.totalFees || 0), 0);
+        const expo = (o) => Math.abs(+((o.unrealizedPnL || {}).exposureInAccountCurrency) || (+o.amount || 0) * (+o.leverage || 1)), long = pos.filter((o) => o.isBuy).reduce((x, o) => x + expo(o), 0), short = pos.filter((o) => !o.isBuy).reduce((x, o) => x + expo(o), 0);
+        const start = +P.startEquity > 0 ? +P.startEquity : null, base = P.account && P.made ? +P.account.equity : null, pct = (x, of) => (of > 0 ? `${x >= 0 ? '+' : '−'}${Math.abs(100 * x / of).toFixed(2)}%` : '');
+        const grid = body.appendChild(el('div', 'g-stats')), tile = (k, v, sub, cls) => { const d = grid.appendChild(el('div', 'g-stat')); d.appendChild(el('span', 'g-stat-k', k)); d.appendChild(el('b', 'g-stat-v' + (cls ? ' ' + cls : ''), v)); if (sub) d.appendChild(el('span', 'g-stat-s', sub)); }, sign = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
+        tile('Value now', usd(value), start ? `${usd2(value - start)} (${pct(value - start, start)}) since the start` : 'virtual money');
+        if (base) tile(`Since ${hhmm(P.made)}`, usd2(value - base), `${pct(value - base, base)} since the VM's last record`, sign(value - base));
+        tile('Open positions', usd2(run), `${pos.length} open, ${wait.length} waiting`, sign(run));
+        tile('Closed trades', usd2(real), H0.length ? `${H0.length} closed, ${wins.length} with a gain (${Math.round(100 * wins.length / H0.length)}%)` : 'none closed yet', sign(real));
+        if (wins.length || loss.length) tile('Average gain / loss', `${wins.length ? usd2(wins.reduce((x, h) => x + h.netProfit, 0) / wins.length) : '–'} / ${loss.length ? usd2(loss.reduce((x, h) => x + h.netProfit, 0) / loss.length) : '–'}`, 'per closed trade, after costs');
+        tile('Costs paid', usd(fees), 'fees booked by eToro so far');
+        tile('In the market', `${Math.round(100 * (long + short) / value)}%`, `long ${usd(long)}, short ${usd(short)}`);
+        tile('Cash', usd((+D.credit || 0) - wait.reduce((x, o) => x + (+o.frozenAmount || +o.amount || 0), 0)), wait.length ? `${usd(wait.reduce((x, o) => x + (+o.frozenAmount || +o.amount || 0), 0))} set aside for waiting orders` : 'free');
+        // by rule: what each kind of trade has done (open result now, closed result so far)
+        const armOf = (o, closed) => { const t = closed ? (P.closed || []).find((q) => q.positionId === o.positionId) || rec.find((q) => q.positionId === o.positionId) : known(o); return t ? t.arm : 'by hand'; };
+        const ARM = { buy: 'Nightly buys', short: 'Nightly shorts', 'fast-buy': 'Fast buys (1-hour)', 'fast-short': 'Fast shorts (1-hour)', 'by hand': 'Opened by hand' }, G = {};
+        for (const o of pos) { const g = G[armOf(o)] = G[armOf(o)] || { open: 0, run: 0, n: 0, won: 0, net: 0 }; g.open++; g.run += +((o.unrealizedPnL || {}).pnL) || 0; }
+        for (const h of H0) { const g = G[armOf(h, true)] = G[armOf(h, true)] || { open: 0, run: 0, n: 0, won: 0, net: 0 }; g.n++; g.won += h.netProfit > 0 ? 1 : 0; g.net += +h.netProfit || 0; }
+        if (Object.keys(G).length > 1 || H0.length) for (const [k, g] of Object.entries(G)) body.appendChild(el('div', 'g-hint', `${ARM[k] || k}: ${g.open} open (${usd2(g.run)}), ${g.n} closed${g.n ? ` (${g.won} with a gain, ${usd2(g.net)})` : ''}`));
+        // the account's value as this device has seen it
+        const C = (L.curve || []).filter((p) => p[1] > 0);
+        if (C.length >= 3 && C[C.length - 1][0] - C[0][0] > 30 * 60e3) {
+          const W = 300, Hh = 44, lo = Math.min(...C.map((p) => p[1])), hi = Math.max(...C.map((p) => p[1])), t0 = C[0][0], t1 = C[C.length - 1][0], sx = (t) => (W * (t - t0) / (t1 - t0 || 1)).toFixed(1), sy = (v) => (Hh - 3 - (Hh - 6) * (v - lo) / (hi - lo || 1)).toFixed(1);
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.setAttribute('class', 'g-spark'); svg.setAttribute('preserveAspectRatio', 'none');
+          const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); pl.setAttribute('points', C.map((p) => `${sx(p[0])},${sy(p[1])}`).join(' ')); pl.setAttribute('class', C[C.length - 1][1] >= C[0][1] ? 'up' : 'down'); svg.appendChild(pl); body.appendChild(svg);
+          body.appendChild(el('div', 'g-hint', `Value since ${new Date(t0).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, as seen by this device: low ${usd(lo)}, high ${usd(hi)}.`));
+        }
         for (const o of pos) {
           const t = known(o), u = o.unrealizedPnL || {}, pl = +u.pnL || 0, sl = +o.stopLossRate > 0 ? px(+o.stopLossRate) : null, tp = +o.takeProfitRate > 0 ? px(+o.takeProfitRate) : null;
-          row(o, t, `${o.isBuy ? 'Bought' : 'Sold short'} at ${px(+o.openRate)}${u.closeRate ? ` · now ${px(+u.closeRate)}` : ''} · stop ${sl || 'not set yet'} · target ${tp || 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, pl > 0 ? 'up' : pl < 0 ? 'down' : '');
+          const toStop = sl && u.closeRate ? Math.abs(+o.stopLossRate / +u.closeRate - 1) * 100 : null, toTp = tp && u.closeRate ? Math.abs(+o.takeProfitRate / +u.closeRate - 1) * 100 : null, lev = +o.leverage > 1 ? ` · x${o.leverage}` : '';
+          row(o, t, `${o.isBuy ? 'Bought' : 'Sold short'} at ${px(+o.openRate)}${u.closeRate ? ` · now ${px(+u.closeRate)}` : ''}${lev} · stop ${sl ? `${sl} (${toStop.toFixed(1)}% away)` : 'not set yet'} · target ${tp ? `${tp} (${toTp.toFixed(1)}% away)` : 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, pl > 0 ? 'up' : pl < 0 ? 'down' : '');
         }
         for (const o of wait) { const t = known(o); row(o, t, `${o.isBuy ? 'Buy' : 'Short'} order of ${usd(+o.amount)}, waiting for the market to open${t ? ` · planned stop ${px(t.stop)} · target ${px(t.target)}` : ''}`, 'waiting'); }
         const H = (L.hist || []).slice().sort((x, y) => Date.parse(y.closeTimestamp) - Date.parse(x.closeTimestamp)).filter((h) => !P.start || h.closeTimestamp >= P.start);
-        if (H.length) { const won = H.filter((h) => h.netProfit > 0).length, net = H.reduce((x, h) => x + (+h.netProfit || 0), 0); body.appendChild(el('div', 'g-hint', `Closed since the start: ${H.length} (${won} with a gain), ${usd2(net)} after costs.`)); }
-        for (const h of H.slice(0, 3)) { const t = (P.closed || []).find((q) => q.positionId === h.positionId), r = byId.get(h.instrumentId); body.appendChild(el('div', 'g-hint', `${t ? t.s : r ? r.sym : '#' + h.instrumentId}: closed at ${px(+h.closeRate)}, ${usd2(+h.netProfit)}${t && t.how ? ` (${t.how})` : ''}`)); }
+        if (H.length) body.appendChild(el('div', 'g-card-t g-sub2', 'Last closed'));
+        for (const h of H.slice(0, 5)) { const t = (P.closed || []).find((q) => q.positionId === h.positionId), r = byId.get(h.instrumentId); body.appendChild(el('div', 'g-hint', `${t ? t.s : r ? r.sym : '#' + h.instrumentId}: ${h.isBuy === false ? 'short ' : ''}${px(+h.openRate || 0)} → ${px(+h.closeRate)}, ${usd2(+h.netProfit)}${t && t.how ? ` (${t.how})` : ''} · ${new Date(h.closeTimestamp).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`)); }
         body.appendChild(el('div', 'g-hint g-live', `Live from eToro · ${hhmm(L.at, true)}${L.err ? ' (the last reading failed; trying again)' : ''}`));
       } else {
         const A = P.account || {}, on = rec.filter((t) => t.status === 'open');

@@ -63,22 +63,28 @@
   // ---- the practice portfolio (eToro demo account) and its daily review: two small files from the private folder ----
   let prac = null, review = null, pracAt = 0, pracBusy = false;
   async function loadPractice(force) {
-    if (pracBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - pracAt < 10 * 60e3)) return;
+    if (pracBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - pracAt < 60e3)) return;   // the VM's record: asked again every minute, and at once when eToro shows something it does not explain
     pracBusy = true;
     try { const j = await window.SRSync.getFile('practice.json'); if (j && j.made) prac = j; const v = await window.SRSync.getFile('review.json'); if (v && v.entries) review = v; } catch (e) { /* keeps the last one */ }
-    pracAt = Date.now(); pracBusy = false; SRApp.renderDraw('today');
+    const was = pracAt; pracAt = Date.now(); pracBusy = false; if (!was) SRApp.renderDraw('today');   // later readings are picked up by the card's own repaint
   }
   // ---- the demo account, live from eToro itself: positions with their running result, waiting orders, cash, closed trades ----
   // The VM's record (practice.json) only adds what eToro does not know: which rule opened a trade and the stop and target it planned.
-  let demo = null, demoAt = 0, demoErr = null, demoBusy = false, demoTimer = null, hist = null, histAt = 0; const painters = new Set();
+  let demo = null, demoAt = 0, demoErr = null, demoBusy = false, demoTimer = null, hist = null, histAt = 0, lastKey = ''; const painters = new Set();
+  // the account's value over time, as this device has seen it (one point every 10 minutes, kept for 90 days)
+  let curve = []; try { curve = JSON.parse(localStorage.getItem('sr.demoCurve') || '[]'); } catch (e) { curve = []; }
+  const point = (v) => { const now = Date.now(), last = curve[curve.length - 1]; if (!(v > 0)) return; if (last && now - last[0] < 10 * 60e3) { last[1] = Math.round(v * 100) / 100; return; } curve.push([now, Math.round(v * 100) / 100]); curve = curve.filter((p) => now - p[0] < 90 * 864e5).slice(-6000); try { localStorage.setItem('sr.demoCurve', JSON.stringify(curve)); } catch (e) { /* storage full or closed */ } };
   async function demoRead() {
     if (demoBusy || document.hidden || !window.SRApp || !SRApp.etoroGet) return;
     demoBusy = true;
     try {
       const r = await SRApp.etoroGet('/api/v1/trading/info/demo/pnl', 1.5);
-      if (r && r.status === 200) { const j = JSON.parse(r.body); if (j && j.clientPortfolio) { demo = j.clientPortfolio; demoAt = Date.now(); demoErr = null; } }
+      if (r && r.status === 200) { const j = JSON.parse(r.body); if (j && j.clientPortfolio) { demo = j.clientPortfolio; demoAt = Date.now(); demoErr = null;
+        const key = (demo.positions || []).map((o) => o.positionID).sort().join(',') + '|' + (demo.ordersForOpen || []).map((o) => o.orderID).sort().join(',');
+        if (key !== lastKey) { if (lastKey) { histAt = 0; pracAt = Math.min(pracAt, 1); loadPractice(true); } lastKey = key; }   // something opened or closed: the closed trades and the VM's record are read again now
+        point((+demo.credit || 0) + (demo.positions || []).reduce((x, o) => x + (+o.amount || 0), 0) + (+demo.unrealizedPnL || 0)); } }
       else demoErr = r ? (r.reason === 'no keys' ? 'no keys' : r.status) : 0;
-      if (!demoErr && Date.now() - histAt > 5 * 60e3) {            // closed trades change rarely: every five minutes
+      if (!demoErr && Date.now() - histAt > 2 * 60e3) {            // closed trades: every two minutes, and at once when a position disappears
         const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10), h = await SRApp.etoroGet(`/api/v1/trading/info/trade/demo/history?minDate=${since}&pageSize=200`, 1);
         if (h && h.status === 200) { const a = JSON.parse(h.body); if (Array.isArray(a)) { hist = a; histAt = Date.now(); } }
       }
@@ -86,9 +92,10 @@
     demoBusy = false;
     for (const fn of [...painters]) { let keep = false; try { keep = fn(); } catch (e) { if (window.console) console.error(e); } if (!keep) painters.delete(fn); }
     if (!painters.size && demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+    loadPractice();
   }
   // a card on screen asks to be repainted with every reading; the readings stop when no card is left
-  function demoWatch(fn) { painters.add(fn); if (!demoTimer) demoTimer = setInterval(demoRead, 10000); if (Date.now() - demoAt > 8000) demoRead(); }
+  function demoWatch(fn) { painters.add(fn); if (!demoTimer) demoTimer = setInterval(demoRead, 5000); if (Date.now() - demoAt > 4000) demoRead(); }
   // ---- the ranking: the buy model's score of the last candle (ta.js mscore; its record is in tastats.js, "model") ----
   const MDL = () => (window.SRTA && window.SRTA.model && window.SRTA.model()) || null, MST = () => ((window.SR_TASTATS || {}).model || {});
   // one list for everything: this device's own analysis (yours, the funds, the world board: live) and the nightly scan
@@ -269,5 +276,5 @@
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
   let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
-  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist }) };
+  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
