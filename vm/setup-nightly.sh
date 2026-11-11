@@ -72,11 +72,16 @@ exec bash vm/nightly-run.sh "$@"
 RUN
 chmod 700 "$BASE/nightly.sh"
 at() { date -d "$1 UTC" +'%M %H'; }                       # a UTC time on this machine's own clock
-( crontab -l 2>/dev/null | grep -v sector-rotation-nightly
+( crontab -l 2>/dev/null | grep -v sector-rotation-nightly || true      # "|| true": with no other line in the timetable grep reports a failure, which used to stop this step before our lines were written
   echo "$(at 01:15) * * 2-7 $BASE/nightly.sh # sector-rotation-nightly"
   echo "*/5 * * * 1-5 $BASE/nightly.sh tick # sector-rotation-nightly" ) | crontab -
+N=$(crontab -l 2>/dev/null | grep -c sector-rotation-nightly || true)
+[ "$N" = "2" ] || { echo "The timetable was NOT written (found $N of 2 lines). Send this output to Claude."; exit 1; }
+echo "   the timetable now holds these two lines:"; crontab -l | grep sector-rotation-nightly | sed 's/^/     /'
+echo "   timer service: $(systemctl is-active cron 2>/dev/null || systemctl is-active crond 2>/dev/null || echo unknown)"
 echo "   every night at 01:15 UTC (scan and orders), Tuesday to Sunday"
 echo "   and every 5 minutes, Monday to Friday: stops and targets are set on what has opened, and the fast part looks at the 1-hour signals"
 echo
 echo "== Done. Nothing more is needed from GitHub's job service."
-echo "== To see what the last looks did:   tail -n 30 $BASE/nightly.log"
+echo "== Running one look now, so you can see it work:"
+"$BASE/nightly.sh" tick; tail -n 8 "$BASE/nightly.log"
