@@ -60,9 +60,11 @@ cat > "$BASE/nightly.sh" <<'RUN'
 # Started by the VM's own clock. It takes the lock, opens the log, loads the keys, brings the private repository up to date, and
 # hands over to the steps kept there (vm/nightly-run.sh), so later improvements need no new installation.
 #   nightly.sh = scan, then the practice portfolio.   nightly.sh orders = the practice portfolio only.   nightly.sh settle = stops and targets only.
+#   nightly.sh tick = stops and targets, then the fast part (1-hour signals).
 BASE="$HOME/sector-rotation"; CONF="$HOME/.config/sector-rotation"; export PATH="$BASE/node/bin:$PATH"
 export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sector_rotation_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 exec 9> "$CONF/lock"; flock -n 9 || { echo "$(date -u +%FT%TZ) a run is already going: nothing started" >> "$BASE/nightly.log"; exit 0; }
+[ "$(stat -c %s "$BASE/nightly.log" 2>/dev/null || echo 0)" -gt 3000000 ] && { tail -n 3000 "$BASE/nightly.log" > "$BASE/nightly.log.new"; mv "$BASE/nightly.log.new" "$BASE/nightly.log"; }   # the log is kept short
 exec >> "$BASE/nightly.log" 2>&1; echo; echo "=== $(date -u +%FT%TZ) start ($1)"
 . "$CONF/etoro.env"; cd "$BASE/sync" || exit 1
 git checkout -q -f main 2>/dev/null; git fetch -q origin main && git reset -q --hard origin/main || { echo "the repository could not be read: stopping"; exit 1; }
@@ -72,9 +74,9 @@ chmod 700 "$BASE/nightly.sh"
 at() { date -d "$1 UTC" +'%M %H'; }                       # a UTC time on this machine's own clock
 ( crontab -l 2>/dev/null | grep -v sector-rotation-nightly
   echo "$(at 01:15) * * 2-7 $BASE/nightly.sh # sector-rotation-nightly"
-  echo "20 * * * 1-5 $BASE/nightly.sh settle # sector-rotation-nightly" ) | crontab -
+  echo "*/5 * * * 1-5 $BASE/nightly.sh tick # sector-rotation-nightly" ) | crontab -
 echo "   every night at 01:15 UTC (scan and orders), Tuesday to Sunday"
-echo "   and every hour at :20, Monday to Friday: stops and targets are set on what has opened, and the record the apps read is refreshed"
+echo "   and every 5 minutes, Monday to Friday: stops and targets are set on what has opened, and the fast part looks at the 1-hour signals"
 echo
 echo "== Done. Nothing more is needed from GitHub's job service."
-echo "== To set stops and targets on what has opened, right now:   $BASE/nightly.sh settle ; tail -n 25 $BASE/nightly.log"
+echo "== To see what the last looks did:   tail -n 30 $BASE/nightly.log"
