@@ -37,12 +37,17 @@ git -C "$BASE/sync" config user.name "nightly-scan"; git -C "$BASE/sync" config 
 
 echo "== 3 of 4: your two eToro keys (they are not shown, and stay in a file only you can read)"
 if [ ! -s "$CONF/etoro.env" ]; then
-  ask "   Paste the eToro API key and press Enter: " hidden; A1="$REPLY"; ask "   Paste the eToro user key and press Enter: " hidden; A2="$REPLY"
+  ask "   Paste the eToro API key (the public one) and press Enter: " hidden; A1="$(printf '%s' "$REPLY" | tr -d '[:space:]')"; echo "      received ${#A1} characters"
+  ask "   Paste the eToro user key (the private one) and press Enter: " hidden; A2="$(printf '%s' "$REPLY" | tr -d '[:space:]')"; echo "      received ${#A2} characters"
   [ -n "$A1" ] && [ -n "$A2" ] || { echo "A key is missing: nothing saved."; exit 1; }
   ( umask 077; printf 'export ETORO_API_KEY=%q\nexport ETORO_USER_KEY=%q\n' "$A1" "$A2" > "$CONF/etoro.env" ); unset A1 A2 REPLY
 fi
 . "$CONF/etoro.env"
 C=$(curl -s -o /dev/null -w '%{http_code}' -H "x-api-key: $ETORO_API_KEY" -H "x-user-key: $ETORO_USER_KEY" -H "x-request-id: $(cat /proc/sys/kernel/random/uuid)" 'https://public-api.etoro.com/api/v1/market-data/instruments/rates?instrumentIds=1001')
+if [ "$C" != "200" ]; then   # the usual slip: the two keys pasted in the other order
+  C2=$(curl -s -o /dev/null -w '%{http_code}' -H "x-api-key: $ETORO_USER_KEY" -H "x-user-key: $ETORO_API_KEY" -H "x-request-id: $(cat /proc/sys/kernel/random/uuid)" 'https://public-api.etoro.com/api/v1/market-data/instruments/rates?instrumentIds=1001')
+  if [ "$C2" = "200" ]; then ( umask 077; printf 'export ETORO_API_KEY=%q\nexport ETORO_USER_KEY=%q\n' "$ETORO_USER_KEY" "$ETORO_API_KEY" > "$CONF/etoro.env" ); . "$CONF/etoro.env"; echo "   the two keys were pasted in the other order: put right"; C=200; fi
+fi
 [ "$C" = "200" ] || { rm -f "$CONF/etoro.env"; echo "eToro refused these keys (answer $C): they were not kept. Run this installer again."; exit 1; }
 echo "   eToro accepts the keys"
 ask "   Send the practice orders to the eToro DEMO account every night? Type on to allow it, or just press Enter for dry runs only: "
