@@ -50,41 +50,32 @@ if [ "$C" != "200" ]; then   # the usual slip: the two keys pasted in the other 
 fi
 [ "$C" = "200" ] || { rm -f "$CONF/etoro.env"; echo "eToro refused these keys (answer $C): they were not kept. Run this installer again."; exit 1; }
 echo "   eToro accepts the keys"
-ask "   Send the practice orders to the eToro DEMO account every night? Type on to allow it, or just press Enter for dry runs only: "
+if [ "$(cat "$CONF/practice" 2>/dev/null)" = "on" ]; then REPLY=on; echo "   practice orders are already ON (to turn them off: rm $CONF/practice)"; else
+ask "   Send the practice orders to the eToro DEMO account every night? Type on to allow it, or just press Enter for dry runs only: "; fi
 if [ "$REPLY" = "on" ] || [ "$REPLY" = "ON" ] || [ "$REPLY" = "On" ]; then echo on > "$CONF/practice"; echo "   practice orders: ON (demo account only)"; else rm -f "$CONF/practice"; echo "   practice orders: off (dry runs)"; fi
 
 echo "== 4 of 4: the nightly timer"
 cat > "$BASE/nightly.sh" <<'RUN'
 #!/bin/bash
-# Started by the VM's own clock. "nightly.sh" = scan, then the practice portfolio. "nightly.sh orders" = the practice portfolio only,
-# on the latest scan. Everything it prints goes to ~/sector-rotation/nightly.log; the keys are never printed.
+# Started by the VM's own clock. It takes the lock, opens the log, loads the keys, brings the private repository up to date, and
+# hands over to the steps kept there (vm/nightly-run.sh), so later improvements need no new installation.
+#   nightly.sh = scan, then the practice portfolio.   nightly.sh orders = the practice portfolio only.   nightly.sh settle = stops and targets only.
 BASE="$HOME/sector-rotation"; CONF="$HOME/.config/sector-rotation"; export PATH="$BASE/node/bin:$PATH"
 export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sector_rotation_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 exec 9> "$CONF/lock"; flock -n 9 || { echo "$(date -u +%FT%TZ) a run is already going: nothing started" >> "$BASE/nightly.log"; exit 0; }
 exec >> "$BASE/nightly.log" 2>&1; echo; echo "=== $(date -u +%FT%TZ) start ($1)"
 . "$CONF/etoro.env"; cd "$BASE/sync" || exit 1
 git checkout -q -f main 2>/dev/null; git fetch -q origin main && git reset -q --hard origin/main || { echo "the repository could not be read: stopping"; exit 1; }
-save() { git add "$@" 2>/dev/null; git diff --cached --quiet || git commit -q -m "$MSG"; for k in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && return 0; sleep 20; done; echo "saving failed"; return 1; }
-if [ "$1" != "orders" ]; then
-  if git fetch -q --depth 1 origin packs 2>/dev/null; then rm -rf packs; git checkout -q FETCH_HEAD -- packs; git rm -r -q --cached packs; fi
-  SCAN_CACHE="$HOME/scan-cache" SCAN_RATE=100 SCAN_CAP=12000 SCAN_LIMIT=12000 SCAN_BY=vm SCAN_FALLBACK=1 timeout 4h node scan.js; echo "scan ended with $?"
-  printf 'packs/\ncache/\n' > .gitignore; git rm -r -q --cached --ignore-unmatch packs
-  MSG="Nightly scan $(date -u +%F)" save .gitignore scan.json scanmeta.json journal.json ids.json universe.json
-  if [ -f packs/.changed ]; then
-    rm packs/.changed; git branch -D packs-new > /dev/null 2>&1 || true
-    git checkout -q --orphan packs-new; git rm -r -q --cached . > /dev/null 2>&1 || true; git add -f packs
-    git commit -q -m "Candle files $(date -u +%F)"; git push -q -f origin packs-new:packs; git checkout -q -f main
-  fi
-fi
-PRACTICE="$(cat "$CONF/practice" 2>/dev/null)" timeout 30m node practice.js; echo "practice ended with $?"
-MSG="Practice portfolio $(date -u +%F)" save practice.json
-echo "=== $(date -u +%FT%TZ) end"
+exec bash vm/nightly-run.sh "$@"
 RUN
 chmod 700 "$BASE/nightly.sh"
-read -r MM HH <<< "$(date -d '01:15 UTC' +'%M %H')"        # 01:15 UTC on this machine's own clock
-( crontab -l 2>/dev/null | grep -v sector-rotation-nightly; echo "$MM $HH * * 2-7 $BASE/nightly.sh # sector-rotation-nightly" ) | crontab -
-echo "   every night at 01:15 UTC, Tuesday to Sunday (the nights after Monday to Saturday)"
+at() { date -d "$1 UTC" +'%M %H'; }                       # a UTC time on this machine's own clock
+( crontab -l 2>/dev/null | grep -v sector-rotation-nightly
+  echo "$(at 01:15) * * 2-7 $BASE/nightly.sh # sector-rotation-nightly"
+  echo "$(at 08:20) * * 1-5 $BASE/nightly.sh settle # sector-rotation-nightly"
+  echo "$(at 14:45) * * 1-5 $BASE/nightly.sh settle # sector-rotation-nightly" ) | crontab -
+echo "   every night at 01:15 UTC (scan and orders), Tuesday to Sunday"
+echo "   and at 08:20 and 14:45 UTC on weekdays: stops and targets are set on what has just opened in Europe and in the US"
 echo
 echo "== Done. Nothing more is needed from GitHub's job service."
-echo "== To send today's practice orders right now, on last night's scan (about one minute):"
-echo "     $BASE/nightly.sh orders ; tail -n 25 $BASE/nightly.log"
+echo "== To set stops and targets on what has opened, right now:   $BASE/nightly.sh settle ; tail -n 25 $BASE/nightly.log"
