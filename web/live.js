@@ -825,6 +825,7 @@
     if (bk) bk.addEventListener('click', back);
     watchHoldings();
   }
-  window.SRLive = { streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  const onTick = (fn) => { ticks.add(fn); return () => ticks.delete(fn); };   // a screen that follows the streamed prices itself (the account's value)
+  window.SRLive = { onTick, tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

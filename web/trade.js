@@ -17,6 +17,10 @@
   const FASTCLS = { 27: 'Indices', 28: 'Indices', 29: 'Indices', 32: 'Indices', 30: 'Indices', 31: 'Indices', 36: 'Indices', 18: 'Commodity', 19: 'Commodity', 17: 'Commodity', 1: 'Forex', 2: 'Forex', 5: 'Forex', 6: 'Forex', 4: 'Forex', 7: 'Forex' };
   const FASTSYM = { 27: 'SPX500', 28: 'NSDQ100', 29: 'DJ30', 32: 'GER40', 30: 'UK100', 31: 'FRA40', 36: 'JPN225', 18: 'GOLD', 19: 'SILVER', 17: 'OIL', 1: 'EURUSD', 2: 'GBPUSD', 5: 'USDJPY', 6: 'USDCHF', 4: 'USDCAD', 7: 'AUDUSD' };
   const ui = { range: 'all', arm: 'all', sort: 'pl', tf: '60', style: 'candles', bench: false };
+  try { const k = JSON.parse(localStorage.getItem('sr.pfChart') || '{}'); if (['1', '5', '15', '30', '60', '240', '1440'].includes(k.tf)) ui.tf = k.tf; if (k.style === 'line') ui.style = 'line'; ui.bench = !!k.bench; } catch (e) { /* defaults */ }
+  const keepUi = () => { try { localStorage.setItem('sr.pfChart', JSON.stringify({ tf: ui.tf, style: ui.style, bench: ui.bench })); } catch (e) { /* not kept */ } };
+  // the account's value between two readings of eToro (every 5 s), moved with each price eToro pushes for the open positions: minute by minute extremes kept in memory
+  const liveMin = new Map(); let liveA = null, liveOff = null;
 
   // ---- one reading of everything, worked into the figures every part of the tab uses ----
   function calc() {
@@ -54,8 +58,11 @@
       target: cl.filter((c) => c.how === 'target').length, stop: cl.filter((c) => c.how === 'stop').length, time: cl.filter((c) => c.how === 'time limit').length };
     // the account's value over time: the VM's half-hourly points, plus what this device has seen, plus now
     // (a point may carry the highest and lowest value seen since the point before it: the candles' wicks)
-    const m = new Map(); for (const p of (P.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[3], p[4]]); for (const p of (L.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[2], p[3]]); if (D) m.set(Math.round(Date.now() / 60e3), [Math.round(out.value * 100) / 100]);
-    out.curve = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k * 60e3, v[0], 0, v[1], v[2]]).filter((p) => p[1] > 0);
+    // each point: [time, value, 0, highest, lowest, minutes between points of its source] — the VM's half-hourly points (30), its 5-minute looks (5), this device (1)
+    const m = new Map(); for (const p of (P.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[3], p[4], 30]); for (const p of (P.fine || [])) m.set(Math.round(p[0] / 60e3), [p[1], 0, 0, 5]);
+    for (const p of (L.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[2], p[3], 1]); if (D) m.set(Math.round(Date.now() / 60e3), [Math.round(out.value * 100) / 100, 0, 0, 1]);
+    for (const [k, x] of liveMin) { const o = m.get(k); m.set(k, [o && k === Math.round(Date.now() / 60e3) ? o[0] : x.last, Math.max(x.hi, o && o[1] > 0 ? o[1] : 0), Math.min(x.lo, o && o[2] > 0 ? o[2] : Infinity), 1]); }
+    out.curve = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k * 60e3, v[0], 0, v[1], v[2], v[3]]).filter((p) => p[1] > 0);
     const C = out.curve, base = out.start || (C.length ? C[0][1] : null), last = C.length ? C[C.length - 1][1] : out.value;
     const at = (ms) => { let v = null; for (const p of C) { if (p[0] <= ms) v = p[1]; else break; } return v; }, mid = new Date(); mid.setHours(0, 0, 0, 0);
     let peak = base || 0, dd = 0; for (const p of C) { if (p[1] > peak) peak = p[1]; if (peak > 0) dd = Math.min(dd, p[1] / peak - 1); }
@@ -85,13 +92,14 @@
   function chart(box, M) {
     const L = window.LightweightCharts, C = M.curve;
     if (!L || !L.createChart) return chartPlain(box, M);
-    const bar = box.appendChild(el('div', 't-chips')), chip = (key, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (ui[key] === val ? ' on' : ''), label)); b.type = 'button'; b.addEventListener('click', () => { ui[key] = key === 'bench' ? !ui.bench : val; SRApp.renderDraw('trade'); }); return b; };
-    for (const [k, l] of [['30', '30 min'], ['60', '1 hour'], ['240', '4 hours'], ['1440', '1 day']]) chip('tf', k, l);
+    const bar = box.appendChild(el('div', 't-chips t-tfs')), chip = (key, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (ui[key] === val ? ' on' : ''), label)); b.type = 'button'; b.addEventListener('click', () => { ui[key] = key === 'bench' ? !ui.bench : val; keepUi(); SRApp.renderDraw('trade'); }); return b; };
+    for (const [k, l] of [['1', '1m'], ['5', '5m'], ['15', '15m'], ['30', '30m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']]) chip('tf', k, l);
     bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
     bar.appendChild(el('span', 't-sep', '·')); const bb = chip('bench', true, 'S&P 500'); bb.classList.toggle('on', !!ui.bench);
     if (C.length < 2) { box.appendChild(el('div', 'g-hint', 'The chart fills in as the account is followed: one point every half hour from the VM, and every reading of this device.')); return; }
     const tf = +ui.tf * 60e3, sh = -new Date().getTimezoneOffset() * 60, bars = [];        // times are shifted so that the axis shows this device's own clock
-    for (const p of C) { const k0 = bars[bars.length - 1], bk = Math.floor(p[0] / tf) * tf, hi = p[3] > 0 ? Math.max(p[3], p[1]) : p[1], lo = p[4] > 0 ? Math.min(p[4], p[1]) : p[1];
+    let pts = +ui.tf < 30 ? C.filter((p) => p[5] <= 5) : C; if (pts.length < 2) pts = C;    // short candles only from points that are close enough: the half-hourly points would make false flat candles
+    for (const p of pts) { const k0 = bars[bars.length - 1], bk = Math.floor(p[0] / tf) * tf, hi = p[3] > 0 ? Math.max(p[3], p[1]) : p[1], lo = p[4] > 0 ? Math.min(p[4], p[1]) : p[1];
       if (!k0 || k0.b !== bk) { const o = k0 ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000 + sh, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; } }
     const up = cssVar('--av-up', '#089981'), down = cssVar('--av-down', '#f23645'), muted = isDark() ? '#a0a6b0' : '#5f6672';
     if (!tv) {
@@ -125,9 +133,37 @@
       for (const p of M.positions) if (p.t && isFinite(p.opened) && have.has(at(p.opened))) mk.push({ time: at(p.opened), position: 'belowBar', color: p.side > 0 ? up : down, shape: p.side > 0 ? 'arrowUp' : 'arrowDown', text: p.sym });
       for (const c of M.closed) if (c.t && isFinite(c.at) && have.has(at(c.at))) mk.push({ time: at(c.at), position: 'aboveBar', color: c.net >= 0 ? up : down, shape: 'circle', text: `${c.sym} ${c.net >= 0 ? '+' : '−'}$${Math.round(Math.abs(c.net))}` });
       mk.sort((x, y) => x.time - y.time); tv.marks.setMarkers(mk.slice(-80)); tv.host.dataset.marks = String(mk.length); }
+    tv.tf = tf; tv.sh = sh;
     tv.host.dataset.bars = String(bars.length); tv.host.dataset.wicks = String(bars.filter((k) => k.high > Math.max(k.open, k.close) + 0.005 || k.low < Math.min(k.open, k.close) - 0.005).length); tv.host.dataset.bench = String(ui.bench ? bp.size : 0); tv.say();
     const lo0 = Math.min(...bars.map((k) => k.low)), hi0 = Math.max(...bars.map((k) => k.high));
     box.appendChild(el('div', 'g-hint', `Since the first reading: ${usd2(C[C.length - 1][1] - C[0][1])} (${pc(100 * (C[C.length - 1][1] / C[0][1] - 1))}), low ${usd(lo0)}, high ${usd(hi0)}. Drag to move, pinch or scroll to zoom. Arrows: a trade of the program opened; dots: one closed, with its result. The dashed line is the starting value${ui.bench ? '; the orange line is the S&P 500 over the same hours' : ''}.`));
+  }
+
+  // ---- the value between two readings, moved by the prices eToro pushes (its WebSocket, as on the asset charts): up to four times a second ----
+  // Each reading of the account (every 5 s) is the anchor: its exact value, and the streamed price of each open position at that moment.
+  // Between readings the value moves by side × (money × leverage ÷ opening price) × the price's change since the anchor. The next reading puts it right again.
+  function liveFollow(root, M) {
+    const S = window.SRLive; if (!S || !S.onTick || !S.want || !M.D || !(M.value > 0)) return;
+    const Q = S.quotes, ids = [...new Set(M.positions.map((p) => p.id).filter((x) => x > 0))];
+    liveA = { value: M.value, at: Date.now(), pos: M.positions.filter((p) => p.id > 0 && p.entry > 0).map((p) => { const q = Q.get(p.id); return { id: p.id, k: p.side * p.amount * p.lev / p.entry, base: q && q.price > 0 ? q.price : null }; }) };
+    S.want('demo', ids);
+    if (!liveOff) liveOff = S.onTick(liveTick);
+  }
+  function liveTick() {
+    const S = window.SRLive, A = liveA, page = document.querySelector('#trade .t-value');
+    if (!A || !page || !tv || !tv.host.isConnected) { if (liveOff) { liveOff(); liveOff = null; } if (S && S.want) S.want('demo', []); return; }
+    let d = 0, moved = false; for (const p of A.pos) { const q = S.quotes.get(p.id); if (!q || !(q.price > 0)) continue; if (p.base == null) { p.base = q.price; continue; } if (q.price !== p.base) moved = true; d += p.k * (q.price - p.base); }
+    if (!moved && tv.liveV === A.value) return;
+    const v = Math.round((A.value + d) * 100) / 100, now = Date.now(), mk = Math.round(now / 60e3); tv.liveV = v;
+    const x = liveMin.get(mk); if (x) { x.hi = Math.max(x.hi, v); x.lo = Math.min(x.lo, v); x.last = v; } else liveMin.set(mk, { hi: v, lo: v, last: v });
+    for (const k of liveMin.keys()) if (k < mk - 360) liveMin.delete(k);                     // six hours in memory; the device's own points keep the rest
+    page.textContent = usd(v); page.classList.add('t-tick'); tv.host.dataset.live = String((+tv.host.dataset.live || 0) + 1); tv.host.dataset.v = String(v);
+    const bk = Math.floor(now / tv.tf) * tv.tf, last = tv.bars[tv.bars.length - 1]; if (!last) return; let k = last;
+    if (last.b === bk) { last.close = v; last.high = Math.max(last.high, v); last.low = Math.min(last.low, v); }
+    else if (bk > last.b) { k = { b: bk, time: bk / 1000 + tv.sh, open: last.close, high: Math.max(last.close, v), low: Math.min(last.close, v), close: v }; tv.bars.push(k); tv.n = tv.bars.length; }
+    else return;
+    try { tv.candles.update(k); tv.line.update({ time: k.time, value: k.close }); } catch (e) { /* a candle older than the chart's last: the next reading redraws */ }
+    if (!tv.hover) tv.say();
   }
 
   // the plain curve, used only if the chart library is not there
@@ -156,7 +192,7 @@
     const sub = top.appendChild(el('div', 't-sub'));
     if (f.total != null) { sub.appendChild(el('b', sign(f.total), `${usd2(f.total)} (${pc(f.totalPct)})`)); sub.appendChild(document.createTextNode(' since the start')); }
     if (f.day != null) { sub.appendChild(el('span', 't-sep', '·')); sub.appendChild(el('b', sign(f.day), `${usd2(f.day)} (${pc(100 * f.day / f.dayBase)})`)); sub.appendChild(document.createTextNode(' today')); }
-    chart(root, M);
+    chart(root, M); liveFollow(root, M);
     head(root, 'Result'); let g = root.appendChild(el('div', 'g-stats'));
     tile(g, 'Open positions', usd2(M.run), `${M.positions.length} open, ${M.waiting.length} waiting`, sign(M.run));
     tile(g, 'Closed trades', usd2(st.realized), st.n ? `${st.n} closed since the start` : 'none closed yet', sign(st.realized));

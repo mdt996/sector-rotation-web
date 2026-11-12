@@ -176,7 +176,7 @@ body.sheet-open .tabbar { display: none; }
 .sr-z { font-weight: 600; }
 
 /* chart module: toolbar, drawing overlay, indicators menu, fullscreen */
-.ch { position: relative; display: grid; gap: 4px; }
+.ch { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }   /* minmax(0, …): the chart may shrink again after the full view (its canvas has a fixed width) */
 .ch-tools { display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
 .ch-tools::-webkit-scrollbar { display: none; }
 .ch-btn { flex: none; width: 36px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--color-fg-muted); cursor: pointer; }
@@ -185,7 +185,7 @@ body.sheet-open .tabbar { display: none; }
 .ch-sep { flex: none; width: 1px; height: 20px; background: var(--color-border-line); margin: 0 4px; }
 .ch-hint { font-size: 12px; color: #2962ff; min-height: 0; }
 .ch-hint[hidden] { display: none; }
-.ch-main { position: relative; height: 340px; touch-action: none; }
+.ch-main { position: relative; height: 340px; touch-action: none; min-width: 0; }
 .ch-overlay { position: absolute; inset: 0 60px 26px 0; z-index: 3; pointer-events: none; touch-action: none; }
 .ch-legend { position: absolute; left: 6px; top: 2px; z-index: 4; font-size: 11px; color: var(--color-fg-muted); pointer-events: none; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; max-width: calc(100% - 70px); }
 .ch-menu { position: absolute; top: 38px; left: 0; z-index: 10; display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--color-border-line); background: var(--color-panel, #fff); box-shadow: 0 8px 24px rgba(0,0,0,.18); font-size: 14px; }
@@ -666,10 +666,12 @@ div.av-pick { max-width: none; }
 .t-fix { display: grid; gap: 4px; margin-bottom: 6px; } .t-fixrow { display: grid; grid-template-columns: 64px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; } .t-fixrow span:last-child { text-align: right; }
 .t-fixbar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--color-fg) 8%, transparent); overflow: hidden; } .t-fixbar i { display: block; height: 100%; background: var(--color-fg-muted); border-radius: 4px; }
 
-.t-tv { height: 330px; width: 100%; position: relative; margin: 2px 0 4px; }
+.t-tv { height: 330px; width: 100%; min-width: 0; position: relative; margin: 2px 0 4px; }
 .t-legend { display: flex; flex-wrap: wrap; gap: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-fg); min-height: 18px; margin: 2px 0 2px; }
 .t-leg-t { color: var(--color-fg-muted); margin-right: 4px; } .t-leg-k { color: var(--color-fg-muted); } .t-legend .up { color: var(--av-up); } .t-legend .down { color: var(--av-down); }
 @media (min-width: 900px) { .t-tv { height: 420px; } }
+.t-tfs .t-chip { padding: 5px 9px; min-width: 0; }
+.t-value.t-tick { font-variant-numeric: tabular-nums; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
