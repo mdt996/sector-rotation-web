@@ -33,7 +33,7 @@
         out.positions.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), cls: clsOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side, lev: +o.leverage || 1, entry: +o.openRate, now, stop, target, soft: !!(t && t.softStop), etoroStop: +o.stopLossRate || 0,
           amount: +o.amount || 0, expo, pl: +u.pnL || 0, plPct: (+o.amount || 0) > 0 ? 100 * (+u.pnL || 0) / +o.amount : 0, move: 100 * side * (now / +o.openRate - 1), r: t && t.riskMoney > 0 ? (+u.pnL || 0) / t.riskMoney : null, risk, opened: Date.parse(o.openDateTime), due: t ? Date.parse(t.due) : null, fees: (+o.totalExternalFees || 0) + (+o.totalFees || 0), score: t ? t.score : null });
       }
-      for (const o of D.ordersForOpen || []) { const t = known(o); out.waiting.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side: o.isBuy ? 1 : -1, amount: +o.amount || 0, frozen: +o.frozenAmount || +o.amount || 0, stop: t ? t.stop : 0, target: t ? t.target : 0, placed: Date.parse(o.openDateTime) }); }
+      for (const o of D.ordersForOpen || []) { const t = known(o); out.waiting.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side: o.isBuy ? 1 : -1, amount: +o.amount || 0, frozen: +o.frozenAmount || +o.amount || 0, stop: t ? t.stop : 0, target: t ? t.target : 0, placed: Date.parse(o.openDateTime) || (t ? Date.parse(t.placed) : NaN) }); }
     }
     for (const h of (L.hist || [])) {
       if (P.start && String(h.closeTimestamp) < P.start) continue;
@@ -70,8 +70,10 @@
   function status(box, M) {
     const s = box.appendChild(el('div', 't-status')), P = M.P;
     s.appendChild(el('span', 't-dot ' + (M.live ? 'on' : 'off'))); s.appendChild(el('span', '', M.live ? `Live from eToro · ${clock(M.L.at)}` : M.L.err === 'no keys' ? 'Not live: add your eToro keys in Settings' : M.L.err ? `Not live: eToro answered ${M.L.err} (the key in this app needs "Trading – Demo, Read")` : 'Connecting to eToro…'));
-    if (P.made) { const age = (Date.now() - Date.parse(P.made)) / 3600e3; s.appendChild(el('span', 't-sep', '·')); s.appendChild(el('span', age > 30 ? 'g-warn' : '', `VM record ${when(P.made)}${P.mode !== 'live' ? ' (dry run: no orders)' : ''}${age > 30 ? ' — the VM may be off' : ''}`)); }
+    const quiet = S().vmSilent();
+    if (P.made) { s.appendChild(el('span', 't-sep', '·')); s.appendChild(el('span', quiet ? 'g-warn' : '', `VM record ${when(P.made)}${P.mode !== 'live' ? ' (dry run: no orders)' : ''}`)); }
     s.appendChild(el('span', 't-sep', '·')); s.appendChild(el('span', '', 'virtual money'));
+    if (quiet) box.appendChild(el('div', 'g-line g-warn t-alarm', `No sign of the VM for ${span(quiet * 60e3)} (its record should be at most half an hour old). Until it is back: no new order, no close at a time limit, and no watch on the stops eToro does not hold. The stops and targets that sit on eToro still work.`));
   }
 
   // ---- the value curve ----
@@ -129,6 +131,7 @@
       for (const [k, o] of Object.entries(G).sort((a, b) => (b[1].net + b[1].run) - (a[1].net + a[1].run))) { const r = tb.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', (names && names[k]) || k)); r.appendChild(el('span', '', String(o.open))); r.appendChild(el('span', sign(o.run), o.open ? usd2(o.run) : '–')); r.appendChild(el('span', '', String(o.n))); r.appendChild(el('span', '', o.n ? Math.round(100 * o.won / o.n) + '%' : '–')); r.appendChild(el('span', sign(o.net), o.n ? usd2(o.net) : '–')); r.appendChild(el('span', '', o.rn ? `${o.r / o.rn >= 0 ? '+' : '−'}${Math.abs(o.r / o.rn).toFixed(2)} R` : '–')); }
       if (!Object.keys(G).length) tb.appendChild(el('div', 'g-hint', 'Nothing yet.')); };
     head(root, 'By rule'); group((x) => x.arm, ARM); head(root, 'By kind of asset'); group((x) => x.cls);
+    if ([...M.positions, ...M.closed].some((x) => x.t && x.t.fast && x.t.now)) { head(root, 'Fast trades: what the signal did while the trade was on'); group((x) => (!(x.t && x.t.fast) ? 'Other trades' : x.t.faded ? 'Signal faded or reversed' : 'Signal held')); root.appendChild(el('div', 'g-hint', 'The program reads the score of each open fast trade again every hour and records it. It closes nothing on it: on ten weeks of eToro\'s candles that would not have helped. These two lines will show whether the real trades agree.')); }
     for (const [k, v] of Object.entries(M.P.paused || {})) root.appendChild(el('div', 'g-line g-warn', `Paused by the program: ${ARM[k] || k} since ${v.since} (${v.why}).`));
     root.appendChild(el('div', 'g-hint', 'Figures are eToro\'s own, read every 5 seconds. Orders are placed by the program on your VM, never from this app. Virtual money: a test of the signals, not advice.'));
     return true;
@@ -154,15 +157,16 @@
       const toStop = p.stop > 0 ? Math.abs(p.now / p.stop - 1) * 100 : null, toTp = p.target > 0 ? Math.abs(p.target / p.now - 1) * 100 : null;
       b.appendChild(el('div', 't-l2', `Entry ${px(p.entry)} · size ${usd(p.expo)}${p.lev > 1 ? ` (${usd(p.amount)} set aside)` : ''} · stop ${toStop != null ? toStop.toFixed(1) + '% away' : 'not set'} · target ${toTp != null ? toTp.toFixed(1) + '% away' : 'not set'}`));
       b.appendChild(el('div', 't-l2', `${p.opened > 0 ? `Opened ${when(p.opened)} (${span(Date.now() - p.opened)} ago)` : 'Open'}${p.due ? ` · time limit in ${span(Math.max(0, p.due - Date.now()))}` : ''}${p.risk > 0 ? ` · ${usd(p.risk)} lost from here if stopped` : ''}${p.score != null ? ` · score ${Math.round(p.score * 1000) / 10}` : ''}`));
+      if (p.t && p.t.now) { const n = p.t.now, w = n.state !== 'holds'; b.appendChild(el('div', 't-l2' + (w ? ' g-warn' : ''), `Signal at ${clock(Date.parse(n.at))}: ${n.state === 'holds' ? 'still holds' : n.state === 'gone' ? 'gone (the score is back to neutral)' : 'reversed (the score now points the other way)'} · score ${Math.round(n.score * 1000) / 10}${w ? ' · left to its stop, target and time limit' : ''}`)); }
       if (p.soft) b.appendChild(el('div', 't-l2 g-warn', `eToro takes no stop this close on this asset (its own is at ${px(p.etoroStop)}): the program watches ${px(p.stop)} itself every 5 minutes.`));
       if (!p.t) b.appendChild(el('div', 't-l2', 'Not opened by the program.'));
     }
     head(root, `Orders waiting for the market (${M.waiting.length})`);
     if (!M.waiting.length) root.appendChild(el('div', 'g-hint', 'None.'));
     for (const w of M.waiting) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(w)); const l1 = b.appendChild(el('div', 't-l1')); l1.appendChild(el('span', 'g-pill ' + (w.side > 0 ? 'g-buy' : 'g-sell'), w.sym)); l1.appendChild(el('span', 't-tag', w.side > 0 ? 'Buy order' : 'Short order')); l1.appendChild(el('span', 't-tag t-arm', ARM[w.arm] || w.arm)); l1.appendChild(el('span', 't-pl', usd(w.amount)));
-      b.appendChild(el('div', 't-l2', `Sent ${when(w.placed)} · opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`)); }
+      b.appendChild(el('div', 't-l2', `${isFinite(w.placed) ? 'Sent ' + when(w.placed) + ' · ' : ''}opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`)); }
     const stuck = (M.P.open || []).filter((t) => t.status !== 'open' && M.live && !M.waiting.some((w) => w.t === t) && !M.positions.some((p) => p.t === t));
-    if (stuck.length) { head(root, 'Orders eToro did not open'); for (const t of stuck) root.appendChild(el('div', 'g-hint', `${t.s}: sent ${when(t.placed)}; eToro neither opened it nor keeps it waiting. No money was taken. The record drops it after four days.`)); }
+    if (stuck.length) { head(root, 'Orders eToro did not open'); for (const t of stuck) root.appendChild(el('div', 'g-hint', `${t.s}: sent ${when(t.placed)}; eToro neither opened it nor keeps it waiting. No money was taken. The program clears it at its next look.`)); }
     return true;
   }
 
@@ -196,6 +200,19 @@
     if (!E.length) root.appendChild(el('div', 'g-hint', 'The first review appears here after its first morning run (06:47).'));
     E.slice(0, 7).forEach((e, i) => { const d = root.appendChild(el('details', 't-rev')); if (!i) d.open = true; d.appendChild(el('summary', '', `Review of ${e.date}${e.account && e.account.equity ? ` · ${usd(e.account.equity)}` : ''}${(e.decisions || []).length ? ` · ${e.decisions.length} decision${e.decisions.length > 1 ? 's' : ''}` : ''}`));
       for (const [k, t] of [['health', 'Health'], ['decisions', 'Decisions'], ['questions', 'Questions asked'], ['next', 'Next']]) { if (!(e[k] || []).length) continue; d.appendChild(el('div', 't-revh', t)); for (const x of e[k]) d.appendChild(el('div', /^ALERT/.test(x) ? 'g-line g-warn' : 'g-line', x)); } });
+    const A = S().audit();
+    if (A && A.live) {
+      head(root, 'Check of the orders');
+      const tr = A.live.trades || [], bad = tr.filter((x) => (x.issues || []).length), ms = A.live.missed || [];
+      root.appendChild(el('div', 'g-line' + (bad.length ? ' g-warn' : ''), `${when(A.made)}: ${tr.length} fast trade${tr.length === 1 ? '' : 's'} compared with a replay of the rule on eToro's 1-hour candles: ${bad.length ? bad.length + ' with a difference' : 'no difference'}${tr.length ? `; opened ${Math.round(tr.reduce((x, y) => x + (y.delay || 0), 0) / tr.length)} seconds after the signal on average` : ''}.`));
+      for (const x of bad) root.appendChild(el('div', 'g-line g-warn', `${x.s} ${x.side > 0 ? 'buy' : 'short'} of ${when(x.signal)}: ${x.issues.join('; ')}`));
+      root.appendChild(el('div', 'g-line' + (ms.length ? ' g-warn' : ''), ms.length ? `Signals the program did not take: ${ms.map((x) => `${x.s} ${x.side > 0 ? 'buy' : 'short'} ${when(x.signal)}`).join(', ')}.` : 'No signal of the replay was left untaken.'));
+      const V = A.variants || {}, W = A.whole || {};
+      if (Object.keys(V).length) { root.appendChild(el('div', 't-revh', `The same rule on ${Math.round((W.hours || 0) / 168)} weeks of candles, before costs`));
+        const tb = root.appendChild(el('div', 't-table t-t4')); const hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['While a trade is on', 'Trades', 'Gain %', 'Per trade']) hd.appendChild(el('span', '', h));
+        for (const [k, v] of Object.entries(V)) { const r = tb.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', k.charAt(0).toUpperCase() + k.slice(1))); r.appendChild(el('span', '', String(v.n))); r.appendChild(el('span', '', v.share != null ? Math.round(v.share * 100) + '%' : '–')); r.appendChild(el('span', sign(v.avgR), v.avgR != null ? `${v.avgR >= 0 ? '+' : '−'}${Math.abs(v.avgR).toFixed(2)} R` : '–')); }
+        root.appendChild(el('div', 'g-hint', 'R is the money risked on a trade. Costs take about 0.02 to 0.07 R per trade, and on this many trades anything within 0.07 R of zero is chance. Run again every night on the VM.')); }
+    }
     head(root, 'The rules in force');
     if (R.arms) for (const [k, v] of Object.entries(R.arms)) root.appendChild(el('div', 'g-line', `${ARM[k] || k}${(P.paused || {})[k] ? ' (PAUSED)' : ''}: ${v}`));
     if (R.risk) { const F = R.fast || {}; root.appendChild(el('div', 'g-hint', `Nightly trades: ${(R.risk * 100).toFixed(2)}% of the account at risk each, at most ${(R.maxPosition * 100).toFixed(0)}% per position, ${R.maxNew} new a night, ${R.maxOpen} open, stop and target ${R.stopATR} ATR away, ${R.days} days at most, no leverage, companies of at least $${(R.minCap / 1e9).toFixed(0)} billion.`));
@@ -204,8 +221,8 @@
     head(root, 'System');
     const g = root.appendChild(el('div', 'g-stats'));
     tile(g, 'eToro reading', M.live ? 'live' : 'not live', M.live ? `every 5 seconds · ${clock(M.L.at)}` : String(M.L.err || 'connecting'), M.live ? 'up' : 'down');
-    tile(g, 'VM record', P.made ? when(P.made) : '–', P.mode === 'live' ? 'orders are being sent (demo)' : P.mode ? 'dry run: no orders' : '');
-    tile(g, 'VM timetable', '5 min · 02:15', 'a look every 5 minutes on weekdays; scan and orders at 02:15');
+    tile(g, 'VM record', P.made ? when(P.made) : '–', S().vmSilent() ? 'SILENT: see the note at the top' : P.mode === 'live' ? 'orders are being sent (demo)' : P.mode ? 'dry run: no orders' : '', S().vmSilent() ? 'down' : '');
+    tile(g, 'VM timetable', '5 min · 02:15', 'a look every 5 minutes on weekdays, also during the scan; scan, orders and the check of the orders at 02:15');
     tile(g, 'Daily review', E.length ? E[0].date : '–', 'every morning at 06:47');
     return true;
   }

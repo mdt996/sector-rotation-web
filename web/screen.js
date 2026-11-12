@@ -61,12 +61,21 @@
     wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
   }
   // ---- the practice portfolio (eToro demo account) and its daily review: two small files from the private folder ----
-  let prac = null, review = null, pracAt = 0, pracBusy = false;
+  let prac = null, review = null, audit = null, pracAt = 0, pracBusy = false;
   async function loadPractice(force) {
     if (pracBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - pracAt < 60e3)) return;   // the VM's record: asked again every minute, and at once when eToro shows something it does not explain
     pracBusy = true;
-    try { const j = await window.SRSync.getFile('practice.json'); if (j && j.made) prac = j; const v = await window.SRSync.getFile('review.json'); if (v && v.entries) review = v; } catch (e) { /* keeps the last one */ }
+    try { const j = await window.SRSync.getFile('practice.json'); if (j && j.made) prac = j; const v = await window.SRSync.getFile('review.json'); if (v && v.entries) review = v; const a = await window.SRSync.getFile('audit.json'); if (a && a.made) audit = a; } catch (e) { /* keeps the last one */ }
     const was = pracAt; pracAt = Date.now(); pracBusy = false; if (!was) SRApp.renderDraw('today');   // later readings are picked up by the card's own repaint
+  }
+  // Is the VM silent? Its program writes its record at least every half hour from Monday to Friday (a look every 5 minutes), and once
+  // a night at the weekend. Returns the minutes of silence when that is longer than it should be, else 0. Nothing is said while this
+  // device's own copy of the record is old (the fault would then be the reading, not the VM).
+  function vmSilent() {
+    if (!prac || !prac.made || !pracAt || Date.now() - pracAt > 4 * 60e3) return 0;
+    const age = (Date.now() - Date.parse(prac.made)) / 60e3, d = new Date(), wd = d.getUTCDay(), h = d.getUTCHours() + d.getUTCMinutes() / 60;
+    const week = (wd >= 2 && wd <= 4) || (wd === 1 && h >= 1) || (wd === 5 && h < 21);   // the hours in which the 5-minute looks run, with a margin at both ends
+    return age > (week ? 50 : 31 * 60) ? Math.round(age) : 0;
   }
   // ---- the demo account, live from eToro itself: positions with their running result, waiting orders, cash, closed trades ----
   // The VM's record (practice.json) only adds what eToro does not know: which rule opened a trade and the stop and target it planned.
@@ -276,5 +285,5 @@
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
   let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
-  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
