@@ -47,7 +47,7 @@
     const bCursor = btn('cursor', 'Move and zoom'), bMeasure = btn('measure', 'Measure'), bFib = btn('fib', 'Fibonacci retracement'), bTrend = btn('trend', 'Trend line'), bH = btn('hline', 'Horizontal line');
     tools.appendChild(el('span', 'ch-sep'));
     const bInd = btn('ind', 'Indicators'), bUndo = btn('undo', 'Undo last drawing'), bClear = btn('clear', 'Clear drawings'), bFull = btn('full', 'Fullscreen');
-    const bClose = el('button', 'ch-close', '✕ Close'); bClose.type = 'button'; bClose.setAttribute('aria-label', 'Close the full view'); tools.insertBefore(bClose, tools.firstChild);   // the way back from the full view, always first in the bar
+    const bClose = el('button', 'ch-close'); bClose.append(el('span', '', '✕'), el('span', 'ch-close-w', ' Close')); bClose.type = 'button'; bClose.setAttribute('aria-label', 'Close the full view'); tools.insertBefore(bClose, tools.firstChild);   // the way back from the full view, always first in the bar
     const hint = root.appendChild(el('div', 'ch-hint', ''));
     const noteEl = root.appendChild(el('div', 'ch-note'));   // in full view: what the tapped line or level is
     const main = root.appendChild(el('div', 'ch-main'));
@@ -124,30 +124,69 @@
     candles.attachPrimitive(prim);
     const redraw = () => { if (prim.req) prim.req(); };
 
+    // ---- labels: every text of the chart placed together, so that none covers another ----
+    // While drawing, each text asks for a place (a point, a side) with a priority. The most important are placed first: at their place,
+    // else moved up or down a little (with a thin line to what they name), else shortened, else tried on the other side; what still finds
+    // no room is left out (its line stays; a tap on it explains it). Done again at every frame, so zoom, scroll and resizing re-arrange it.
+    let LB = [];
+    const ask = (o) => { LB.push(o); };
+    const priceOf = (t) => (String(t).match(/[−-]?[\d,]+(\.\d+)?%?$/) || [''])[0];
+    function layout(sc) {
+      const ctx = sc.context, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio, W = sc.bitmapSize.width / hr, H = sc.bitmapSize.height / r;
+      const fs = W < 420 ? 9.5 : W < 700 ? 10 : 10.5, lh = Math.round(fs + 5);
+      ctx.font = `${Math.round(fs * r)}px system-ui, sans-serif`; ctx.textBaseline = 'alphabetic';
+      const taken = [], placed = []; let hidden = 0, short = 0;
+      if (legend.textContent) taken.push({ x: 0, y: 0, w: Math.min(W, legend.offsetWidth + 12), h: 17 });   // the figures under the crosshair, top left
+      const over = (b, t, p) => b.x < t.x + t.w + p && t.x < b.x + b.w + p && b.y < t.y + t.h + 1 && t.y < b.y + b.h + 1;
+      const clash = (b, soft) => b.y < 1 || b.y + b.h > H - 1 || taken.some((t) => over(b, t, 3)) || (soft && candleBoxes.some((t) => over(b, t, 0)));
+      // the candles on screen: a text goes where it hides none if it can
+      const candleBoxes = [], vr = chart.timeScale().getVisibleLogicalRange(), sp = chart.timeScale().options().barSpacing || 6;
+      if (vr) for (let i = Math.max(0, Math.floor(vr.from)); i <= Math.min(bars.length - 1, Math.ceil(vr.to)); i++) { const b = bars[i], x = xOf(b.time), yh = yOf(b.high), yl = yOf(b.low); if (x == null || yh == null || yl == null) continue; candleBoxes.push({ x: x - sp * 0.4, y: yh, w: sp * 0.8, h: Math.max(1, yl - yh) }); }
+      const narrow = W < 480, cap = Math.max(6, Math.floor(H / (narrow ? 36 : 30)));   // on a small chart fewer and shorter texts
+      for (const L of LB) if (L.reserve) taken.push(L.reserve);   // places already used (the measure's box)
+      for (const L of LB.filter((x) => !x.reserve).sort((a, b) => b.pri - a.pri)) {
+        if (!L.must && placed.length >= cap) { hidden++; continue; }
+        const texts = [narrow && L.narrowShort ? null : L.text, L.short, L.tiny, narrow && L.narrowShort && !L.short ? L.text : null].filter((t, i, a) => t && a.indexOf(t) === i), xs = L.xs || [[L.x, L.align || 'left']], steps = L.fixed ? [0] : [0, -1, 1, -2, 2, -3, 3];
+        let got = null;
+        find: for (const soft of [true, false]) for (let ti = 0; ti < texts.length; ti++) { const t = texts[ti], w = ctx.measureText(t).width / hr + (L.pill || L.bg ? 10 : 2);
+          for (const [ax, al] of xs) for (const k of steps) {
+            const x0 = al === 'right' ? ax - w : al === 'center' ? ax - w / 2 : ax, b = { x: Math.max(1, Math.min(W - w - 1, x0)), y: L.y - lh / 2 + k * (lh + 1), w, h: lh };
+            if (!clash(b, soft)) { got = { b, t, k, ax, ti: L.text === t ? 0 : 1 }; break find; } } }
+        if (!got && L.must) { const t = texts[0], w = ctx.measureText(t).width / hr + 10, [ax, al] = xs[0], x0 = al === 'right' ? ax - w : al === 'center' ? ax - w / 2 : ax; got = { b: { x: Math.max(1, Math.min(W - w - 1, x0)), y: L.y - lh / 2, w, h: lh }, t, k: 0, ax, ti: 0 }; }
+        if (!got) { hidden++; continue; }
+        if (got.ti) short++; taken.push(got.b); placed.push({ ...got.b, pri: L.pri, t: got.t });
+        const { b, t } = got, col = L.color || '#787b86';
+        if (got.k) {   // moved up or down from what it names: a thin line back to it
+          const lx = got.ax < b.x ? b.x : got.ax > b.x + b.w ? b.x + b.w : got.ax; ctx.strokeStyle = col; ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(1, r * 0.8); ctx.setLineDash([]);
+          ctx.beginPath(); ctx.moveTo(lx * hr, (b.y + (got.k < 0 ? b.h : 0)) * r); ctx.lineTo(Math.min(W - 2, Math.max(2, got.ax)) * hr, L.y * r); ctx.stroke(); ctx.globalAlpha = 1; }
+        if (L.pill) { ctx.fillStyle = L.pill; roundRect(ctx, b.x * hr, b.y * r, b.w * hr, b.h * r, 4 * r); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(t, (b.x + 5) * hr, (b.y + b.h - 4) * r); }
+        else { if (L.bg) { ctx.fillStyle = dark() ? 'rgba(22,24,30,0.86)' : 'rgba(255,255,255,0.88)'; roundRect(ctx, b.x * hr, b.y * r, b.w * hr, b.h * r, 3 * r); ctx.fill(); }
+          ctx.fillStyle = col; ctx.fillText(t, (b.x + (L.bg ? 5 : 1)) * hr, (b.y + b.h - 4) * r); }
+      }
+      root.__labels = placed; root.dataset.labels = String(placed.length); root.dataset.labelsShort = String(short); root.dataset.labelsLeft = String(hidden);   // for the tests
+      LB = [];
+    }
     function drawBands(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
+      LB = [];
       ctx.font = `${Math.round(10 * r)}px system-ui, sans-serif`;
       if (ind.zones && zones) {
         for (const [[lo, hi], color, label] of [[zones.tp, 'rgba(230,140,20,0.10)', 'High part'], [zones.fair, 'rgba(110,120,140,0.07)', 'Middle'], [zones.acc, 'rgba(26,160,70,0.10)', 'Low part']]) {
           const y1 = yOf(hi), y2 = yOf(lo); if (y1 == null || y2 == null) continue;
           ctx.fillStyle = color; ctx.fillRect(0, Math.round(y1 * r), W, Math.max(1, Math.round((y2 - y1) * r)));
-          if (y2 - y1 > 16) { ctx.fillStyle = 'rgba(120,125,135,0.85)'; ctx.fillText(label, Math.round(6 * hr), Math.round((y1 + 12) * r)); }
+          if (y2 - y1 > 16) ask({ text: label, x: 6, y: y1 + 9, color: 'rgba(120,125,135,0.95)', pri: 20 });
         }
       }
       if (ind.sr && levels.length) {
         const COL = { res: 'rgba(220,60,60,0.85)', sup: 'rgba(22,150,70,0.9)', act: 'rgba(41,98,255,0.95)' };
-        const used = [];
-        for (const lv of [...levels].sort((a, b) => (a.kind === 'act' ? -1 : 0) - (b.kind === 'act' ? -1 : 0))) {
+        const now = bars.length ? bars[bars.length - 1].close : null, near = [...levels].sort((a, b) => (now == null ? 0 : Math.abs(a.p - now) - Math.abs(b.p - now)));
+        for (const lv of levels) {
           const y = yOf(lv.p); if (y == null) continue;
-          const ly = y, clash = used.some((u) => Math.abs(u - ly) < 14); if (!clash) used.push(ly);
+          const ly = y, rank = Math.min(12, near.indexOf(lv));   // the nearer to the price, the more important its words
           ctx.strokeStyle = COL[lv.kind] || COL.act; ctx.lineWidth = Math.max(1, (lv.kind === 'act' ? 1.6 : 1.1) * r);
           ctx.setLineDash(lv.kind === 'act' ? [] : [3 * hr, 3 * hr]);
           ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
-          const txt = `${lv.label} ${fmtP(lv.p)}`, tw = ctx.measureText(txt).width, x = W - tw - Math.round(70 * hr);
-          if (!clash) { // a label that would overlap another is left out; the line stays
-            ctx.fillStyle = dark() ? 'rgba(22,24,30,0.85)' : 'rgba(255,255,255,0.85)'; ctx.fillRect(x - 3 * hr, Math.round((ly - 13) * r), tw + 6 * hr, Math.round(12 * r));
-            ctx.fillStyle = COL[lv.kind] || COL.act; ctx.fillText(txt, x, Math.round((ly - 3) * r));
-          }
+          const Wc = W / hr; ask({ text: `${lv.label} ${fmtP(lv.p)}`, short: `${String(lv.label).split(' + ')[0]} ${fmtP(lv.p)}`, tiny: fmtP(lv.p), xs: [[Wc - 8, 'right'], [8, 'left'], [Wc * 0.55, 'center']], y: ly - 8, color: COL[lv.kind] || COL.act, bg: true, narrowShort: true, pri: (lv.kind === 'act' ? 66 : 52) - rank });
         }
         ctx.setLineDash([]);
       }
@@ -158,7 +197,7 @@
         for (const [p, t] of [[fair.bear, 'Fair value, bear'], [fair.base, 'Fair value, base'], [fair.bull, 'Fair value, bull']]) {
           const y = yOf(p); if (y == null) continue;
           ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
-          ctx.fillStyle = 'rgba(41,98,255,0.95)'; ctx.fillText(`${t} ${fmtP(p)}`, Math.round(6 * hr), Math.round((y - 3) * r));
+          ask({ text: `${t} ${fmtP(p)}`, short: `${t.replace('Fair value, ', 'Fair, ')} ${fmtP(p)}`, tiny: fmtP(p), x: 6, y: y - 8, color: 'rgba(41,98,255,0.95)', bg: true, narrowShort: true, pri: 32 });
         }
         ctx.setLineDash([]);
         void yb;
@@ -167,7 +206,6 @@
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
-      const tagYs = [];
       if (ind.tl) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
         const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xEdge = W / hr;
@@ -178,13 +216,12 @@
           if (d.agree && xLast != null && xLast > x1) { const yl = y1 + (y2 - y1) * (xLast - x1) / (x2 - x1); ctx.beginPath(); ctx.arc(xLast * hr, yl * r, 6 * r, 0, 7); ctx.lineWidth = Math.max(1, 1.6 * r); ctx.stroke(); }   // ring: where the line meets another level today
           for (const q of d.pts || []) { const qx = xOf(q.t), qy = yOf(q.p); if (qx == null || qy == null) continue; ctx.beginPath(); ctx.arc(qx * hr, qy * r, 3 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }
           if (d.tag) {   // what the line is and its value today, at its right end
-            const ye = y1 + (y2 - y1) * (xe - x1) / (x2 - x1), tw = ctx.measureText(d.tag).width + 10 * hr, H = sc.bitmapSize.height;
-            let yt = ye; while (tagYs.some((u) => Math.abs(u - yt) < 16)) yt -= 16;   // tags never sit on top of each other
-            if (yt * r > 14 * r && yt * r < H - 6 * r) { tagYs.push(yt); const bx = xe * hr - tw - 2 * hr, by = (yt - 8) * r; ctx.fillStyle = col; roundRect(ctx, bx, by, tw, 15 * r, 4 * r); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(d.tag, bx + 5 * hr, by + 11 * r); }
+            const ye = y1 + (y2 - y1) * (xe - x1) / (x2 - x1), v = priceOf(d.tag), word = String(d.tag).split(' ')[0];
+            ask({ text: d.tag, short: v ? `${word === 'support' ? 'sup.' : word === 'resistance' ? 'res.' : word} ${v}` : null, tiny: v || null, x: xe - 3, align: 'right', y: ye, pill: col, pri: d.agree ? 72 : d.scale === 'long-term' ? 62 : 56 });
           }
         } else if (d.type === 'box') {
           ctx.fillStyle = 'rgba(138,143,152,0.18)'; ctx.fillRect(x1 * hr, Math.min(y1, y2) * r, (xe - x1) * hr, Math.max(1, Math.abs(y2 - y1) * r));
-          label(ctx, 'gap', x1 * hr + 4 * hr, Math.min(y1, y2) * r - 3 * r, '#8a8f98', 'left');
+          ask({ text: 'gap', x: x1 + 4, y: Math.min(y1, y2) - 8, color: '#8a8f98', pri: 15 });
         }
       }
       if (ind.sig && marks.length) {   // entries of the signals, each with its exit: green = buy, red = sell; the exit dot is green when it worked, red when it failed
@@ -197,8 +234,7 @@
           ctx.beginPath(); ctx.moveTo(x * hr, y0 * r); ctx.lineTo((x - s) * hr, (y0 + d * s * 1.5) * r); ctx.lineTo((x + s) * hr, (y0 + d * s * 1.5) * r); ctx.closePath();
           if (m.tested) { ctx.fillStyle = col; ctx.fill(); } else { ctx.fillStyle = dark() ? '#16181e' : '#fff'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.4 * r); ctx.stroke(); }
           const recent = k >= marks.length - 2 || (lastT && lastT - m.a.t <= 30 * (frame.sec || 86400));   // words only on the latest entries: older ones are explained on tap
-          if (m.tag && recent && sp >= 3) { const tw = ctx.measureText(m.tag).width + 8 * hr, bx = Math.max(2 * hr, Math.min(W - tw - 60 * hr, x * hr - tw / 2)), by = (y0 + d * (s * 1.5 + 4) + (d > 0 ? 0 : -14)) * r;
-            ctx.fillStyle = dark() ? 'rgba(22,24,30,0.9)' : 'rgba(255,255,255,0.92)'; roundRect(ctx, bx, by, tw, 14 * r, 3 * r); ctx.fill(); ctx.fillStyle = col; ctx.fillText(m.tag, bx + 4 * hr, by + 10.5 * r); }
+          if (m.tag && recent && sp >= 3) { const res = (String(m.tag).match(/[✓✗✕×]?\s*[+−-][\d.,]+%$/) || [''])[0]; ask({ text: m.tag, short: `${String(m.tag).split(' · ')[0]}${res ? ' ' + res : ''}`, x, align: 'center', y: y0 + d * (s * 1.5 + 11), color: col, bg: true, narrowShort: true, pri: 80 - (marks.length - 1 - k) }); }
         });
       }
       ctx.lineWidth = Math.max(1, 1.3 * r);
@@ -208,7 +244,7 @@
         const x2 = d.b ? xOf(d.b.t) : null, y2 = d.b ? yOf(d.b.p) : null;
         if (d.type === 'hline') {
           ctx.strokeStyle = '#2962ff'; ctx.beginPath(); ctx.moveTo(0, y1 * r); ctx.lineTo(W, y1 * r); ctx.stroke();
-          label(ctx, fmtP(d.a.p), W - 4 * hr, y1 * r - 4 * r, '#2962ff', 'right');
+          ask({ text: fmtP(d.a.p), x: W / hr - 4, align: 'right', y: y1 - 8, color: '#2962ff', bg: true, pri: 90, must: true });
         } else if (d.type === 'trend' && x2 != null && y2 != null) {
           ctx.strokeStyle = '#2962ff'; ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke();
           for (const [x, y] of [[x1, y1], [x2, y2]]) { ctx.beginPath(); ctx.arc(x * hr, y * r, 3 * r, 0, 7); ctx.fillStyle = '#2962ff'; ctx.fill(); }
@@ -219,7 +255,7 @@
             const next = i < FIB.length - 1 ? yOf(d.b.p - (d.b.p - d.a.p) * FIB[i + 1]) : null;
             if (next != null) { ctx.fillStyle = FIB_COLORS[i] + '14'; ctx.fillRect(left, Math.min(y, next) * r, W - left, Math.abs(next - y) * r); }
             ctx.strokeStyle = FIB_COLORS[i]; ctx.beginPath(); ctx.moveTo(left, y * r); ctx.lineTo(W, y * r); ctx.stroke();
-            label(ctx, `${lv} (${fmtP(p)})`, left + 4 * hr, y * r - 3 * r, FIB_COLORS[i], 'left');
+            ask({ text: `${lv} (${fmtP(p)})`, short: String(lv), x: left / hr + 4, y: y - 7, color: FIB_COLORS[i], bg: true, pri: 40 });
           });
           ctx.setLineDash([4 * hr, 4 * hr]); ctx.strokeStyle = '#787b86'; ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke(); ctx.setLineDash([]);
         }
@@ -239,11 +275,10 @@
           const tw = ctx.measureText(txt).width + 12 * hr;
           ctx.fillStyle = col + '0.95)'; roundRect(ctx, bx, by, tw, 18 * r, 4 * r); ctx.fill();
           ctx.fillStyle = '#fff'; ctx.fillText(txt, bx + 6 * hr, by + 13 * r);
+          LB.push({ text: ' ', x: bx / hr, y: by / r + 9, w0: tw / hr, pri: 1000, fixed: true, reserve: { x: bx / hr, y: by / r, w: tw / hr, h: 18 } });   // its place is kept free
         }
       }
-    }
-    function label(ctx, t, x, y, color, align) {
-      ctx.textAlign = align; ctx.fillStyle = color; ctx.fillText(t, x, y); ctx.textAlign = 'left';
+      layout(sc);
     }
     function roundRect(ctx, x, y, w, h, rad) { ctx.beginPath(); ctx.moveTo(x + rad, y); ctx.arcTo(x + w, y, x + w, y + h, rad); ctx.arcTo(x + w, y + h, x, y + h, rad); ctx.arcTo(x, y + h, x, y, rad); ctx.arcTo(x, y, x + w, y, rad); ctx.closePath(); }
 
@@ -301,11 +336,13 @@
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), y2 = yOf(d.b.p); if (x1 == null || y1 == null || y2 == null || ev.point.x < x1) continue;
         if (ev.point.y >= Math.min(y1, y2) - 4 && ev.point.y <= Math.max(y1, y2) + 4) hit = { p: (d.a.p + d.b.p) / 2, label: d.full || 'gap', kind: d.kind };
       }
-      opts.onPick(hit);
+      opts.onPick(hit ? { ...hit, at: { x: ev.point.x, y: ev.point.y } } : null);   // where the tap was: the explanation opens beside it
     });
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => { if (opts.onPan && !dead) opts.onPan(); });
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
     root.__drawings = () => drawings.length;
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
+    root.__view = () => { const v = chart.timeScale().getVisibleLogicalRange(); return { n: bars.length, from: v ? v.from : null, to: v ? v.to : null }; };   // for the tests: is the newest candle on screen
     root.__future = (ahead) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - 30, to: n + (ahead || 40) }); return new Promise((res) => setTimeout(() => res({ slots: future.length, lastBar: bars[n - 1].time, timeRight: chart.timeScale().coordinateToTime(main.clientWidth - 70), sec: frame.sec }), 300)); };   // for the tests: what the axis shows to the right of the last candle
     root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
@@ -384,16 +421,20 @@
     return {
       setBars(newBars, f, fit) {
         if (dead) return;
+        const n0 = bars.length, vr0 = !fit && n0 ? chart.timeScale().getVisibleLogicalRange() : null, atEnd = !!(vr0 && vr0.to >= n0 - 1.5) && (!f || f.sec === frame.sec);
         bars = newBars; frame = f || frame;
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
         vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
         chart.applyOptions({ timeScale: { timeVisible: frame.sec < 86400 } });
         applyIndicators(); makeFuture();
         if (fit && bars.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - (frame.show || 160)), to: bars.length + 5 });
+        else if (atEnd && bars.length !== n0) { const dn = bars.length - n0; chart.timeScale().setVisibleLogicalRange({ from: vr0.from + dn, to: vr0.to + dn }); }   // new candles came in while the last one was on screen: follow them
       },
       update(bar, isNew) {
         if (dead || !bar) return;
+        const vr0 = isNew && bars.length ? chart.timeScale().getVisibleLogicalRange() : null, atEnd = !!(vr0 && vr0.to >= bars.length - 1.5);
         if (isNew) bars.push(bar); else if (bars.length) Object.assign(bars[bars.length - 1], bar);
+        if (atEnd) chart.timeScale().setVisibleLogicalRange({ from: vr0.from + 1, to: vr0.to + 1 });   // a new candle: the view moves one step with it, as on TradingView
         if (isNew) makeFuture();   // a new candle: the empty slots start after it again
         candles.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
       },

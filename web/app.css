@@ -688,6 +688,21 @@ div.av-pick { max-width: none; }
 .av-mini-go { margin-left: auto; flex: none; color: var(--color-fg-muted); font-size: 16px; }
 .av-mini.is-buy { border-color: var(--av-up, #089981); background: rgba(8, 153, 129, 0.08); font-weight: 600; }
 
+/* the chart's tools fit the width: buttons narrow down before the bar has to scroll; in the full view on a phone the Close button keeps only its cross */
+.ch-tools .ch-btn { flex: 1 1 32px; min-width: 28px; max-width: 38px; }
+@media (max-width: 520px) { .ch-tools { gap: 1px; } .ch-tools .ch-btn { min-width: 25px; } .ch-btn svg { width: 17px; height: 17px; } .ch-sep { margin: 0 2px; } .ch.is-full .ch-close { padding: 0 10px; margin-right: 2px; } }
+/* the full view's top lines stay inside the screen */
+.ch.is-full .ch-slot > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.ch.is-full .ch-slot .av-verdict { overflow: hidden; }
+.ch.is-full .ch-slot .ch-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the explanation of a tapped marker or line: a small card on the chart, beside the tap */
+.av-pick.av-pop { position: absolute; z-index: 6; margin: 0; width: max-content; max-width: min(340px, calc(100% - 70px)); box-sizing: border-box; padding: 9px 28px 9px 11px; font-size: 13px; line-height: 1.35; border-radius: 12px; background: var(--color-panel, #fff); border: 1px solid var(--color-border-line); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18); pointer-events: auto; }
+.av-pop[hidden] { display: none; }
+.av-pop-x { position: absolute; top: 2px; right: 4px; width: 26px; height: 26px; border: 0; background: none; color: var(--color-fg-muted); font-size: 19px; line-height: 1; cursor: pointer; }
+.av-pop .tc-grid { gap: 4px; margin-top: 6px; } .av-pop .tc-cell { padding: 5px 7px; } .av-pop .tc-cell b { font-size: 15px; } .av-pop .tc-cell small { font-size: 10px; } .av-pop .tc-foot { display: none; }
+.av-pop .tc-top { padding-right: 2px; } .av-pop .tc-what { max-width: 9em; }
+
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
   .sr * { box-sizing: border-box; }

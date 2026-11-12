@@ -336,14 +336,22 @@
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
 
     // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
+    // a tap on a marker, a level or a line: what it is, in a small card on the chart beside the tap (no scrolling to find it); closed by its ×,
+    // a tap elsewhere or moving the chart
     let pickBox = null;
     function showPick(hit) {
-      if (!pickBox) { pickBox = el('div', 'av-pick'); box.insertAdjacentElement('afterend', pickBox); }
-      const q = live(), px = q ? q.price : (daily.length ? daily[daily.length - 1].close : null);
-      pickBox.hidden = !hit; pickBox.classList.toggle('is-card', !!(hit && hit.tr));
-      if (hit && hit.tr) { const card = tradeCard(hit.tr); pickBox.replaceChildren(card); if (ch && ch.note) ch.note(card.querySelector('.tc-line').textContent); return; }   // a buy or sell marker: its card
-      if (hit) pickBox.textContent = `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`;
-      if (ch && ch.note) ch.note(hit ? pickBox.textContent : '');   // the same line inside the chart when it is in full view
+      const main = box.querySelector('.ch-main'); if (!main) return;
+      if (!pickBox) { pickBox = el('div', 'av-pick av-pop'); pickBox.hidden = true; }
+      if (pickBox.parentNode !== main) main.appendChild(pickBox);
+      if (ch && ch.note) ch.note('');
+      pickBox.hidden = !hit; if (!hit) return;
+      const q = live(), px = q ? q.price : (daily.length ? daily[daily.length - 1].close : null), x = el('button', 'av-pop-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.addEventListener('click', (e) => { e.stopPropagation(); pickBox.hidden = true; });
+      pickBox.classList.toggle('is-card', !!hit.tr);
+      if (hit.tr) pickBox.replaceChildren(x, tradeCard(hit.tr));   // a buy or sell marker: its card
+      else pickBox.replaceChildren(x, el('div', 'av-pop-t', `${hit.kind === 'res' ? 'Resistance' : hit.kind === 'sup' ? 'Support' : 'Level'} ${fmtP(hit.p)}${px ? ' (' + fmtPct(hit.p / px - 1) + ' from the price)' : ''}: ${hit.label}.`));
+      const W = main.clientWidth - 62, H = main.clientHeight, at = hit.at || { x: W / 2, y: H / 2 }, pw = pickBox.offsetWidth, ph = pickBox.offsetHeight;
+      const top = at.y > H / 2 ? at.y - ph - 14 : at.y + 18;   // above the tap in the lower half, below it in the upper half
+      pickBox.style.left = Math.round(Math.max(4, Math.min(W - pw - 4, at.x - pw / 2))) + 'px'; pickBox.style.top = Math.round(Math.max(4, Math.min(H - ph - 4, top))) + 'px';
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
     const onFull = (on) => { const host = page.closest('.sc-detail'); if (host) host.classList.toggle('is-raised', on);   // the Mac screener panel covers the header only for its own full view
@@ -354,7 +362,7 @@
     const phoneH = () => { const m = box.querySelector('.ch-main'), S = page.closest('.sheet'), head = S && S.querySelector('.search-head'); if (!m) return 0;
       const above = m.getBoundingClientRect().top - page.getBoundingClientRect().top, top = head ? head.getBoundingClientRect().bottom : 0;
       return Math.round(Math.max(300, Math.min(760, window.innerHeight - top - above - 14))); };
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : phone() ? phoneH() : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : phone() ? phoneH() : 0), onPick: (hit) => showPick(hit), onPan: () => { if (pickBox && !pickBox.hidden) pickBox.hidden = true; }, onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     chFit = () => { placeVerdict(); if (ch.fit) ch.fit(); };
     placeVerdict(); requestAnimationFrame(() => { if (!dead) chFit(); });   // sized once the page is laid out
