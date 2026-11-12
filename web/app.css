@@ -654,8 +654,17 @@ div.av-pick { max-width: none; }
 .tabbar button span { font-size: 11px; }
 .t-go { font: inherit; font-size: 14px; font-weight: 600; width: 100%; padding: 10px 12px; margin: 0 0 10px; border-radius: 10px; border: 1px solid var(--sr-c1); background: color-mix(in srgb, var(--sr-c1) 10%, transparent); color: var(--sr-c1); cursor: pointer; text-align: left; }
 
-.t-t4 .t-tr { grid-template-columns: minmax(150px, 2.4fr) repeat(3, minmax(58px, 1fr)); }
+.t-t4 .t-tr { grid-template-columns: minmax(104px, 2fr) repeat(3, minmax(54px, 1fr)); min-width: 0; }
+.t-sub { display: block; font-weight: 400; font-size: 12px; color: var(--color-fg-muted); margin-top: 1px; } .t-sub.up { color: var(--color-ok); } .t-sub.down { color: var(--color-bad); }
+.subtabs[data-tab="trading"] { gap: 5px; } .subtabs[data-tab="trading"] button { padding: 7px 9px; font-size: 13px; }
 .t-alarm { margin: 6px 0 2px; padding: 8px 10px; border: 1px solid currentColor; border-radius: 10px; }
+
+.t-verdict { border: 1px solid var(--color-border-line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+.t-vbig { font-size: 20px; font-weight: 700; } .t-verdict.up .t-vbig { color: var(--color-ok); } .t-verdict.down .t-vbig { color: var(--color-bad); }
+.t-vsub { font-size: 13px; color: var(--color-fg-muted); margin-top: 2px; }
+.t-need { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--color-fg) 10%, transparent); margin-top: 10px; overflow: hidden; } .t-need i { display: block; height: 100%; background: var(--color-accent, #2563eb); border-radius: 3px; }
+.t-fix { display: grid; gap: 4px; margin-bottom: 6px; } .t-fixrow { display: grid; grid-template-columns: 64px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; } .t-fixrow span:last-child { text-align: right; }
+.t-fixbar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--color-fg) 8%, transparent); overflow: hidden; } .t-fixbar i { display: block; height: 100%; background: var(--color-fg-muted); border-radius: 4px; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

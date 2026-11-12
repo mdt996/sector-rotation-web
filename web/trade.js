@@ -227,6 +227,63 @@
     return true;
   }
 
+  // ---- Progress: is the system getting better? ----
+  // Three questions, each answered from the record: does a rule earn money beyond chance, does the program do what its rule says,
+  // and are fewer faults found as the days pass. Nothing here is a forecast.
+  const NEED = 30;                                                             // closed trades before a rule is judged at all
+  const judge = (rs) => {
+    const n = rs.length, mean = n ? rs.reduce((a, b) => a + b, 0) / n : null, sd = n > 1 ? Math.sqrt(rs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1)) : null, m = n >= 5 && sd != null ? 1.96 * sd / Math.sqrt(n) : null;
+    const v = n < NEED ? ['wait', `Too early: ${n} of ${NEED} trades`] : mean - m > 0 ? ['up', 'Earns, beyond chance'] : mean + m < 0 ? ['down', 'Loses, beyond chance'] : ['', 'No proof either way'];
+    return { n, mean, m, cls: v[0], text: v[1] };
+  };
+  const rtxt = (x) => (x == null ? '–' : `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)} R`);
+  function progress(root) {
+    const M = calc(), P = M.P, V = S().review(), A = S().audit(); root.textContent = ''; status(root, M);
+    const mine = M.closed.filter((c) => c.t && c.r != null), all = judge(mine.map((c) => c.r));
+    // 1. the verdict
+    head(root, 'Is there an edge yet?');
+    const top = root.appendChild(el('div', 't-verdict ' + (all.cls === 'wait' ? '' : all.cls)));
+    top.appendChild(el('div', 't-vbig', all.n < NEED ? 'Too early to say' : all.text));
+    top.appendChild(el('div', 't-vsub', all.n < NEED ? `${all.n} of the ${NEED} closed trades needed before any rule can be judged. Until then every figure below is mostly chance.` : `${all.n} closed trades: ${rtxt(all.mean)} per trade, give or take ${all.m.toFixed(2)} R.`));
+    const bar = top.appendChild(el('div', 't-need')); bar.appendChild(el('i')).style.width = Math.min(100, 100 * all.n / NEED) + '%';
+    const tb = root.appendChild(el('div', 't-table t-t4')), hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['Rule', 'Trades', 'Per trade', 'Give or take']) hd.appendChild(el('span', '', h));
+    const rowsOf = (name, list) => { const j = judge(list.map((c) => c.r)), r = tb.appendChild(el('div', 't-tr')); const nm = r.appendChild(el('span', 't-name', name)); nm.appendChild(el('small', 't-sub ' + (j.cls === 'wait' ? '' : j.cls), j.text)); r.appendChild(el('span', '', String(j.n))); r.appendChild(el('span', sign(j.mean), rtxt(j.mean))); r.appendChild(el('span', '', j.m == null ? '–' : '±' + j.m.toFixed(2))); };
+    for (const a of ['buy', 'short', 'fast-buy', 'fast-short']) rowsOf(ARM[a] + (P.paused && P.paused[a] ? ' (paused)' : ''), mine.filter((c) => c.arm === a));
+    rowsOf('All rules', mine);
+    root.appendChild(el('div', 'g-hint', 'R is the money risked on a trade: +1 R is a trade that won what it risked. "Give or take" is the range chance alone can produce on this many trades; a rule is said to earn only when its result stays above zero after taking that range off. A rule with 30 trades and a clearly negative result pauses itself.'));
+    // 2. week by week, and by version of the rules
+    head(root, 'Week by week');
+    const wk = new Map(); for (const c of mine) { const d = new Date(c.at); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const k = d.toISOString().slice(0, 10); if (!wk.has(k)) wk.set(k, []); wk.get(k).push(c); }
+    if (!wk.size) root.appendChild(el('div', 'g-hint', 'No closed trade of the program yet.'));
+    else { const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Week of', 'Trades', 'In R', 'In money']) h2.appendChild(el('span', '', h));
+      for (const [k, list] of [...wk.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 12)) { const r = w.appendChild(el('div', 't-tr')), sr = list.reduce((a, c) => a + c.r, 0), sn = list.reduce((a, c) => a + c.net, 0); r.appendChild(el('span', 't-name', new Date(k).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))); r.appendChild(el('span', '', `${list.length} (${list.filter((c) => c.net > 0).length} won)`)); r.appendChild(el('span', sign(sr), rtxt(sr))); r.appendChild(el('span', sign(sn), usd2(sn))); } }
+    const vers = new Map(); for (const c of mine) { const k = c.t.rules || 1; if (!vers.has(k)) vers.set(k, []); vers.get(k).push(c); }
+    if (vers.size > 1 || (M.rules && M.rules.version > 1)) { head(root, 'By version of the rules'); const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Version', 'Trades', 'Gain %', 'Per trade']) h2.appendChild(el('span', '', h));
+      for (const [k, list] of [...vers.entries()].sort((a, b) => b[0] - a[0])) { const j = judge(list.map((c) => c.r)), r = w.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', `Version ${k}${M.rules && M.rules.version === k ? ' (in force)' : ''}`)); r.appendChild(el('span', '', String(j.n))); r.appendChild(el('span', '', Math.round(100 * list.filter((c) => c.net > 0).length / list.length) + '%')); r.appendChild(el('span', sign(j.mean), rtxt(j.mean))); } }
+    else root.appendChild(el('div', 'g-hint', `Rules: version ${M.rules && M.rules.version ? M.rules.version : 1}, unchanged since the start. When a review changes a rule, the versions are compared here.`));
+    // 3. does the program do what its rule says?
+    head(root, 'Does the program follow its rule?');
+    const H = A && A.history ? A.history.slice().reverse() : [];
+    if (!H.length) root.appendChild(el('div', 'g-hint', 'The first nightly check appears here tomorrow morning.'));
+    else { const last = H[0]; root.appendChild(el('div', 'g-line' + (last.differences || last.missed ? ' g-warn' : ''), `Last check (${last.date}): ${last.trades} trades compared with the rule replayed on eToro's candles; ${last.differences} with a difference, ${last.missed} signal${last.missed === 1 ? '' : 's'} not taken${last.delay != null ? `; orders opened ${Math.round(last.delay)} seconds after the signal` : ''}${last.slipR != null ? `, ${Math.abs(last.slipR).toFixed(2)} R ${last.slipR <= 0 ? 'lost' : 'gained'} on the price` : ''}.`));
+      const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Night', 'Trades', 'Not as the rule', 'Missed']) h2.appendChild(el('span', '', h));
+      for (const x of H.slice(0, 14)) { const r = w.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', new Date(x.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))); r.appendChild(el('span', '', String(x.trades))); r.appendChild(el('span', x.differences ? 'down' : '', String(x.differences))); r.appendChild(el('span', x.missed ? 'down' : '', String(x.missed))); }
+      const fastMine = mine.filter((c) => c.t.fast), fj = judge(fastMine.map((c) => c.r));
+      if (last.replayR != null) root.appendChild(el('div', 'g-line', `What the replay expects from the fast rule: ${rtxt(last.replayR)} per trade before costs, on ${last.replayN} trades. What the real fast trades gave: ${fj.n ? rtxt(fj.mean) + ' after costs, on ' + fj.n + (fj.n < NEED ? ' (too few to compare)' : '') : 'none closed yet'}.`)); }
+    // 4. the question left open on purpose: closing when the signal fades
+    head(root, 'Would closing on a faded signal have helped?');
+    const fd = mine.filter((c) => c.t.fast && c.t.fadedPx > 0 && c.t.stop > 0 && c.t.entry > 0 && Math.abs(c.t.entry - c.t.stop) > 0), shadow = (c) => c.side * (c.t.fadedPx - c.t.entry) / Math.abs(c.t.entry - c.t.stop);
+    if (!fd.length) root.appendChild(el('div', 'g-hint', 'No closed trade yet whose signal faded while it was on. The program reads the signal every 5 minutes and notes the price when it first stops holding; the comparison appears here.'));
+    else { const got = fd.reduce((a, c) => a + c.r, 0), sh = fd.reduce((a, c) => a + shadow(c), 0); root.appendChild(el('div', 'g-line', `${fd.length} closed trade${fd.length === 1 ? '' : 's'} whose signal faded while on: left alone they gave ${rtxt(got)} in all; closed at that moment they would have given ${rtxt(sh)} (before the cost of closing). ${fd.length < 20 ? 'Too few to decide.' : sh > got ? 'Closing would have been better so far.' : 'Leaving them alone was better so far.'}`)); }
+    // 5. faults found and fixed
+    head(root, 'Faults found and fixed');
+    const E = V && V.entries ? V.entries : [], days = new Map(); for (const e of E) { const n = (e.decisions || []).filter((x) => /^(Found|Fixed|ALERT)/i.test(x)).length; days.set(e.date, (days.get(e.date) || 0) + n); }
+    if (!days.size) root.appendChild(el('div', 'g-hint', 'No review yet.'));
+    else { const w = root.appendChild(el('div', 't-fix')); for (const [d, n] of [...days.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14)) { const r = w.appendChild(el('div', 't-fixrow')); r.appendChild(el('span', '', new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))); const b = r.appendChild(el('span', 't-fixbar')); b.appendChild(el('i')).style.width = Math.min(100, n * 12) + '%'; r.appendChild(el('span', '', n ? String(n) : 'none')); }
+      root.appendChild(el('div', 'g-hint', 'Each morning review and each check lists what it found wrong in the program and corrected. A system that is settling shows fewer of them as the days pass; the details are under Review.')); }
+    return true;
+  }
+
   // one watcher for the whole tab: each reading repaints the part on screen; when no part is on screen the readings stop
   const roots = {}; let watching = false;
   const live = (name, fn) => dash.draw(name, (root) => {
@@ -234,5 +291,5 @@
     if (watching) return; watching = true;
     S().demoWatch(() => { let any = false; for (const k in roots) { const [r, f] = roots[k]; if (r.isConnected && !r.closest('[hidden]')) { any = true; if (!document.body.classList.contains('sheet-open')) f(r); } } if (!any) watching = false; return any; });
   });
-  live('trade', overview); live('tradepos', positions); live('tradehist', history); live('tradereview', review);
+  live('trade', overview); live('tradepos', positions); live('tradehist', history); live('tradereview', review); live('tradeprog', progress);
 })();
