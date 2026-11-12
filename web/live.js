@@ -130,7 +130,7 @@
   // Kept on the device (IndexedDB) so that a chart opened before appears at once, and only the candles since the last one
   // kept are asked for. Kept per instrument and timeframe; refreshed in full once a week, or at once when a kept candle no
   // longer matches eToro's (a split or an adjustment).
-  const SEC = { FiveMinutes: 300, FifteenMinutes: 900, OneHour: 3600, FourHours: 14400, OneDay: 86400, OneWeek: 604800 };
+  const SEC = { OneMinute: 60, FiveMinutes: 300, FifteenMinutes: 900, ThirtyMinutes: 1800, OneHour: 3600, FourHours: 14400, OneDay: 86400, OneWeek: 604800 };
   const DB = (() => {
     let dbp = null;
     const open = () => dbp || (dbp = new Promise((res) => {

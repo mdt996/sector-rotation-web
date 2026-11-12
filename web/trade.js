@@ -90,6 +90,56 @@
   const isDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const cssVar = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const cp = (k) => ({ time: k.time, open: k.open, high: k.high, low: k.low, close: k.close, volume: 0 });
+  // ---- the account's value rebuilt for every candle from eToro's own candles of what it held ----
+  // close = starting value + the results of the trades closed by then + each open position's gain at the candle's closing price
+  // (in dollars at the rate eToro applied to that trade); open = the same at the opening prices; high and low = the positions' own
+  // swings inside the candle, combined as independent moves. One fixed amount (the median gap to the real readings: spreads and fees)
+  // brings it onto the readings, and the last candle ends on the live value.
+  const IV = { 1: 'OneMinute', 5: 'FiveMinutes', 15: 'FifteenMinutes', 30: 'ThirtyMinutes', 60: 'OneHour', 240: 'FourHours', 1440: 'OneDay' };
+  const RB = new Map();
+  function heldTrades(M) {
+    const Q = window.SRLive && SRLive.quotes, cv = (id) => { const q = Q && Q.get(id); return q && q.conv > 0 ? q.conv : 1; }, out = [];
+    const rate = (k, d, money, id, entry) => { const c = Math.abs(d) > entry * 1e-6 ? money / (k * d) : NaN; return c > 0 && c < 1e4 ? c : cv(id); };
+    for (const p of M.positions) { const u = +p.o.units || (p.entry > 0 ? p.amount * p.lev / p.entry : 0), k = p.side * u; if (p.id > 0 && isFinite(p.opened) && u > 0) out.push({ id: p.id, k: k * rate(k, p.now - p.entry, p.pl, p.id, p.entry), entry: p.entry, from: p.opened, to: Infinity, net: 0 }); }
+    for (const x of M.closed) { const u = +x.h.units || (x.entry > 0 ? +x.h.investment * x.lev / x.entry : 0), k = x.side * u; if (x.id > 0 && isFinite(x.opened) && isFinite(x.at) && u > 0) out.push({ id: x.id, k: k * rate(k, x.exit - x.entry, x.net + (x.fees || 0), x.id, x.entry), entry: x.entry, from: x.opened, to: x.at, net: x.net }); }
+    return out;
+  }
+  function rebuildFrom(T, rows, step, E0, readings, now) {
+    const tf = step * 60e3, first = Math.min(...T.map((x) => x.from)), from = Math.max(first, now - 990 * tf), at = (id, S) => { const r = rows.get(id) || []; let lo = 0, hi = r.length - 1, best = null; while (lo <= hi) { const m = (lo + hi) >> 1; if (r[m].t <= S) { best = r[m]; lo = m + 1; } else hi = m - 1; } return best; };
+    const done = T.filter((x) => x.to < Infinity).sort((a, b) => a.to - b.to), realized = (E) => { let s = 0; for (const x of done) { if (x.to > E) break; s += x.net; } return s; };
+    const value = (Tm) => { let v = E0 + realized(Tm); for (const x of T) if (x.from <= Tm && x.to > Tm) { const r = at(x.id, Math.floor(Tm / tf) * tf); v += x.k * ((r ? r.close : x.entry) - x.entry); } return v; };
+    const starts = new Set(); for (const [id, r] of rows) for (const c of r) if (c.t >= Math.floor(from / tf) * tf && T.some((x) => x.id === id && x.from < c.t + tf && x.to > c.t)) starts.add(c.t);
+    const bars = [];
+    for (const S of [...starts].sort((a, b) => a - b)) {
+      const E = S + tf; let O = E0 + realized(S), Cl = E0 + realized(Math.min(E, now)), up = 0, dn = 0;
+      for (const x of T) {
+        if (!(x.from < E && x.to > S)) continue;
+        const r = at(x.id, S), exact = r && r.t === S, o = r ? (exact ? r.open : r.close) : x.entry, c = r ? r.close : x.entry;
+        if (x.from <= S) O += x.k * (o - x.entry);
+        if (x.to >= E || x.to === Infinity) Cl += x.k * (c - x.entry);
+        if (exact && x.from <= S && (x.to >= E || x.to === Infinity)) { const a = x.k * (r.high - Math.max(r.open, r.close)), b = x.k * (r.low - Math.min(r.open, r.close)); up += Math.max(a, b, 0) ** 2; dn += Math.min(a, b, 0) ** 2; }
+      }
+      bars.push({ b: S, time: S / 1000, open: O, close: Cl, high: Math.max(O, Cl) + Math.sqrt(up), low: Math.min(O, Cl) - Math.sqrt(dn) });
+    }
+    const offs = readings.filter((p) => p[0] >= from && p[0] <= now).map((p) => p[1] - value(p[0])).sort((a, b) => a - b), off = offs.length ? offs[offs.length >> 1] : 0;
+    for (const k of bars) { k.open += off; k.close += off; k.high += off; k.low += off; }
+    return { bars, off, n: offs.length };
+  }
+  function rbFor(M, step) {
+    const now = Date.now(), cur = RB.get(step) || {};
+    if (!cur.busy && (!cur.at || now - cur.at > 60000) && window.SRLive && SRLive.candles && IV[step]) {
+      cur.busy = true; RB.set(step, cur);
+      (async () => {
+        const T = heldTrades(M); if (!T.length) return null;
+        const tf = step * 60e3, from = Math.max(Math.min(...T.map((x) => x.from)), now - 990 * tf), ids = [...new Set(T.filter((x) => x.to > from).map((x) => x.id))], rows = new Map();
+        await Promise.all(ids.map(async (id) => { const span = Math.max(...T.filter((x) => x.id === id && x.to > from).map((x) => now - Math.max(from, x.from))); rows.set(id, await SRLive.candles(id, IV[step], Math.min(1000, Math.ceil(span / tf) + 3), 1)); }));
+        return rebuildFrom(T, rows, step, M.start || 0, M.curve, Date.now());
+      })().then((r) => { RB.set(step, { at: Date.now(), bars: r ? r.bars : [], off: r ? r.off : 0 }); if (r && r.bars.length) SRApp.renderDraw('trade'); })
+        .catch(() => { RB.set(step, { at: Date.now(), bars: (cur.bars || []), off: cur.off || 0 }); });
+    }
+    return cur.bars ? cur : null;
+  }
+  window.__srRebuild = rebuildFrom; rebuildFrom.reset = () => RB.clear();   // for the tests: the arithmetic alone, on known candles; and a fresh start
   function makeChart(B) {
     B.textContent = '';
     const hdr = B.appendChild(el('div', 't-chhdr')), host = B.appendChild(el('div', 't-tv')), note = B.appendChild(el('div', 'g-hint t-chnote'));
@@ -129,16 +179,24 @@
     // streamed prices), 5- and 15-minute ones also from the VM's look every 5 minutes, 30 minutes and more also from its half-hourly points
     // (dropped where finer points exist). Where nothing was recorded there is no candle (no invented flat ones); a candle opens at the last
     // value before it only when that value is less than one candle old, else at its first value.
-    const step = +ui.tf, fine = C.filter((p) => p[5] <= Math.min(5, step)), fineT = fine.map((p) => p[0]);
+    const step = +ui.tf, RBk = rbFor(M, step);
+    if (RBk && RBk.bars.length >= 2) {   // rebuilt from eToro's candles of what the account held, then the live value on the last one
+      for (const k of RBk.bars) bars.push({ ...k });
+      const now = Date.now(), bk = Math.floor(now / tf) * tf, last = bars[bars.length - 1], v = M.value;
+      if (v > 0 && last.b === bk) { last.close = v; last.high = Math.max(last.high, v); last.low = Math.min(last.low, v); }
+      else if (v > 0 && bk > last.b) bars.push({ b: bk, time: bk / 1000, open: last.close, high: Math.max(last.close, v), low: Math.min(last.close, v), close: v });
+    }
+    const fine = C.filter((p) => p[5] <= Math.min(5, step)), fineT = fine.map((p) => p[0]);
     const near = (T) => { let lo = 0, hi = fineT.length - 1; while (lo <= hi) { const m = (lo + hi) >> 1; if (fineT[m] < T - 30 * 60e3) lo = m + 1; else if (fineT[m] > T) hi = m - 1; else return true; } return false; };
-    const pts = C.filter((p) => p[5] <= step && (p[5] < 30 || !near(p[0])));
+    const pts = bars.length ? [] : C.filter((p) => p[5] <= step && (p[5] < 30 || !near(p[0])));
     let lastT = null;
     for (const p of pts) { const k0 = bars[bars.length - 1], bk = Math.floor(p[0] / tf) * tf, hi = p[3] > 0 ? Math.max(p[3], p[1]) : p[1], lo = p[4] > 0 ? Math.min(p[4], p[1]) : p[1];
       if (!k0 || k0.b !== bk) { const o = k0 && lastT != null && p[0] - lastT <= tf ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; }
       lastT = p[0]; }
     if (!bars.length) { tv.host.hidden = true; tv.note.textContent = step === 1 ? 'No 1-minute candles yet: they come from the minutes this device follows the account (keep the app open), the VM records only every 5 minutes.' : 'No candles of this size yet.'; return; }
     const up = cssVar('--av-up', '#089981'), down = cssVar('--av-down', '#f23645'), muted = isDark() ? '#a0a6b0' : '#5f6672', L = window.LightweightCharts;
-    const sig = ui.tf + '|' + bars[0].b, lineOf = (k) => ({ time: k.time, value: k.close });
+    tv.host.dataset.source = RBk && RBk.bars.length >= 2 ? 'rebuilt' : 'points'; if (RBk) tv.host.dataset.offset = String(Math.round(RBk.off));
+    const sig = ui.tf + '|' + tv.host.dataset.source + '|' + bars[0].b, lineOf = (k) => ({ time: k.time, value: k.close });
     if (tv.sig !== sig || bars.length < tv.n) { tv.api.setBars(bars.map(cp), { sec: tf / 1000, show: 120 }, true); tv.line.setData(bars.map(lineOf)); }
     else for (let i = Math.max(0, tv.n - 1); i < bars.length; i++) { tv.api.update(cp(bars[i]), i >= tv.n); tv.line.update(lineOf(bars[i])); }
     tv.sig = sig; tv.n = bars.length; tv.bars = bars; tv.tf = tf; tv.host.__bars = bars.map((k) => [k.time, k.open, k.high, k.low, k.close]);   // for the tests
