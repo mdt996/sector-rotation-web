@@ -185,6 +185,7 @@
     today: [['', ['today']]],
     portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']]],
     markets: [['Screener', ['screener']], ['Sectors', ['rotboard']], ['All funds', ['ranking']]],
+    trading: [['Overview', ['trade']], ['Positions', ['tradepos']], ['History', ['tradehist']], ['Review', ['tradereview']]],
     plan: [['Plan', ['plan']], ['26-year test', ['backtest']]],
   };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');

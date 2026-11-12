@@ -21,6 +21,10 @@
   <section class="sr-card g-screen" id="pfolio" aria-label="Portfolio"><div data-draw="pfolio"></div></section>
   <section class="sr-card g-screen" id="plan" aria-label="Plan"><div data-draw="plan"></div></section>
   <section class="sr-card g-screen" id="screener" aria-label="Screener"><div data-draw="screener"></div></section>
+  <section class="sr-card g-screen t-screen" id="trade" aria-label="Trading overview"><div data-draw="trade"></div></section>
+  <section class="sr-card g-screen t-screen" id="tradepos" aria-label="Positions"><div data-draw="tradepos"></div></section>
+  <section class="sr-card g-screen t-screen" id="tradehist" aria-label="History"><div data-draw="tradehist"></div></section>
+  <section class="sr-card g-screen t-screen" id="tradereview" aria-label="Rules and review"><div data-draw="tradereview"></div></section>
   <header class="sr-head" id="top">
     <h1 class="sr-title">Sector rotation tracker</h1>
     <p class="sr-lede">
@@ -359,7 +363,7 @@
   </details>
 </div>
 </main>
-<nav class="tabbar" id="tabbar" role="tablist" aria-label="Sections"><button type="button" role="tab" data-tab="today" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span>Today</span></button><button type="button" role="tab" data-tab="portfolio" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg><span>Portfolio</span></button><button type="button" role="tab" data-tab="markets" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-8"/><path d="M22 20H2"/></svg><span>Markets</span></button><button type="button" role="tab" data-tab="plan" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg><span>Plan</span></button></nav>
+<nav class="tabbar" id="tabbar" role="tablist" aria-label="Sections"><button type="button" role="tab" data-tab="today" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span>Today</span></button><button type="button" role="tab" data-tab="portfolio" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg><span>Portfolio</span></button><button type="button" role="tab" data-tab="markets" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-8"/><path d="M22 20H2"/></svg><span>Markets</span></button><button type="button" role="tab" data-tab="trading" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v4"/><rect x="5" y="8" width="4" height="8" rx="1"/><path d="M7 16v4"/><path d="M17 3v3"/><rect x="15" y="6" width="4" height="7" rx="1"/><path d="M17 13v6"/></svg><span>Trading</span></button><button type="button" role="tab" data-tab="plan" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg><span>Plan</span></button></nav>
 <section class="sheet" id="search" hidden aria-label="Search">
   <div class="search-head"><button class="app-icon" id="search-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><input id="search-q" type="search" placeholder="Search eToro: stocks, ETFs, crypto…" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="search"></div>
   <div class="sheet-body search-body"><div id="search-results"></div><div id="search-detail" hidden></div></div>
@@ -433,5 +437,6 @@
 <script src="rotation.js"></script>
 <script src="screen.js"></script>
 <script src="guide.js"></script>
+<script src="trade.js"></script>
 </body>
 </html>

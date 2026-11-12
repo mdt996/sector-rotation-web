@@ -370,6 +370,7 @@
       const name = (o, t) => (t ? t.s : (byId.get(o.instrumentID) || {}).sym || '#' + o.instrumentID);
       if (!D && !P.made) { if (L.err) { body.textContent = ''; body.appendChild(el('div', 'g-line g-muted', L.err === 'no keys' ? 'Add your eToro keys in Settings to see the demo account here.' : `eToro did not give the demo account (answer ${L.err}).`)); } return true; }
       body.textContent = '';
+      { const go = body.appendChild(el('button', 't-go', 'Open the Trading tab: positions, history, statistics, review →')); go.type = 'button'; go.addEventListener('click', () => { const b = document.querySelector('#tabbar [data-tab="trading"]'); if (b) b.click(); }); }
       const row = (o, t, text, right, cls) => {
         const b = body.appendChild(el('button', 'g-wrow')); b.type = 'button'; const sym = name(o, t);
         b.addEventListener('click', () => window.SRScreen.open({ sym, id: o.instrumentID || o.id, name: t ? t.n : (byId.get(o.instrumentID) || {}).name || sym }));
