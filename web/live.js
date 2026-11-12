@@ -568,7 +568,7 @@
       if (!q || !bars.length) return;
       const lastBar = bars[bars.length - 1], now = Math.floor(Date.now() / 1000);
       let bucket = Math.floor(now / frame.sec) * frame.sec;
-      if (frame.sec === 604800) bucket = lastBar.time; // a week: the current candle
+      if (frame.sec === 604800) bucket = now >= lastBar.time + 604800 ? lastBar.time + 604800 : lastBar.time;   // a week: eToro's weeks start on Sunday evening (UTC); a new one once seven days have passed
       if (frame.sec === 86400 && new Date(lastBar.time * 1000).toISOString().slice(0, 10) === new Date(q.at).toISOString().slice(0, 10)) bucket = lastBar.time;
       if (bucket <= lastBar.time) ch.update({ time: lastBar.time, open: lastBar.open, high: Math.max(lastBar.high, q.price), low: Math.min(lastBar.low, q.price), close: q.price, volume: lastBar.volume }, false);
       else if (q.at >= bucket * 1000) ch.update({ time: bucket, open: q.price, high: q.price, low: q.price, close: q.price, volume: 0 }, true);

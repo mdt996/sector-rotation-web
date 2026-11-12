@@ -62,14 +62,22 @@
     }
 
     const up = css('--av-up', '#089981'), down = css('--av-down', '#f23645');
+    // the times under the chart in this device's own time (the library writes UTC); daily and weekly candles keep their calendar date, which is a UTC date
+    function tickText(t, type) {
+      const d = new Date(t * 1000), utc = frame.sec >= 86400, o = utc ? { timeZone: 'UTC' } : {};
+      if (type === 0) return d.toLocaleString([], { year: 'numeric', ...o });
+      if (type === 1) return d.toLocaleString([], { month: 'short', ...o });
+      if (type === 2) return d.toLocaleString([], { day: 'numeric', ...o });
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(type === 4 ? { second: '2-digit' } : {}) });
+    }
     const chart = LW().createChart(main, {
       autoSize: true,
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, attributionLogo: true, panes: { separatorColor: dark() ? '#2a2e39' : '#e0e3eb' } },
       grid: { vertLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.2 } },
-      timeScale: { borderVisible: false, rightOffset: 6, timeVisible: true, secondsVisible: false },
+      timeScale: { borderVisible: false, rightOffset: 6, timeVisible: true, secondsVisible: false, tickMarkFormatter: (t, type) => tickText(t, type) },
       crosshair: { mode: LW().CrosshairMode.Normal },
-      localization: { priceFormatter: fmtP, timeFormatter: (t) => new Date(t * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) },
+      localization: { priceFormatter: fmtP, timeFormatter: (t) => new Date(t * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) },
     });
     const candles = chart.addSeries(LW().CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down });
     const vol = chart.addSeries(LW().HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
@@ -342,6 +350,7 @@
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
     root.__drawings = () => drawings.length;
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
+    root.__tick = tickText;   // for the tests
     root.__view = () => { const v = chart.timeScale().getVisibleLogicalRange(); return { n: bars.length, from: v ? v.from : null, to: v ? v.to : null }; };   // for the tests: is the newest candle on screen
     root.__future = (ahead) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - 30, to: n + (ahead || 40) }); return new Promise((res) => setTimeout(() => res({ slots: future.length, lastBar: bars[n - 1].time, timeRight: chart.timeScale().coordinateToTime(main.clientWidth - 70), sec: frame.sec }), 300)); };   // for the tests: what the axis shows to the right of the last candle
     root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);

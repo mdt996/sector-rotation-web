@@ -59,9 +59,9 @@
     // the account's value over time: the VM's half-hourly points, plus what this device has seen, plus now
     // (a point may carry the highest and lowest value seen since the point before it: the candles' wicks)
     // each point: [time, value, 0, highest, lowest, minutes between points of its source] — the VM's half-hourly points (30), its 5-minute looks (5), this device (1)
-    const m = new Map(); for (const p of (P.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[3], p[4], 30]); for (const p of (P.fine || [])) m.set(Math.round(p[0] / 60e3), [p[1], 0, 0, 5]);
-    for (const p of (L.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[2], p[3], 1]); if (D) m.set(Math.round(Date.now() / 60e3), [Math.round(out.value * 100) / 100, 0, 0, 1]);
-    for (const [k, x] of liveMin) { const o = m.get(k); m.set(k, [o && k === Math.round(Date.now() / 60e3) ? o[0] : x.last, Math.max(x.hi, o && o[1] > 0 ? o[1] : 0), Math.min(x.lo, o && o[2] > 0 ? o[2] : Infinity), 1]); }
+    const m = new Map(); for (const p of (P.curve || [])) m.set(Math.floor(p[0] / 60e3), [p[1], p[3], p[4], 30]); for (const p of (P.fine || [])) m.set(Math.floor(p[0] / 60e3), [p[1], 0, 0, 5]);
+    for (const p of (L.curve || [])) m.set(Math.floor(p[0] / 60e3), [p[1], p[2], p[3], 1]); if (D) m.set(Math.floor(Date.now() / 60e3), [Math.round(out.value * 100) / 100, 0, 0, 1]);
+    for (const [k, x] of liveMin) { const o = m.get(k); m.set(k, [o && k === Math.floor(Date.now() / 60e3) ? o[0] : x.last, Math.max(x.hi, o && o[1] > 0 ? o[1] : 0), Math.min(x.lo, o && o[2] > 0 ? o[2] : Infinity), 1]); }
     out.curve = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k * 60e3, v[0], 0, v[1], v[2], v[3]]).filter((p) => p[1] > 0);
     const C = out.curve, base = out.start || (C.length ? C[0][1] : null), last = C.length ? C[C.length - 1][1] : out.value;
     const at = (ms) => { let v = null; for (const p of C) { if (p[0] <= ms) v = p[1]; else break; } return v; }, mid = new Date(); mid.setHours(0, 0, 0, 0);
@@ -125,14 +125,23 @@
     if (C.length < 2) { tv.host.hidden = true; tv.note.textContent = 'The chart fills in as the account is followed: one point every 5 minutes from the VM, and every reading of this device.'; return; }
     tv.host.hidden = false;
     const tf = +ui.tf * 60e3, bars = [];
-    let pts = +ui.tf < 30 ? C.filter((p) => p[5] <= 5) : C; if (pts.length < 2) pts = C;    // short candles only from points that are close enough: the half-hourly points would make false flat candles
+    // A candle is built only from points at least as fine as itself: 1-minute candles from the minutes this device saw (its readings and the
+    // streamed prices), 5- and 15-minute ones also from the VM's look every 5 minutes, 30 minutes and more also from its half-hourly points
+    // (dropped where finer points exist). Where nothing was recorded there is no candle (no invented flat ones); a candle opens at the last
+    // value before it only when that value is less than one candle old, else at its first value.
+    const step = +ui.tf, fine = C.filter((p) => p[5] <= Math.min(5, step)), fineT = fine.map((p) => p[0]);
+    const near = (T) => { let lo = 0, hi = fineT.length - 1; while (lo <= hi) { const m = (lo + hi) >> 1; if (fineT[m] < T - 30 * 60e3) lo = m + 1; else if (fineT[m] > T) hi = m - 1; else return true; } return false; };
+    const pts = C.filter((p) => p[5] <= step && (p[5] < 30 || !near(p[0])));
+    let lastT = null;
     for (const p of pts) { const k0 = bars[bars.length - 1], bk = Math.floor(p[0] / tf) * tf, hi = p[3] > 0 ? Math.max(p[3], p[1]) : p[1], lo = p[4] > 0 ? Math.min(p[4], p[1]) : p[1];
-      if (!k0 || k0.b !== bk) { const o = k0 ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; } }
+      if (!k0 || k0.b !== bk) { const o = k0 && lastT != null && p[0] - lastT <= tf ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; }
+      lastT = p[0]; }
+    if (!bars.length) { tv.host.hidden = true; tv.note.textContent = step === 1 ? 'No 1-minute candles yet: they come from the minutes this device follows the account (keep the app open), the VM records only every 5 minutes.' : 'No candles of this size yet.'; return; }
     const up = cssVar('--av-up', '#089981'), down = cssVar('--av-down', '#f23645'), muted = isDark() ? '#a0a6b0' : '#5f6672', L = window.LightweightCharts;
     const sig = ui.tf + '|' + bars[0].b, lineOf = (k) => ({ time: k.time, value: k.close });
     if (tv.sig !== sig || bars.length < tv.n) { tv.api.setBars(bars.map(cp), { sec: tf / 1000, show: 120 }, true); tv.line.setData(bars.map(lineOf)); }
     else for (let i = Math.max(0, tv.n - 1); i < bars.length; i++) { tv.api.update(cp(bars[i]), i >= tv.n); tv.line.update(lineOf(bars[i])); }
-    tv.sig = sig; tv.n = bars.length; tv.bars = bars; tv.tf = tf;
+    tv.sig = sig; tv.n = bars.length; tv.bars = bars; tv.tf = tf; tv.host.__bars = bars.map((k) => [k.time, k.open, k.high, k.low, k.close]);   // for the tests
     tv.candles.applyOptions({ visible: ui.style !== 'line' }); tv.line.applyOptions({ visible: ui.style === 'line' });
     if (M.start > 0 && tv.startAt !== M.start) { if (tv.startLine) tv.candles.removePriceLine(tv.startLine); tv.startAt = M.start; tv.startLine = tv.candles.createPriceLine({ price: M.start, color: muted, lineWidth: 1, lineStyle: L.LineStyle ? L.LineStyle.Dashed : 2, axisLabelVisible: true, title: 'start' }); }
     // the S&P 500 over the same hours, set to the account's value at the first point they share
@@ -171,7 +180,7 @@
     if (!A || !page || !tv || !tv.host.isConnected) { if (liveOff) { liveOff(); liveOff = null; } if (S && S.want) S.want('demo', []); return; }
     let d = 0, moved = false; for (const p of A.pos) { const q = S.quotes.get(p.id); if (!q || !(q.price > 0)) continue; if (p.base == null) { p.base = q.price; continue; } if (Math.abs(q.price / p.base - 1) > 0.1) continue; if (q.price !== p.base) moved = true; d += p.k * (q.price - p.base); }   // a jump of more than 10% within seconds is a wrong price, not a move
     if (!moved && tv.liveV === A.value) return;
-    const v = Math.round((A.value + d) * 100) / 100, now = Date.now(), mk = Math.round(now / 60e3); tv.liveV = v;
+    const v = Math.round((A.value + d) * 100) / 100, now = Date.now(), mk = Math.floor(now / 60e3); tv.liveV = v;
     const x = liveMin.get(mk); if (x) { x.hi = Math.max(x.hi, v); x.lo = Math.min(x.lo, v); x.last = v; } else liveMin.set(mk, { hi: v, lo: v, last: v });
     for (const k of liveMin.keys()) if (k < mk - 360) liveMin.delete(k);                     // six hours in memory; the device's own points keep the rest
     showValue(page, v); page.classList.add('t-tick'); tv.host.dataset.live = String((+tv.host.dataset.live || 0) + 1); tv.host.dataset.v = String(v);
