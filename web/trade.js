@@ -16,7 +16,7 @@
   const ARM = { buy: 'Nightly buys', short: 'Nightly shorts', 'fast-buy': 'Fast buys (1-hour)', 'fast-short': 'Fast shorts (1-hour)', hand: 'Opened by hand' };
   const FASTCLS = { 27: 'Indices', 28: 'Indices', 29: 'Indices', 32: 'Indices', 30: 'Indices', 31: 'Indices', 36: 'Indices', 18: 'Commodity', 19: 'Commodity', 17: 'Commodity', 1: 'Forex', 2: 'Forex', 5: 'Forex', 6: 'Forex', 4: 'Forex', 7: 'Forex' };
   const FASTSYM = { 27: 'SPX500', 28: 'NSDQ100', 29: 'DJ30', 32: 'GER40', 30: 'UK100', 31: 'FRA40', 36: 'JPN225', 18: 'GOLD', 19: 'SILVER', 17: 'OIL', 1: 'EURUSD', 2: 'GBPUSD', 5: 'USDJPY', 6: 'USDCHF', 4: 'USDCAD', 7: 'AUDUSD' };
-  const ui = { range: 'all', arm: 'all', sort: 'pl' };
+  const ui = { range: 'all', arm: 'all', sort: 'pl', tf: '60', style: 'candles', bench: false };
 
   // ---- one reading of everything, worked into the figures every part of the tab uses ----
   function calc() {
@@ -53,8 +53,9 @@
       expR: rs.length ? sum(rs, (c) => c.r) / rs.length : null, best: cl.length ? cl.reduce((a, b) => (b.net > a.net ? b : a)) : null, worst: cl.length ? cl.reduce((a, b) => (b.net < a.net ? b : a)) : null, hold: cl.filter((c) => c.at > c.opened).length ? sum(cl.filter((c) => c.at > c.opened), (c) => c.at - c.opened) / cl.filter((c) => c.at > c.opened).length : null, fees: sum(cl, (c) => c.fees) + out.feesOpen,
       target: cl.filter((c) => c.how === 'target').length, stop: cl.filter((c) => c.how === 'stop').length, time: cl.filter((c) => c.how === 'time limit').length };
     // the account's value over time: the VM's half-hourly points, plus what this device has seen, plus now
-    const m = new Map(); for (const p of (P.curve || [])) m.set(Math.round(p[0] / 60e3), p[1]); for (const p of (L.curve || [])) m.set(Math.round(p[0] / 60e3), p[1]); if (D) m.set(Math.round(Date.now() / 60e3), Math.round(out.value * 100) / 100);
-    out.curve = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k * 60e3, v]).filter((p) => p[1] > 0);
+    // (a point may carry the highest and lowest value seen since the point before it: the candles' wicks)
+    const m = new Map(); for (const p of (P.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[3], p[4]]); for (const p of (L.curve || [])) m.set(Math.round(p[0] / 60e3), [p[1], p[2], p[3]]); if (D) m.set(Math.round(Date.now() / 60e3), [Math.round(out.value * 100) / 100]);
+    out.curve = [...m.entries()].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k * 60e3, v[0], 0, v[1], v[2]]).filter((p) => p[1] > 0);
     const C = out.curve, base = out.start || (C.length ? C[0][1] : null), last = C.length ? C[C.length - 1][1] : out.value;
     const at = (ms) => { let v = null; for (const p of C) { if (p[0] <= ms) v = p[1]; else break; } return v; }, mid = new Date(); mid.setHours(0, 0, 0, 0);
     let peak = base || 0, dd = 0; for (const p of C) { if (p[1] > peak) peak = p[1]; if (peak > 0) dd = Math.min(dd, p[1] / peak - 1); }
@@ -76,8 +77,61 @@
     if (quiet) box.appendChild(el('div', 'g-line g-warn t-alarm', `No sign of the VM for ${span(quiet * 60e3)} (its record should be at most half an hour old). Until it is back: no new order, no close at a time limit, and no watch on the stops eToro does not hold. The stops and targets that sit on eToro still work.`));
   }
 
-  // ---- the value curve ----
+  // ---- the account's value as a chart of candles (the TradingView Lightweight Charts library the asset charts already use) ----
+  // The chart is made once and kept: each 5-second reading only updates the last candle, so zoom and position are not lost.
+  let tv = null;
+  const isDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const cssVar = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   function chart(box, M) {
+    const L = window.LightweightCharts, C = M.curve;
+    if (!L || !L.createChart) return chartPlain(box, M);
+    const bar = box.appendChild(el('div', 't-chips')), chip = (key, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (ui[key] === val ? ' on' : ''), label)); b.type = 'button'; b.addEventListener('click', () => { ui[key] = key === 'bench' ? !ui.bench : val; SRApp.renderDraw('trade'); }); return b; };
+    for (const [k, l] of [['30', '30 min'], ['60', '1 hour'], ['240', '4 hours'], ['1440', '1 day']]) chip('tf', k, l);
+    bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
+    bar.appendChild(el('span', 't-sep', '·')); const bb = chip('bench', true, 'S&P 500'); bb.classList.toggle('on', !!ui.bench);
+    if (C.length < 2) { box.appendChild(el('div', 'g-hint', 'The chart fills in as the account is followed: one point every half hour from the VM, and every reading of this device.')); return; }
+    const tf = +ui.tf * 60e3, sh = -new Date().getTimezoneOffset() * 60, bars = [];        // times are shifted so that the axis shows this device's own clock
+    for (const p of C) { const k0 = bars[bars.length - 1], bk = Math.floor(p[0] / tf) * tf, hi = p[3] > 0 ? Math.max(p[3], p[1]) : p[1], lo = p[4] > 0 ? Math.min(p[4], p[1]) : p[1];
+      if (!k0 || k0.b !== bk) { const o = k0 ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000 + sh, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; } }
+    const up = cssVar('--av-up', '#089981'), down = cssVar('--av-down', '#f23645'), muted = isDark() ? '#a0a6b0' : '#5f6672';
+    if (!tv) {
+      const host = el('div', 't-tv'), legend = el('div', 't-legend');
+      const ch = L.createChart(host, { autoSize: true, layout: { background: { type: 'solid', color: 'transparent' }, textColor: muted, fontSize: 11, attributionLogo: true },
+        grid: { vertLines: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.1 } }, timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
+        crosshair: { mode: L.CrosshairMode.Normal }, handleScroll: { vertTouchDrag: false }, localization: { priceFormatter: (v) => '$' + Math.round(v).toLocaleString('en-US') } });   // a vertical swipe still scrolls the page
+      const candles = ch.addSeries(L.CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down, priceLineVisible: true });
+      const line = ch.addSeries(L.AreaSeries || L.LineSeries, { lineColor: cssVar('--sr-c1', '#2563eb'), topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: cssVar('--sr-c1', '#2563eb'), lineWidth: 2, visible: false });
+      const bench = ch.addSeries(L.LineSeries, { color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false });
+      tv = { host, legend, ch, candles, line, bench, marks: L.createSeriesMarkers ? L.createSeriesMarkers(candles, []) : null, sig: '', n: 0, bars: [], hover: null };
+      ch.subscribeCrosshairMove((p) => { tv.hover = p && p.time != null ? tv.bars.find((k) => k.time === p.time) || null : null; tv.say(); });
+      tv.say = () => { const k = tv.hover || tv.bars[tv.bars.length - 1]; if (!k) return; const d = k.close - k.open, f = (v) => Math.round(v).toLocaleString('en-US');
+        tv.legend.textContent = ''; tv.legend.appendChild(el('span', 't-leg-t', new Date(k.b).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
+        for (const [n, v] of [['O', k.open], ['H', k.high], ['L', k.low], ['C', k.close]]) { tv.legend.appendChild(el('span', 't-leg-k', n)); tv.legend.appendChild(el('span', '', f(v))); }
+        tv.legend.appendChild(el('span', sign(d), `${usd2(d)} (${pc(k.open ? 100 * d / k.open : 0)})`)); };
+    }
+    box.appendChild(tv.legend); box.appendChild(tv.host); tv.bars = bars;
+    const sig = ui.tf + '|' + bars[0].b, lineOf = (k) => ({ time: k.time, value: k.close });
+    if (tv.sig !== sig || bars.length < tv.n) { tv.candles.setData(bars); tv.line.setData(bars.map(lineOf)); tv.ch.timeScale().fitContent(); }
+    else for (const k of bars.slice(Math.max(0, tv.n - 1))) { tv.candles.update(k); tv.line.update(lineOf(k)); }
+    tv.sig = sig; tv.n = bars.length;
+    tv.candles.applyOptions({ visible: ui.style !== 'line' }); tv.line.applyOptions({ visible: ui.style === 'line' });
+    if (M.start > 0 && !tv.startLine) tv.startLine = tv.candles.createPriceLine({ price: M.start, color: muted, lineWidth: 1, lineStyle: L.LineStyle ? L.LineStyle.Dashed : 2, axisLabelVisible: true, title: 'start' });
+    // the S&P 500 over the same hours, set to the account's value at the first point they share
+    const B = M.P.bench, bp = new Map(); if (B && B.px > 0 && B.value > 0) for (const p of (M.P.curve || [])) if (p[2] > 0) bp.set(Math.floor(p[0] / tf) * tf / 1000 + sh, +(B.value * p[2] / B.px).toFixed(2));
+    tv.bench.setData([...bp.entries()].sort((x, y) => x[0] - y[0]).map(([time, value]) => ({ time, value }))); tv.bench.applyOptions({ visible: !!ui.bench && bp.size > 1 });
+    // where the program's trades opened and closed
+    if (tv.marks) { const have = new Set(bars.map((k) => k.time)), at = (ms) => Math.floor(ms / tf) * tf / 1000 + sh, mk = [];
+      for (const p of M.positions) if (p.t && isFinite(p.opened) && have.has(at(p.opened))) mk.push({ time: at(p.opened), position: 'belowBar', color: p.side > 0 ? up : down, shape: p.side > 0 ? 'arrowUp' : 'arrowDown', text: p.sym });
+      for (const c of M.closed) if (c.t && isFinite(c.at) && have.has(at(c.at))) mk.push({ time: at(c.at), position: 'aboveBar', color: c.net >= 0 ? up : down, shape: 'circle', text: `${c.sym} ${c.net >= 0 ? '+' : '−'}$${Math.round(Math.abs(c.net))}` });
+      mk.sort((x, y) => x.time - y.time); tv.marks.setMarkers(mk.slice(-80)); tv.host.dataset.marks = String(mk.length); }
+    tv.host.dataset.bars = String(bars.length); tv.host.dataset.wicks = String(bars.filter((k) => k.high > Math.max(k.open, k.close) + 0.005 || k.low < Math.min(k.open, k.close) - 0.005).length); tv.host.dataset.bench = String(ui.bench ? bp.size : 0); tv.say();
+    const lo0 = Math.min(...bars.map((k) => k.low)), hi0 = Math.max(...bars.map((k) => k.high));
+    box.appendChild(el('div', 'g-hint', `Since the first reading: ${usd2(C[C.length - 1][1] - C[0][1])} (${pc(100 * (C[C.length - 1][1] / C[0][1] - 1))}), low ${usd(lo0)}, high ${usd(hi0)}. Drag to move, pinch or scroll to zoom. Arrows: a trade of the program opened; dots: one closed, with its result. The dashed line is the starting value${ui.bench ? '; the orange line is the S&P 500 over the same hours' : ''}.`));
+  }
+
+  // the plain curve, used only if the chart library is not there
+  function chartPlain(box, M) {
     const bar = box.appendChild(el('div', 't-chips'));
     for (const [k, l] of [['1d', '1 day'], ['1w', '1 week'], ['1m', '1 month'], ['all', 'All']]) { const b = bar.appendChild(el('button', 't-chip' + (ui.range === k ? ' on' : ''), l)); b.type = 'button'; b.addEventListener('click', () => { ui.range = k; SRApp.renderDraw('trade'); }); }
     const from = ui.range === '1d' ? Date.now() - 864e5 : ui.range === '1w' ? Date.now() - 7 * 864e5 : ui.range === '1m' ? Date.now() - 30 * 864e5 : 0, C = M.curve.filter((p) => p[0] >= from);

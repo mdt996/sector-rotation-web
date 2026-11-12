@@ -82,7 +82,7 @@
   let demo = null, demoAt = 0, demoErr = null, demoBusy = false, demoTimer = null, hist = null, histAt = 0, lastKey = ''; const painters = new Set();
   // the account's value over time, as this device has seen it (one point every 10 minutes, kept for 90 days)
   let curve = []; try { curve = JSON.parse(localStorage.getItem('sr.demoCurve') || '[]'); } catch (e) { curve = []; }
-  const point = (v) => { const now = Date.now(), last = curve[curve.length - 1]; if (!(v > 0)) return; if (last && now - last[0] < 10 * 60e3) { last[1] = Math.round(v * 100) / 100; return; } curve.push([now, Math.round(v * 100) / 100]); curve = curve.filter((p) => now - p[0] < 90 * 864e5).slice(-6000); try { localStorage.setItem('sr.demoCurve', JSON.stringify(curve)); } catch (e) { /* storage full or closed */ } };
+  const point = (v) => { const now = Date.now(), last = curve[curve.length - 1]; if (!(v > 0)) return; const r = Math.round(v * 100) / 100; if (last && now - last[0] < 10 * 60e3) { last[2] = Math.max(last[2] || last[1], r); last[3] = Math.min(last[3] || last[1], r); last[1] = r; return; } curve.push([now, r, r, r]); curve = curve.filter((p) => now - p[0] < 90 * 864e5).slice(-6000); try { localStorage.setItem('sr.demoCurve', JSON.stringify(curve)); } catch (e) { /* storage full or closed */ } };
   async function demoRead() {
     if (demoBusy || document.hidden || !window.SRApp || !SRApp.etoroGet) return;
     demoBusy = true;
