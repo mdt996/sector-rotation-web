@@ -349,6 +349,52 @@
     return { n, mean, m, cls: v[0], text: v[1] };
   };
   const rtxt = (x) => (x == null ? '–' : `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)} R`);
+  // ---- Sharpe ratios: the yearly gain divided by its yearly swings, from daily results ----
+  const sharpe = (r) => { const n = r.length; if (n < 10) return null; const m = r.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(r.reduce((a, b) => a + (b - m) * (b - m), 0) / (n - 1)); if (!(sd > 0)) return null; const s = (m / sd) * Math.sqrt(252); return { s, n, give: 1.96 * Math.sqrt((1 + (s * s) / 2) / (n / 252)), yr: 252 * m, vol: sd * Math.sqrt(252) }; };   // give: 95% range of the estimate
+  const corr = (a, b) => { const n = Math.min(a.length, b.length); if (n < 10) return null; const ma = a.reduce((x, y) => x + y, 0) / n, mb = b.reduce((x, y) => x + y, 0) / n; let c = 0, va = 0, vb = 0; for (let i = 0; i < n; i++) { c += (a[i] - ma) * (b[i] - mb); va += (a[i] - ma) ** 2; vb += (b[i] - mb) ** 2; } return va > 0 && vb > 0 ? c / Math.sqrt(va * vb) : null; };
+  const stx = (x) => (x == null ? '–' : (x.s < 0 ? '−' : '') + Math.abs(x.s).toFixed(2));
+  function sharpeTable(root, rows) {
+    const w = root.appendChild(el('div', 't-table t-t4')), h = w.appendChild(el('div', 't-tr t-th')); for (const x of ['Holding', 'Sharpe', 'Give or take', 'Moves with S&P']) h.appendChild(el('span', '', x));
+    for (const [name, sub, x, c] of rows) { const r = w.appendChild(el('div', 't-tr')), nm = r.appendChild(el('span', 't-name', name)); if (sub) nm.appendChild(el('small', 't-sub', sub)); r.appendChild(el('span', x ? sign(x.s) : '', stx(x))); r.appendChild(el('span', '', x ? '±' + x.give.toFixed(1) : '–')); r.appendChild(el('span', '', c == null ? '–' : (c < -0.005 ? '−' : '') + Math.abs(c).toFixed(2))); }
+    return w;
+  }
+  // the best size of a trading part laid over the 1x holding, on these days: from none to 20 times today's
+  const bestSize = (sp, f) => { let best = { k: 0, s: sharpe(sp) }; for (let k = 0.5; k <= 20; k += 0.5) { const x = sharpe(sp.map((v, i) => v + k * f[i])); if (x && best.s && x.s > best.s.s + 1e-9) best = { k, s: x }; } return best; };
+  function sharpeTest(root, M, A, costR) {
+    const P = M.P, D = A && A.daily && Array.isArray(A.daily.days) ? A.daily : null;
+    // 1. the fast rule, replayed by the nightly check on eToro's 1-hour candles, day by day beside the S&P 500 (weekend days count on the Monday)
+    if (!D || D.days.length < 21) root.appendChild(el('div', 'g-hint', "The nightly check replays the fast rule on eToro's candles day by day; this test appears after its next run."));
+    else {
+      const risk = D.risk || 0.001, c = costR != null && isFinite(costR) ? costR : 0, sp = [], f = [], fn = []; let carry = [0, 0, 0, 0], prev = null, from = null, to = null;
+      for (const [k, px, R, n, Rn, nn] of D.days) {
+        const wd = new Date(k + 'T12:00:00Z').getUTCDay(); carry = [carry[0] + R, carry[1] + n, carry[2] + Rn, carry[3] + nn];
+        if (wd === 0 || wd === 6 || !(px > 0)) continue;
+        if (prev) { sp.push(px / prev - 1); f.push(risk * (carry[0] - c * carry[1])); fn.push(risk * (carry[2] - c * carry[3])); if (!from) from = k; to = k; }
+        prev = px; carry = [0, 0, 0, 0];
+      }
+      const sS = sharpe(sp), sF = sharpe(f), sN = sharpe(fn), mix = (k, g) => sharpe(sp.map((v, i) => v + k * g[i])), bF = bestSize(sp, f), bN = bestSize(sp, fn);
+      root.appendChild(el('div', 'g-line', `On ${sp.length} market days (${from} to ${to}) of the fast rule replayed on eToro's candles, ${c ? `after the costs measured on the demo's trades (${rtxt(-c)} each)` : 'before costs (none measured yet)'}, each trade risking ${(risk * 100).toFixed(1)}% of the account:`));
+      sharpeTable(root, [
+        ['S&P 500 alone, 1x', 'the plain holding', sS, 1],
+        ['Fast rule alone', 'as it trades today', sF, corr(f, sp)],
+        ['S&P 500 + fast rule', "at today's size", mix(1, f), corr(sp.map((v, i) => v + f[i]), sp)],
+        ['S&P 500 + fast rule', '5 times the size', mix(5, f), corr(sp.map((v, i) => v + 5 * f[i]), sp)],
+        ['Fast rule without target', 'alone', sN, corr(fn, sp)],
+        ['S&P 500 + no-target rule', '5 times the size', mix(5, fn), corr(sp.map((v, i) => v + 5 * fn[i]), sp)],
+      ]).classList.add('t-sharpe');
+      const d = (mix(1, f) && sS) ? mix(1, f).s - sS.s : null, say = (b, nm) => (b.k === 0 ? `adding the ${nm} at any size lowers the ratio: on these days it does not help` : `the ratio is highest with the ${nm} at about ${b.k} times today's size (${stx(b.s)})`);
+      root.appendChild(el('div', 'g-line', `${d == null ? '' : `At today's size the fast rule moves the S&P 500's ratio by ${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(2)}, against a range of ±${sS.give.toFixed(1)} that chance alone gives on so few days. `}On these days ${say(bF, 'rule as it is')}; ${say(bN, 'no-target version')}. ${sS && Math.abs((bF.s ? bF.s.s : sS.s) - sS.s) < sS.give ? 'Every difference is far inside the range of chance: nothing is proven either way yet.' : 'The difference is larger than chance alone would give on these days, but the replay is not real trading: confirm it on the demo first.'}`));
+      root.appendChild(el('div', 'g-hint', "Sharpe ratio: the yearly gain divided by its yearly swings (above 1 is good, the S&P 500 has given about 0.4–0.5 over decades). \"Give or take\" is the 95% range of the estimate from this many days: two holdings are told apart only when they differ by more. \"Moves with S&P\" is the correlation of the daily results: 0 = independent, 1 = the same moves; an independent part that earns raises the ratio of the whole, one that loses after costs lowers it. Leverage alone never raises the ratio: it scales the gain and the swings together, and its financing costs lower it. The replay is before slippage and leaves out the nightly part."));
+    }
+    // 2. the demo itself, from its own value at the end of each day and the S&P 500 recorded beside it
+    const C = (P.curve || []).filter((p) => p[1] > 0 && p[2] > 0), byDay = new Map(); for (const p of C) byDay.set(new Date(p[0]).toISOString().slice(0, 10), p);
+    const dd = [...byDay.values()].sort((a, b) => a[0] - b[0]), ra = [], rs = []; for (let i = 1; i < dd.length; i++) { ra.push(dd[i][1] / dd[i - 1][1] - 1); rs.push(dd[i][2] / dd[i - 1][2] - 1); }
+    if (ra.length < 20) root.appendChild(el('div', 'g-hint', `The demo itself: ${ra.length} ${ra.length === 1 ? 'day' : 'days'} with the S&P 500 beside it so far. Its own figures appear here after 20 days, and mean something after several months.`));
+    else { root.appendChild(el('div', 'g-line', `The demo itself, on ${ra.length} days (its money is mostly cash, so "S&P 500 + demo" is the 1x holding plus the demo's daily change):`)); sharpeTable(root, [['S&P 500 alone, 1x', '', sharpe(rs), 1], ['Demo account', 'both parts', sharpe(ra), corr(ra, rs)], ['S&P 500 + demo', '', sharpe(rs.map((v, i) => v + ra[i])), corr(rs.map((v, i) => v + ra[i]), rs)]]); }
+    const nightly = M.closed.filter((c) => c.t && c.r != null && !c.t.fast).length;
+    if (!nightly) root.appendChild(el('div', 'g-hint', 'The nightly part has no closed trade yet, and no replay of it exists: it is left out of this test until it has a record.'));
+  }
+
   function progress(root) {
     const M = calc(), P = M.P, V = S().review(), A = S().audit(); root.textContent = ''; status(root, M);
     const mine = M.closed.filter((c) => c.t && c.r != null), all = judge(mine.map((c) => c.r));
@@ -394,6 +440,8 @@
     else root.appendChild(el('div', 'g-hint', 'The S&P 500 is recorded beside the account from the next half hour on; the comparison appears here.'));
     const withCost = mine.filter((c) => c.t.riskMoney > 0 && c.t.cost), costR = withCost.length ? withCost.reduce((a, c) => a + ((c.fees || 0) + (c.t.cost.spread || 0)) / c.t.riskMoney, 0) / withCost.length : null;
     root.appendChild(el('div', 'g-line', costR == null ? 'A coin flip on the same trades would lose their costs; the figure appears with the first closed trades.' : `A coin flip on the same ${withCost.length} trades (same assets, same moments, same stops and targets) would have given about ${rtxt(-costR)} per trade: it loses the costs and nothing else. The program gave ${rtxt(judge(withCost.map((c) => c.r)).mean)}.`));
+    // the owner's question (12 Nov): would short trades improve the Sharpe ratio of a plain 1x S&P 500 holding?
+    head(root, 'Does the trading improve a plain S&P 500 holding?'); sharpeTest(root, M, A, costR);
     head(root, 'Do targets cut the winners?');
     const tw = (P.shadow || []).filter((x) => x.status === 'closed' && x.real && x.real.r != null && x.r != null), twOpen = (P.shadow || []).filter((x) => x.status === 'open').length;
     if (!tw.length) root.appendChild(el('div', 'g-hint', `Every trade has a twin on paper with the same entry, stop and time limit but no target (${twOpen} running now). When both have ended they are compared here, pair by pair. No order is sent for a twin.`));

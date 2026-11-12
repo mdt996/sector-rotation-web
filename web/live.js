@@ -41,12 +41,13 @@
     if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, streaming() ? 30000 : views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 60 ? 3000 : POLL_MS); }; loop(); }   // with the stream alive, one read every 30 s is enough (currency conversion);   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
   }
   function allIds() { const s = new Set([FX]); for (const set of wanted.values()) for (const i of set) s.add(i); return s; }
+  const PRD = { ok: 0, err: '', errAt: 0 };   // the last read of prices: when it worked, and the last failure (shown when a price is old)
   async function poll() {
     if (busy || document.hidden || !hasKeys()) return;
     busy = true;
     try {
       const ids = [...allIds()].slice(0, 100);
-      const j = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.join(','));
+      let j; try { j = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.join(',')); PRD.ok = Date.now(); PRD.err = ''; } catch (e) { PRD.err = e.status === 429 ? "eToro's limit of 120 reads a minute" : e.status ? 'eToro answered ' + e.status : 'no answer from eToro'; PRD.errAt = Date.now(); throw e; }
       for (const q of j.rates || []) {
         const p = q.bid > 0 && q.ask > 0 ? (q.bid + q.ask) / 2 : q.lastExecution || q.bid || q.ask;
         const conv = q.conversionRateBid > 0 ? q.conversionRateBid : 1;
@@ -61,7 +62,11 @@
   const streaming = () => STREAM.ok && Date.now() - STREAM.lastTick < 20000;
   // in words, for the line under an asset's price: why the prices come by request instead of by the stream
   const streamWhy = () => (typeof WebSocket === 'undefined' ? 'no stream in this app' : !hasKeys() ? 'no keys' : STREAM.ok ? (STREAM.lastTick ? 'stream quiet' : 'stream: waiting for a price') : STREAM.state);
-  const uid = () => 'sr-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  // eToro wants a GUID as the id of each request on its stream (anything else is refused with "InvalidId")
+  const uid = () => { try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* not offered on this page */ }
+    const b = new Uint8Array(16); try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80; const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; };
   function streamSend(operation, data) { try { if (STREAM.ws && STREAM.ws.readyState === 1) STREAM.ws.send(JSON.stringify({ id: uid(), operation, data })); } catch (e) { /* the socket closed meanwhile */ } }
   function streamSync() {   // follow exactly what is on screen
     if (!STREAM.ok) return;
@@ -314,7 +319,9 @@
     const frames = wrap.appendChild(el('div', 'av-ranges'));
     for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); drawBell(); load(true); }); }
     drawBell();
-    const verdictEl = wrap.appendChild(el('div', 'av-verdict'));   // the action on the timeframe shown, with its probability and the record of past entries
+    const verdictEl = wrap.appendChild(el('div', 'av-verdict'));
+    const miniEl = wrap.insertBefore(el('button', 'av-mini'), verdictEl); miniEl.type = 'button'; miniEl.hidden = true;   // on a phone: the signal in one line above the chart; a tap goes to the full card under it
+    miniEl.addEventListener('click', () => { try { verdictEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { verdictEl.scrollIntoView(); } });   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
     const stats = side.appendChild(el('dl', 'av-stats'));
@@ -343,7 +350,7 @@
       if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); placeVerdict(); } };
     // on a phone the page opens with the name, the price, the time frames and the whole chart down to its dates on one screen; the signal card goes under the chart
     const phone = () => !opts.embed && !page.classList.contains('is-wide') && window.innerWidth < 700 && !!page.closest('.sheet');
-    function placeVerdict() { if (ch.isFull && ch.isFull()) return; if (phone()) { if (box.nextSibling !== verdictEl) wrap.insertBefore(verdictEl, box.nextSibling); } else if (verdictEl.nextSibling !== box) wrap.insertBefore(verdictEl, box); }
+    function placeVerdict() { if (ch.isFull && ch.isFull()) return; miniEl.hidden = !phone() || !miniEl.textContent; if (miniEl.nextSibling !== box) wrap.insertBefore(miniEl, box); if (phone()) { if (box.nextSibling !== verdictEl) wrap.insertBefore(verdictEl, box.nextSibling); } else if (verdictEl.nextSibling !== box) wrap.insertBefore(verdictEl, box); }
     const phoneH = () => { const m = box.querySelector('.ch-main'), S = page.closest('.sheet'), head = S && S.querySelector('.search-head'); if (!m) return 0;
       const above = m.getBoundingClientRect().top - page.getBoundingClientRect().top, top = head ? head.getBoundingClientRect().bottom : 0;
       return Math.round(Math.max(300, Math.min(760, window.innerHeight - top - above - 14))); };
@@ -364,7 +371,7 @@
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
       if (nodata || drawErr || (box.classList.contains('is-loading') && SRApp.etoroState && SRApp.etoroState().wait > 0)) return;   // not frozen while the crosshair stays on the chart after a touch; eToro's limit message stays while the chart waits
-      sub.textContent = q ? `Live${streaming() ? ', streaming' : ''} · ${new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${streaming() ? '' : ` · prices every ${views.size ? 3 : 10} s (${streamWhy()})`}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
+      sub.textContent = q ? `Live${streaming() ? ', streaming' : ''} · ${new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${streaming() ? '' : ` · prices every ${views.size ? 3 : 10} s (${streamWhy()})`}${Date.now() - q.at > 120000 ? ` · this price is ${Math.round((Date.now() - q.at) / 60000)} min old: ${PRD.err && PRD.errAt > PRD.ok ? 'the last read failed (' + PRD.err + ')' : PRD.ok ? `eToro's last answer ${Math.round((Date.now() - PRD.ok) / 1000)} s ago has no newer price (market closed?)` : 'no read has worked yet'}` : ''}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
     }
     function toBars(rows) {
@@ -411,7 +418,16 @@
       c.appendChild(el('div', 'tc-line', `${buy ? 'BUY' : 'SELL'} ${shortDay(tr.t)}` + (en != null ? ` · ${buy ? 'in' : 'at'} ${ap}${fmtP(en)} · stop ${fmtP(stop)} · target ${fmtP(target)}` : '') + (pend ? '' : tr.res === 'open' ? ' · open' : tr.res === 'win' ? ' · worked ' + pc(move) : ' · failed ' + pc(move))));   // the one-line form of the full view
       return c;
     }
-    function drawVerdict() {
+    // the one-line form of the signal card, for the phone: what the card says first, with the score when there is no signal
+    function paintMini() {
+      const buy = verdictEl.classList.contains('is-buy'), ln = verdictEl.querySelector('.tc-line'), none = verdictEl.querySelector('.tc-none'), foot = verdictEl.querySelector('.tc-foot');
+      let txt = buy && ln ? ln.textContent : none ? none.textContent.replace(/\.$/, '') : '';
+      const m = !buy && foot ? /Score (\d+); a buy starts at (\d+)/.exec(foot.textContent) : null; if (m) txt += ` · score ${m[1]}, a buy from ${m[2]}`;
+      miniEl.replaceChildren(el('b', '', frame.k), document.createTextNode(' ' + txt), el('span', 'av-mini-go', '›')); miniEl.className = 'av-mini' + (buy ? ' is-buy' : '');
+      const was = miniEl.hidden; miniEl.hidden = !txt || !phone(); if (was !== miniEl.hidden && chFit) chFit();
+    }
+    function drawVerdict() { try { drawVerdict0(); } finally { paintMini(); } }
+    function drawVerdict0() {
       const ST = window.SR_TASTATS || {}, n = bars.length, H = horizon(), f1 = (x) => (x * 100).toFixed(1) + '%';
       verdictEl.replaceChildren(); verdictEl.className = 'av-verdict';
       if (n < 80) { verdictEl.appendChild(el('div', 'tc-none', `${H}: not enough candles yet on this timeframe.`)); return; }
