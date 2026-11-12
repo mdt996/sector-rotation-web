@@ -74,6 +74,17 @@
     const candles = chart.addSeries(LW().CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down });
     const vol = chart.addSeries(LW().HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
+    // the dates after the last candle, as on TradingView: empty time slots on a series of their own (no value, nothing drawn)
+    const ghost = chart.addSeries(LW().LineSeries, { priceScaleId: 'ghost', lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, visible: true });
+    chart.priceScale('ghost').applyOptions({ visible: false });
+    let future = [];
+    function makeFuture() {
+      future = []; const n = bars.length; if (!n) { ghost.setData([]); return; }
+      const sec = frame.sec, last = bars[n - 1].time, wkend = bars.slice(-80).some((b) => { const d = new Date(b.time * 1000).getUTCDay(); return d === 0 || d === 6; });
+      const N = sec >= 604800 ? 104 : sec >= 86400 ? 260 : 400; let t = last;
+      while (future.length < N) { t += sec; if (!wkend && sec < 604800) { const d = new Date(t * 1000).getUTCDay(); if (d === 6) { t += (sec >= 86400 ? 2 : 2 * 86400 / sec) * sec - sec; continue; } if (d === 0) { t += (sec >= 86400 ? 1 : 86400 / sec) * sec - sec; continue; } } future.push(t); }
+      ghost.setData(future.map((time) => ({ time })));
+    }
     const line = (color, w, pane) => chart.addSeries(LW().LineSeries, { color, lineWidth: w || 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane || 0);
     const S = {}; // indicator series
 
@@ -81,14 +92,16 @@
     function timeToLogical(t) {
       const n = bars.length; if (!n) return 0;
       if (t <= bars[0].time) return (t - bars[0].time) / frame.sec;
-      if (t >= bars[n - 1].time) return n - 1 + (t - bars[n - 1].time) / frame.sec;
+      if (t >= bars[n - 1].time) { if (!future.length || t > future[future.length - 1]) return n - 1 + future.length + (t - (future.length ? future[future.length - 1] : bars[n - 1].time)) / frame.sec;
+        let lo = -1, hi = future.length - 1; const at = (i) => (i < 0 ? bars[n - 1].time : future[i]); while (hi - lo > 1) { const m = (lo + hi) >> 1; if (at(m) <= t) lo = m; else hi = m; }
+        return n + lo + (t - at(lo)) / ((at(hi) - at(lo)) || 1); }
       let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (bars[m].time <= t) lo = m; else hi = m; }
       return lo + (t - bars[lo].time) / ((bars[hi].time - bars[lo].time) || 1);
     }
     function logicalToTime(l) {
       const n = bars.length; if (!n) return 0;
       if (l <= 0) return bars[0].time + l * frame.sec;
-      if (l >= n - 1) return bars[n - 1].time + (l - (n - 1)) * frame.sec;
+      if (l >= n - 1) { const k = l - (n - 1), i = Math.floor(k), at = (j) => (j <= 0 ? bars[n - 1].time : j <= future.length ? future[j - 1] : future[future.length - 1] + (j - future.length) * frame.sec); return at(i) + (k - i) * (at(i + 1) - at(i)); }
       const i = Math.floor(l), f = l - i; return bars[i].time + f * (bars[i + 1].time - bars[i].time);
     }
     const xOf = (t) => chart.timeScale().logicalToCoordinate(timeToLogical(t));
@@ -293,6 +306,7 @@
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
     root.__drawings = () => drawings.length;
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
+    root.__future = (ahead) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - 30, to: n + (ahead || 40) }); return new Promise((res) => setTimeout(() => res({ slots: future.length, lastBar: bars[n - 1].time, timeRight: chart.timeScale().coordinateToTime(main.clientWidth - 70), sec: frame.sec }), 300)); };   // for the tests: what the axis shows to the right of the last candle
     root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
@@ -374,12 +388,13 @@
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
         vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
         chart.applyOptions({ timeScale: { timeVisible: frame.sec < 86400 } });
-        applyIndicators();
+        applyIndicators(); makeFuture();
         if (fit && bars.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - (frame.show || 160)), to: bars.length + 5 });
       },
       update(bar, isNew) {
         if (dead || !bar) return;
         if (isNew) bars.push(bar); else if (bars.length) Object.assign(bars[bars.length - 1], bar);
+        if (isNew) makeFuture();   // a new candle: the empty slots start after it again
         candles.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
       },
       setZones(L) { zones = L; redraw(); },

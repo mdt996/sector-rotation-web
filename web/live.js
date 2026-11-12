@@ -38,7 +38,7 @@
     const key = [...allIds()].sort().join(',');
     if (key !== lastIds) { lastIds = key; clearTimeout(soon); soon = setTimeout(poll, 250); streamSync(); }
     streamOpen();
-    if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, streaming() ? 30000 : views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 68 ? 4000 : POLL_MS); }; loop(); }   // with the stream alive, one read every 30 s is enough (currency conversion);   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
+    if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, streaming() ? 30000 : views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 60 ? 3000 : POLL_MS); }; loop(); }   // with the stream alive, one read every 30 s is enough (currency conversion);   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
   }
   function allIds() { const s = new Set([FX]); for (const set of wanted.values()) for (const i of set) s.add(i); return s; }
   async function poll() {
@@ -57,8 +57,10 @@
   }
   // ---- live prices pushed by eToro (its public WebSocket): prices tick as in eToro's own app and no longer cost a read every
   // few seconds. Polling stays as the fallback, and as the slow source of the currency conversion the stream does not carry.
-  const STREAM = { ws: null, ok: false, subs: new Set(), lastTick: 0, tries: 0, refused: false, paint: null };
+  const STREAM = { ws: null, ok: false, subs: new Set(), lastTick: 0, lastMsg: 0, tries: 0, refused: false, refusals: 0, paint: null, lastPaint: 0, state: 'not started', open: new Map() };   // open: instrument -> its market is open (eToro's snapshot)
   const streaming = () => STREAM.ok && Date.now() - STREAM.lastTick < 20000;
+  // in words, for the line under an asset's price: why the prices come by request instead of by the stream
+  const streamWhy = () => (typeof WebSocket === 'undefined' ? 'no stream in this app' : !hasKeys() ? 'no keys' : STREAM.ok ? (STREAM.lastTick ? 'stream quiet' : 'stream: waiting for a price') : STREAM.state);
   const uid = () => 'sr-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   function streamSend(operation, data) { try { if (STREAM.ws && STREAM.ws.readyState === 1) STREAM.ws.send(JSON.stringify({ id: uid(), operation, data })); } catch (e) { /* the socket closed meanwhile */ } }
   function streamSync() {   // follow exactly what is on screen
@@ -71,28 +73,52 @@
   function streamClose() { const ws = STREAM.ws; STREAM.ws = null; STREAM.ok = false; STREAM.subs = new Set(); if (ws) { try { ws.onclose = ws.onerror = ws.onmessage = null; ws.close(1000, 'Done'); } catch (e) { /* already closed */ } } }
   function streamOpen() {
     if (STREAM.ws || STREAM.refused || document.hidden || !hasKeys() || typeof WebSocket === 'undefined' || !allIds().size) return;
-    let ws; try { ws = new WebSocket('wss://ws.etoro.com/ws'); } catch (e) { return; }
+    let ws; try { ws = new WebSocket('wss://ws.etoro.com/ws'); } catch (e) { STREAM.state = 'stream could not open'; return; }
+    STREAM.state = 'stream connecting';
     const cfg = SRApp.config(), authId = uid();
     STREAM.ws = ws;
-    const lost = () => { if (STREAM.ws !== ws) return; STREAM.ws = null; STREAM.ok = false; STREAM.subs = new Set(); if (!STREAM.refused) setTimeout(streamOpen, Math.min(60000, 3000 * Math.pow(2, STREAM.tries++))); };
+    const lost = (ev) => { if (STREAM.ws !== ws) return; STREAM.ws = null; STREAM.ok = false; STREAM.subs = new Set(); const wait = Math.min(60000, 3000 * Math.pow(2, STREAM.tries++)); if (!STREAM.refused) { STREAM.state = `stream closed${ev && ev.code ? ' (' + ev.code + ')' : ''}, again in ${Math.round(wait / 1000)} s`; setTimeout(streamOpen, wait); } };
     ws.onopen = () => { try { ws.send(JSON.stringify({ id: authId, operation: 'Authenticate', data: { userKey: cfg.userKey, apiKey: cfg.apiKey } })); } catch (e) { lost(); } };
     ws.onerror = lost; ws.onclose = lost;
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (!m) return;
-      if (m.id === authId) { if (m.success) { STREAM.ok = true; STREAM.tries = 0; streamSync(); } else { STREAM.refused = true; streamClose(); } return; }   // refused keys: polling carries on, no retry this session
+      STREAM.lastMsg = Date.now();
+      if (m.id === authId) {
+        if (m.success) { STREAM.ok = true; STREAM.tries = 0; STREAM.refusals = 0; STREAM.state = 'stream signed in'; streamSync(); return; }
+        // refused: the reason is shown; asked again later (a busy moment, "TooManyRequests"), up to five times this session; wrong keys stop it
+        const code = String(m.errorCode || m.errorMessage || 'refused'); STREAM.refusals++; const stop = /InvalidKey|Unauthorized|Forbidden|Required/i.test(code) || STREAM.refusals >= 5;
+        STREAM.state = `stream refused by eToro (${code})${stop ? '' : ', asked again in a minute'}`; streamClose();
+        if (stop) STREAM.refused = true; else setTimeout(streamOpen, 60000 * STREAM.refusals); return;
+      }
+      if (m.operation && m.success === false) { STREAM.state = `stream: ${m.operation} refused (${m.errorCode || m.errorMessage || '?'})`; return; }
       let got = false;
       for (const x of m.messages || []) {
-        if (!x || x.type !== 'Trading.Instrument.Rate' || !x.topic) continue;
+        if (!x || !x.topic || (x.type !== 'Trading.Instrument.Rate' && x.type !== 'Snapshot')) continue;   // Snapshot: the price at once on subscribing
         let c; try { c = typeof x.content === 'string' ? JSON.parse(x.content) : x.content; } catch (e) { continue; }
-        const id = +String(x.topic).split(':')[1], bid = +c.Bid, ask = +c.Ask, last = +c.LastExecution, price = bid > 0 && ask > 0 ? (bid + ask) / 2 : last || bid || ask;
+        if (!c) continue;
+        const id = +String(x.topic).split(':')[1], bid = +(c.Bid || c.BidDiscounted), ask = +(c.Ask || c.AskDiscounted), last = +c.LastExecution, price = bid > 0 && ask > 0 ? (bid + ask) / 2 : last || bid || ask;
+        if (c.IsMarketOpen != null) STREAM.open.set(id, String(c.IsMarketOpen) === 'true');
         if (!(id > 0) || !(price > 0)) continue;
-        const old = quotes.get(id), conv = old && old.conv > 0 ? old.conv : 1;
+        // the rate to dollars: from the message itself, else the one already known; without either, wait for the next read (a price in pounds taken as dollars would value a holding wrongly)
+        const old = quotes.get(id), cvm = +c.ConversionRateBid, conv = cvm > 0 ? cvm : old && old.conv > 0 ? old.conv : null; if (conv == null) continue;
         quotes.set(id, { price, usd: price * conv, conv, at: Date.parse(c.Date) || Date.now() }); got = true;
       }
-      if (got) { STREAM.lastTick = Date.now(); if (!STREAM.paint) STREAM.paint = setTimeout(() => { STREAM.paint = null; runTicks(false); }, 250); }   // the open asset repaints up to four times a second; the portfolio screens every 5 s, so that a list being read does not move
+      if (got) { STREAM.lastTick = Date.now(); STREAM.state = 'streaming'; paintSoon(); }   // the open asset repaints up to four times a second; the portfolio screens every 5 s, so that a list being read does not move
     };
   }
+  // a price is drawn at the next frame of the screen (eToro sends about one a second per asset); several arriving together are drawn once
+  function paintSoon() {
+    if (STREAM.paint) return;
+    const go = () => { STREAM.paint = null; STREAM.lastPaint = Date.now(); runTicks(false); }, wait = 60 - (Date.now() - STREAM.lastPaint);
+    STREAM.paint = wait > 0 ? setTimeout(() => { STREAM.paint = requestAnimationFrame(go); }, wait) : requestAnimationFrame(go);
+  }
+  // a connection that went silent (a phone changing network often leaves it open but dead): opened again when an asset whose market is open has sent nothing for 30 s
+  setInterval(() => {
+    if (!STREAM.ok || document.hidden) return;
+    const openSub = [...STREAM.subs].some((i) => STREAM.open.get(i) === true);
+    if (openSub && Date.now() - Math.max(STREAM.lastTick, STREAM.lastMsg) > 30000) { STREAM.state = 'stream silent, opened again'; streamClose(); STREAM.tries = 0; streamOpen(); }
+  }, 10000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) streamClose(); else { poll(); streamOpen(); } });
 
   // ---- candles ------------------------------------------------------------------
@@ -314,23 +340,31 @@
     }
     const fullTitle = el('div', 'ch-title', inst.symbol);
     const onFull = (on) => { const host = page.closest('.sc-detail'); if (host) host.classList.toggle('is-raised', on);   // the Mac screener panel covers the header only for its own full view
-      if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); wrap.insertBefore(verdictEl, box); } };
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+      if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); placeVerdict(); } };
+    // on a phone the page opens with the name, the price, the time frames and the whole chart down to its dates on one screen; the signal card goes under the chart
+    const phone = () => !opts.embed && !page.classList.contains('is-wide') && window.innerWidth < 700 && !!page.closest('.sheet');
+    function placeVerdict() { if (ch.isFull && ch.isFull()) return; if (phone()) { if (box.nextSibling !== verdictEl) wrap.insertBefore(verdictEl, box.nextSibling); } else if (verdictEl.nextSibling !== box) wrap.insertBefore(verdictEl, box); }
+    const phoneH = () => { const m = box.querySelector('.ch-main'), S = page.closest('.sheet'), head = S && S.querySelector('.search-head'); if (!m) return 0;
+      const above = m.getBoundingClientRect().top - page.getBoundingClientRect().top, top = head ? head.getBoundingClientRect().bottom : 0;
+      return Math.round(Math.max(300, Math.min(760, window.innerHeight - top - above - 14))); };
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : phone() ? phoneH() : 0), onPick: (hit) => showPick(hit), onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
-    chFit = () => { if (ch.fit) ch.fit(); };
+    chFit = () => { placeVerdict(); if (ch.fit) ch.fit(); };
+    placeVerdict(); requestAnimationFrame(() => { if (!dead) chFit(); });   // sized once the page is laid out
     const live = () => quotes.get(inst.id);
     function header() {
       if (dead) return;
       const q = live(), price = q ? q.price : bars.length ? bars[bars.length - 1].close : null;
-      last.textContent = fmtP(price);
+      const was = last.__p; last.textContent = fmtP(price); last.__p = price;
+      if (was != null && price != null && price !== was) { last.classList.remove('is-up', 'is-down'); void last.offsetWidth; last.classList.add(price > was ? 'is-up' : 'is-down'); }
       const c = price != null && prev ? price / prev - 1 : null;
       chg.textContent = c == null ? '' : `${fmtPct(c)}  ${price - prev >= 0 ? '+' : '−'}${fmtP(Math.abs(price - prev))} today`;
       chg.className = 'av-chg ' + cls(c);
       fullTitle.replaceChildren(el('b', '', inst.symbol), el('span', '', ' ' + fmtP(price) + ' '), el('span', 'av-chg ' + cls(c), c == null ? '' : fmtPct(c)));
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
-      if (hovering || nodata || drawErr) return;
-      sub.textContent = q ? `Live${streaming() ? ', streaming' : ''} · ${streaming() ? new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : hhmm(q.at)}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
+      if (nodata || drawErr || (box.classList.contains('is-loading') && SRApp.etoroState && SRApp.etoroState().wait > 0)) return;   // not frozen while the crosshair stays on the chart after a touch; eToro's limit message stays while the chart waits
+      sub.textContent = q ? `Live${streaming() ? ', streaming' : ''} · ${new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${streaming() ? '' : ` · prices every ${views.size ? 3 : 10} s (${streamWhy()})`}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
     }
     function toBars(rows) {
@@ -833,6 +867,6 @@
   }
   const onTick = (fn) => { ticks.add(fn); return () => ticks.delete(fn); };
   const backs = new Set(), onBack = (fn) => { backs.add(fn); return () => backs.delete(fn); };   // other charts' full view and drawing mode (the account's value)   // a screen that follows the streamed prices itself (the account's value)
-  window.SRLive = { onTick, onBack, tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  window.SRLive = { onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

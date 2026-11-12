@@ -158,6 +158,14 @@
     S.want('demo', ids);
     if (!liveOff) liveOff = S.onTick(liveTick);
   }
+  // the value with its cents (they move first), green or red for a moment when it goes up or down
+  let shownV = null;
+  function showValue(node, v) {
+    const c = Math.round(Math.abs(v) * 100), whole = Math.floor(c / 100), cents = String(c % 100).padStart(2, '0');
+    node.replaceChildren(document.createTextNode((v < 0 ? '−$' : '$') + whole.toLocaleString('en-US')), el('span', 't-cents', '.' + cents));
+    if (shownV != null && Math.abs(v - shownV) >= 0.005) { node.classList.remove('is-up', 'is-down'); void node.offsetWidth; node.classList.add(v > shownV ? 'is-up' : 'is-down'); }
+    shownV = v;
+  }
   function liveTick() {
     const S = window.SRLive, A = liveA, page = document.querySelector('#trade .t-value');
     if (!A || !page || !tv || !tv.host.isConnected) { if (liveOff) { liveOff(); liveOff = null; } if (S && S.want) S.want('demo', []); return; }
@@ -166,7 +174,7 @@
     const v = Math.round((A.value + d) * 100) / 100, now = Date.now(), mk = Math.round(now / 60e3); tv.liveV = v;
     const x = liveMin.get(mk); if (x) { x.hi = Math.max(x.hi, v); x.lo = Math.min(x.lo, v); x.last = v; } else liveMin.set(mk, { hi: v, lo: v, last: v });
     for (const k of liveMin.keys()) if (k < mk - 360) liveMin.delete(k);                     // six hours in memory; the device's own points keep the rest
-    page.textContent = usd(v); page.classList.add('t-tick'); tv.host.dataset.live = String((+tv.host.dataset.live || 0) + 1); tv.host.dataset.v = String(v);
+    showValue(page, v); page.classList.add('t-tick'); tv.host.dataset.live = String((+tv.host.dataset.live || 0) + 1); tv.host.dataset.v = String(v);
     const bk = Math.floor(now / tv.tf) * tv.tf, last = tv.bars[tv.bars.length - 1]; if (!last || tv.host.hidden) return; let k = last, isNew = false;
     if (last.b === bk) { last.close = v; last.high = Math.max(last.high, v); last.low = Math.min(last.low, v); }
     else if (bk > last.b) { k = { b: bk, time: bk / 1000, open: last.close, high: Math.max(last.close, v), low: Math.min(last.close, v), close: v }; tv.bars.push(k); tv.n = tv.bars.length; isNew = true; }
@@ -201,7 +209,7 @@
     let A = root.querySelector(':scope > .t-ov-a'), Bc = root.querySelector(':scope > .t-ov-b'), Z = root.querySelector(':scope > .t-ov-c');
     if (!A || !Bc || !Z) { root.textContent = ''; A = root.appendChild(el('div', 't-ov-a')); Bc = root.appendChild(el('div', 't-ov-b')); Z = root.appendChild(el('div', 't-ov-c')); }
     A.textContent = ''; Z.textContent = ''; status(A, M);
-    const top = A.appendChild(el('div', 't-top')); top.appendChild(el('div', 't-value', usd(M.value)));
+    const top = A.appendChild(el('div', 't-top')); showValue(top.appendChild(el('div', 't-value')), M.value);
     const sub = top.appendChild(el('div', 't-sub'));
     if (f.total != null) { sub.appendChild(el('b', sign(f.total), `${usd2(f.total)} (${pc(f.totalPct)})`)); sub.appendChild(document.createTextNode(' since the start')); }
     if (f.day != null) { sub.appendChild(el('span', 't-sep', '·')); sub.appendChild(el('b', sign(f.day), `${usd2(f.day)} (${pc(100 * f.day / f.dayBase)})`)); sub.appendChild(document.createTextNode(' today')); }
