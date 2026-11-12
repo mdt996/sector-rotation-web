@@ -655,11 +655,16 @@
   }
   function close() { closeDetail(); want('search', []); sheet().hidden = true; document.body.classList.remove('sheet-open'); }
   function showResults() { $('search-detail').hidden = true; $('search-results').hidden = false; }
-  function closeDetail() { if (view) { view.destroy(); view = null; } showResults(); want('search', results.map((r) => r.id)); }
+  function closeDetail() { peek = false; if (view) { view.destroy(); view = null; } showResults(); want('search', results.map((r) => r.id)); }
+  // typing while an asset is open: the suggestions are shown over it; the asset's page is kept, and Back or an empty search box returns to it
+  let peek = false;
+  function peekOn() { if (!view || $('search-detail').hidden) return; $('search-detail').hidden = true; $('search-results').hidden = false; peek = true; }
+  function peekOff() { if (!peek) return false; peek = false; $('search-results').hidden = true; $('search-detail').hidden = false; want('search', []); return true; }
   let direct = false; // an asset opened from Today, Portfolio or Markets: Back closes the sheet
-  function back() { for (const v of views) if (v.back()) return true; if (sheet().hidden) return false; if (!$('search-detail').hidden) { if (direct) { direct = false; close(); } else closeDetail(); } else close(); return true; }
+  function back() { if (peekOff()) { $('search-q').value = ''; return true; } for (const v of views) if (v.back()) return true; for (const f of backs) { try { if (f()) return true; } catch (e) { /* the next one */ } } if (sheet().hidden) return false; if (!$('search-detail').hidden) { if (direct) { direct = false; close(); } else closeDetail(); } else close(); return true; }
   function openAsset(inst) { direct = true; sheet().hidden = false; document.body.classList.add('sheet-open'); openDetail(inst); }
   function openDetail(r) {
+    peek = false;
     const recent = lsGet('sr.recent', []).filter((x) => x.id !== r.id);
     recent.unshift({ id: r.id, symbol: r.symbol, name: r.name, exchange: r.exchange, type: r.type });
     lsSet('sr.recent', recent.slice(0, 12));
@@ -721,7 +726,8 @@
   function onType() {
     clearTimeout(qTimer);
     const q = $('search-q').value.trim();
-    if (!q) { listDefault(); return; }
+    if (!q) { if (peekOff()) return; listDefault(); return; }
+    peekOn();
     qTimer = setTimeout(async () => {
       const my = ++seq;
       $('search-results').classList.add('is-loading');
@@ -820,12 +826,13 @@
     const btn = $('btn-search');
     if (btn) btn.addEventListener('click', open);
     const q = $('search-q');
-    if (q) q.addEventListener('input', onType);
+    if (q) { q.addEventListener('input', onType); q.addEventListener('focus', () => { if (q.value.trim() && view && !$('search-detail').hidden) onType(); }); }   // back in the box with a word already typed: its suggestions again
     const bk = $('search-back');
     if (bk) bk.addEventListener('click', back);
     watchHoldings();
   }
-  const onTick = (fn) => { ticks.add(fn); return () => ticks.delete(fn); };   // a screen that follows the streamed prices itself (the account's value)
-  window.SRLive = { onTick, tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  const onTick = (fn) => { ticks.add(fn); return () => ticks.delete(fn); };
+  const backs = new Set(), onBack = (fn) => { backs.add(fn); return () => backs.delete(fn); };   // other charts' full view and drawing mode (the account's value)   // a screen that follows the streamed prices itself (the account's value)
+  window.SRLive = { onTick, onBack, tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

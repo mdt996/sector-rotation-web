@@ -666,10 +666,10 @@ div.av-pick { max-width: none; }
 .t-fix { display: grid; gap: 4px; margin-bottom: 6px; } .t-fixrow { display: grid; grid-template-columns: 64px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; } .t-fixrow span:last-child { text-align: right; }
 .t-fixbar { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--color-fg) 8%, transparent); overflow: hidden; } .t-fixbar i { display: block; height: 100%; background: var(--color-fg-muted); border-radius: 4px; }
 
-.t-tv { height: 330px; width: 100%; min-width: 0; position: relative; margin: 2px 0 4px; }
+.t-tv { width: 100%; min-width: 0; position: relative; margin: 2px 0 4px; }
+.t-fullval { display: none; } .ch-slot .t-chhdr { flex: 1 1 100%; min-width: 0; } .ch-slot .t-fullval { display: block; font-size: 15px; margin: 0 0 2px; } .ch-slot .t-fullval span { font-size: 13px; font-weight: 600; } .ch-slot .t-chips { margin: 2px 0 4px; }
 .t-legend { display: flex; flex-wrap: wrap; gap: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-fg); min-height: 18px; margin: 2px 0 2px; }
 .t-leg-t { color: var(--color-fg-muted); margin-right: 4px; } .t-leg-k { color: var(--color-fg-muted); } .t-legend .up { color: var(--av-up); } .t-legend .down { color: var(--av-down); }
-@media (min-width: 900px) { .t-tv { height: 420px; } }
 .t-tfs .t-chip { padding: 5px 9px; min-width: 0; }
 .t-value.t-tick { font-variant-numeric: tabular-nums; }
 

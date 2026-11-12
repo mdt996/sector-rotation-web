@@ -84,59 +84,68 @@
     if (quiet) box.appendChild(el('div', 'g-line g-warn t-alarm', `No sign of the VM for ${span(quiet * 60e3)} (its record should be at most half an hour old). Until it is back: no new order, no close at a time limit, and no watch on the stops eToro does not hold. The stops and targets that sit on eToro still work.`));
   }
 
-  // ---- the account's value as a chart of candles (the TradingView Lightweight Charts library the asset charts already use) ----
-  // The chart is made once and kept: each 5-second reading only updates the last candle, so zoom and position are not lost.
+  // ---- the account's value on the same chart as the markets (SRChart: drag, pinch or scroll to zoom, drawing tools, indicators, full view) ----
+  // The chart is made once and stays in place: the 5-second readings only update its last candles, so a drag, a zoom or a drawing is never cut.
   let tv = null;
   const isDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const cssVar = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
-  function chart(box, M) {
-    const L = window.LightweightCharts, C = M.curve;
-    if (!L || !L.createChart) return chartPlain(box, M);
-    const bar = box.appendChild(el('div', 't-chips t-tfs')), chip = (key, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (ui[key] === val ? ' on' : ''), label)); b.type = 'button'; b.addEventListener('click', () => { ui[key] = key === 'bench' ? !ui.bench : val; keepUi(); SRApp.renderDraw('trade'); }); return b; };
+  const cp = (k) => ({ time: k.time, open: k.open, high: k.high, low: k.low, close: k.close, volume: 0 });
+  function makeChart(B) {
+    B.textContent = '';
+    const hdr = B.appendChild(el('div', 't-chhdr')), host = B.appendChild(el('div', 't-tv')), note = B.appendChild(el('div', 'g-hint t-chnote'));
+    const T = { B, hdr, host, note, sig: '', n: 0, bars: [], hover: null, startLine: null, startAt: null, tf: 36e5 };
+    T.api = SRChart.create(host, { id: 'demo-account', priceFormat: (v) => '$' + Math.round(v).toLocaleString('en-US'), height: () => (window.innerWidth >= 900 ? Math.max(420, Math.min(620, window.innerHeight - 380)) : 0),
+      onFull: (on) => { if (on) T.api.slot.replaceChildren(hdr); else B.insertBefore(hdr, host); },   // in full view the time frames and the figures move above the chart, as on an asset
+      onHover: (b) => { T.hover = b ? T.bars.find((k) => k.time === b.time) || null : null; T.say(); } });
+    const L = window.LightweightCharts, { chart: ch, candles } = T.api.lw(), blue = cssVar('--sr-c1', '#2563eb');
+    T.candles = candles;
+    T.line = ch.addSeries(L.AreaSeries || L.LineSeries, { lineColor: blue, topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: blue, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, visible: false }, 0);
+    T.bench = ch.addSeries(L.LineSeries, { color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false }, 0);
+    T.marks = L.createSeriesMarkers ? L.createSeriesMarkers(candles, []) : null;
+    T.offBack = window.SRLive && SRLive.onBack ? SRLive.onBack(() => T.host.isConnected && T.api.back()) : null;   // Back leaves the full view or a drawing tool first
+    T.destroy = () => { if (T.offBack) T.offBack(); try { T.api.destroy(); } catch (e) { /* gone */ } };
+    T.say = () => { const lg = T.legend, k = T.hover || T.bars[T.bars.length - 1]; if (!lg || !k) return; const d = k.close - k.open, f = (v) => Math.round(v).toLocaleString('en-US');
+      lg.textContent = ''; lg.appendChild(el('span', 't-leg-t', new Date(k.b).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
+      for (const [n, v] of [['O', k.open], ['H', k.high], ['L', k.low], ['C', k.close]]) { lg.appendChild(el('span', 't-leg-k', n)); lg.appendChild(el('span', '', f(v))); }
+      lg.appendChild(el('span', sign(d), `${usd2(d)} (${pc(k.open ? 100 * d / k.open : 0)})`)); };
+    return T;
+  }
+  function chart(B, M) {
+    const C = M.curve;
+    if (!window.SRChart || !window.LightweightCharts) { B.textContent = ''; return chartPlain(B, M); }
+    if (!tv || tv.B !== B || !B.contains(tv.host)) { if (tv) tv.destroy(); tv = makeChart(B); }
+    // what is drawn again at each reading: the time frames, the figures of the candle, the line under the chart
+    const H = tv.hdr; H.textContent = '';
+    const fv = H.appendChild(el('div', 't-fullval')); fv.appendChild(el('b', '', 'Demo account ' + usd(M.value))); if (M.perf.total != null) fv.appendChild(el('span', sign(M.perf.total), ` ${usd2(M.perf.total)} (${pc(M.perf.totalPct)}) since the start`));
+    const bar = H.appendChild(el('div', 't-chips t-tfs')), chip = (key, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (ui[key] === val ? ' on' : ''), label)); b.type = 'button'; b.addEventListener('click', () => { ui[key] = key === 'bench' ? !ui.bench : val; keepUi(); SRApp.renderDraw('trade'); }); return b; };
     for (const [k, l] of [['1', '1m'], ['5', '5m'], ['15', '15m'], ['30', '30m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']]) chip('tf', k, l);
     bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
     bar.appendChild(el('span', 't-sep', '·')); const bb = chip('bench', true, 'S&P 500'); bb.classList.toggle('on', !!ui.bench);
-    if (C.length < 2) { box.appendChild(el('div', 'g-hint', 'The chart fills in as the account is followed: one point every half hour from the VM, and every reading of this device.')); return; }
-    const tf = +ui.tf * 60e3, sh = -new Date().getTimezoneOffset() * 60, bars = [];        // times are shifted so that the axis shows this device's own clock
+    tv.legend = H.appendChild(el('div', 't-legend')); tv.note.textContent = '';
+    if (C.length < 2) { tv.host.hidden = true; tv.note.textContent = 'The chart fills in as the account is followed: one point every 5 minutes from the VM, and every reading of this device.'; return; }
+    tv.host.hidden = false;
+    const tf = +ui.tf * 60e3, bars = [];
     let pts = +ui.tf < 30 ? C.filter((p) => p[5] <= 5) : C; if (pts.length < 2) pts = C;    // short candles only from points that are close enough: the half-hourly points would make false flat candles
     for (const p of pts) { const k0 = bars[bars.length - 1], bk = Math.floor(p[0] / tf) * tf, hi = p[3] > 0 ? Math.max(p[3], p[1]) : p[1], lo = p[4] > 0 ? Math.min(p[4], p[1]) : p[1];
-      if (!k0 || k0.b !== bk) { const o = k0 ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000 + sh, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; } }
-    const up = cssVar('--av-up', '#089981'), down = cssVar('--av-down', '#f23645'), muted = isDark() ? '#a0a6b0' : '#5f6672';
-    if (!tv) {
-      const host = el('div', 't-tv'), legend = el('div', 't-legend');
-      const ch = L.createChart(host, { autoSize: true, layout: { background: { type: 'solid', color: 'transparent' }, textColor: muted, fontSize: 11, attributionLogo: true },
-        grid: { vertLines: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: isDark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
-        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.1 } }, timeScale: { borderVisible: false, rightOffset: 4, timeVisible: true, secondsVisible: false },
-        crosshair: { mode: L.CrosshairMode.Normal }, handleScroll: { vertTouchDrag: false }, localization: { priceFormatter: (v) => '$' + Math.round(v).toLocaleString('en-US') } });   // a vertical swipe still scrolls the page
-      const candles = ch.addSeries(L.CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down, priceLineVisible: true });
-      const line = ch.addSeries(L.AreaSeries || L.LineSeries, { lineColor: cssVar('--sr-c1', '#2563eb'), topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: cssVar('--sr-c1', '#2563eb'), lineWidth: 2, visible: false });
-      const bench = ch.addSeries(L.LineSeries, { color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false });
-      tv = { host, legend, ch, candles, line, bench, marks: L.createSeriesMarkers ? L.createSeriesMarkers(candles, []) : null, sig: '', n: 0, bars: [], hover: null };
-      ch.subscribeCrosshairMove((p) => { tv.hover = p && p.time != null ? tv.bars.find((k) => k.time === p.time) || null : null; tv.say(); });
-      tv.say = () => { const k = tv.hover || tv.bars[tv.bars.length - 1]; if (!k) return; const d = k.close - k.open, f = (v) => Math.round(v).toLocaleString('en-US');
-        tv.legend.textContent = ''; tv.legend.appendChild(el('span', 't-leg-t', new Date(k.b).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
-        for (const [n, v] of [['O', k.open], ['H', k.high], ['L', k.low], ['C', k.close]]) { tv.legend.appendChild(el('span', 't-leg-k', n)); tv.legend.appendChild(el('span', '', f(v))); }
-        tv.legend.appendChild(el('span', sign(d), `${usd2(d)} (${pc(k.open ? 100 * d / k.open : 0)})`)); };
-    }
-    box.appendChild(tv.legend); box.appendChild(tv.host); tv.bars = bars;
+      if (!k0 || k0.b !== bk) { const o = k0 ? k0.close : p[1]; bars.push({ b: bk, time: bk / 1000, open: o, high: Math.max(o, hi), low: Math.min(o, lo), close: p[1] }); } else { k0.high = Math.max(k0.high, hi); k0.low = Math.min(k0.low, lo); k0.close = p[1]; } }
+    const up = cssVar('--av-up', '#089981'), down = cssVar('--av-down', '#f23645'), muted = isDark() ? '#a0a6b0' : '#5f6672', L = window.LightweightCharts;
     const sig = ui.tf + '|' + bars[0].b, lineOf = (k) => ({ time: k.time, value: k.close });
-    if (tv.sig !== sig || bars.length < tv.n) { tv.candles.setData(bars); tv.line.setData(bars.map(lineOf)); tv.ch.timeScale().fitContent(); }
-    else for (const k of bars.slice(Math.max(0, tv.n - 1))) { tv.candles.update(k); tv.line.update(lineOf(k)); }
-    tv.sig = sig; tv.n = bars.length;
+    if (tv.sig !== sig || bars.length < tv.n) { tv.api.setBars(bars.map(cp), { sec: tf / 1000, show: 120 }, true); tv.line.setData(bars.map(lineOf)); }
+    else for (let i = Math.max(0, tv.n - 1); i < bars.length; i++) { tv.api.update(cp(bars[i]), i >= tv.n); tv.line.update(lineOf(bars[i])); }
+    tv.sig = sig; tv.n = bars.length; tv.bars = bars; tv.tf = tf;
     tv.candles.applyOptions({ visible: ui.style !== 'line' }); tv.line.applyOptions({ visible: ui.style === 'line' });
-    if (M.start > 0 && !tv.startLine) tv.startLine = tv.candles.createPriceLine({ price: M.start, color: muted, lineWidth: 1, lineStyle: L.LineStyle ? L.LineStyle.Dashed : 2, axisLabelVisible: true, title: 'start' });
+    if (M.start > 0 && tv.startAt !== M.start) { if (tv.startLine) tv.candles.removePriceLine(tv.startLine); tv.startAt = M.start; tv.startLine = tv.candles.createPriceLine({ price: M.start, color: muted, lineWidth: 1, lineStyle: L.LineStyle ? L.LineStyle.Dashed : 2, axisLabelVisible: true, title: 'start' }); }
     // the S&P 500 over the same hours, set to the account's value at the first point they share
-    const B = M.P.bench, bp = new Map(); if (B && B.px > 0 && B.value > 0) for (const p of (M.P.curve || [])) if (p[2] > 0) bp.set(Math.floor(p[0] / tf) * tf / 1000 + sh, +(B.value * p[2] / B.px).toFixed(2));
+    const Bn = M.P.bench, bp = new Map(); if (Bn && Bn.px > 0 && Bn.value > 0) for (const p of (M.P.curve || [])) if (p[2] > 0) bp.set(Math.floor(p[0] / tf) * tf / 1000, +(Bn.value * p[2] / Bn.px).toFixed(2));
     tv.bench.setData([...bp.entries()].sort((x, y) => x[0] - y[0]).map(([time, value]) => ({ time, value }))); tv.bench.applyOptions({ visible: !!ui.bench && bp.size > 1 });
     // where the program's trades opened and closed
-    if (tv.marks) { const have = new Set(bars.map((k) => k.time)), at = (ms) => Math.floor(ms / tf) * tf / 1000 + sh, mk = [];
+    if (tv.marks) { const have = new Set(bars.map((k) => k.time)), at = (ms) => Math.floor(ms / tf) * tf / 1000, mk = [];
       for (const p of M.positions) if (p.t && isFinite(p.opened) && have.has(at(p.opened))) mk.push({ time: at(p.opened), position: 'belowBar', color: p.side > 0 ? up : down, shape: p.side > 0 ? 'arrowUp' : 'arrowDown', text: p.sym });
       for (const c of M.closed) if (c.t && isFinite(c.at) && have.has(at(c.at))) mk.push({ time: at(c.at), position: 'aboveBar', color: c.net >= 0 ? up : down, shape: 'circle', text: `${c.sym} ${c.net >= 0 ? '+' : '−'}$${Math.round(Math.abs(c.net))}` });
       mk.sort((x, y) => x.time - y.time); tv.marks.setMarkers(mk.slice(-80)); tv.host.dataset.marks = String(mk.length); }
-    tv.tf = tf; tv.sh = sh;
     tv.host.dataset.bars = String(bars.length); tv.host.dataset.wicks = String(bars.filter((k) => k.high > Math.max(k.open, k.close) + 0.005 || k.low < Math.min(k.open, k.close) - 0.005).length); tv.host.dataset.bench = String(ui.bench ? bp.size : 0); tv.say();
     const lo0 = Math.min(...bars.map((k) => k.low)), hi0 = Math.max(...bars.map((k) => k.high));
-    box.appendChild(el('div', 'g-hint', `Since the first reading: ${usd2(C[C.length - 1][1] - C[0][1])} (${pc(100 * (C[C.length - 1][1] / C[0][1] - 1))}), low ${usd(lo0)}, high ${usd(hi0)}. Drag to move, pinch or scroll to zoom. Arrows: a trade of the program opened; dots: one closed, with its result. The dashed line is the starting value${ui.bench ? '; the orange line is the S&P 500 over the same hours' : ''}.`));
+    tv.note.textContent = `Since the first reading: ${usd2(C[C.length - 1][1] - C[0][1])} (${pc(100 * (C[C.length - 1][1] / C[0][1] - 1))}), low ${usd(lo0)}, high ${usd(hi0)}. The same chart as the markets: drag to move, pinch or scroll to zoom, the tools above it to draw and measure, the square for the full view. Arrows: a trade of the program opened; dots: one closed, with its result. The dashed line is the starting value${ui.bench ? '; the orange line is the S&P 500 over the same hours' : ''}.`;
   }
 
   // ---- the value between two readings, moved by the prices eToro pushes (its WebSocket, as on the asset charts): up to four times a second ----
@@ -152,17 +161,17 @@
   function liveTick() {
     const S = window.SRLive, A = liveA, page = document.querySelector('#trade .t-value');
     if (!A || !page || !tv || !tv.host.isConnected) { if (liveOff) { liveOff(); liveOff = null; } if (S && S.want) S.want('demo', []); return; }
-    let d = 0, moved = false; for (const p of A.pos) { const q = S.quotes.get(p.id); if (!q || !(q.price > 0)) continue; if (p.base == null) { p.base = q.price; continue; } if (q.price !== p.base) moved = true; d += p.k * (q.price - p.base); }
+    let d = 0, moved = false; for (const p of A.pos) { const q = S.quotes.get(p.id); if (!q || !(q.price > 0)) continue; if (p.base == null) { p.base = q.price; continue; } if (Math.abs(q.price / p.base - 1) > 0.1) continue; if (q.price !== p.base) moved = true; d += p.k * (q.price - p.base); }   // a jump of more than 10% within seconds is a wrong price, not a move
     if (!moved && tv.liveV === A.value) return;
     const v = Math.round((A.value + d) * 100) / 100, now = Date.now(), mk = Math.round(now / 60e3); tv.liveV = v;
     const x = liveMin.get(mk); if (x) { x.hi = Math.max(x.hi, v); x.lo = Math.min(x.lo, v); x.last = v; } else liveMin.set(mk, { hi: v, lo: v, last: v });
     for (const k of liveMin.keys()) if (k < mk - 360) liveMin.delete(k);                     // six hours in memory; the device's own points keep the rest
     page.textContent = usd(v); page.classList.add('t-tick'); tv.host.dataset.live = String((+tv.host.dataset.live || 0) + 1); tv.host.dataset.v = String(v);
-    const bk = Math.floor(now / tv.tf) * tv.tf, last = tv.bars[tv.bars.length - 1]; if (!last) return; let k = last;
+    const bk = Math.floor(now / tv.tf) * tv.tf, last = tv.bars[tv.bars.length - 1]; if (!last || tv.host.hidden) return; let k = last, isNew = false;
     if (last.b === bk) { last.close = v; last.high = Math.max(last.high, v); last.low = Math.min(last.low, v); }
-    else if (bk > last.b) { k = { b: bk, time: bk / 1000 + tv.sh, open: last.close, high: Math.max(last.close, v), low: Math.min(last.close, v), close: v }; tv.bars.push(k); tv.n = tv.bars.length; }
+    else if (bk > last.b) { k = { b: bk, time: bk / 1000, open: last.close, high: Math.max(last.close, v), low: Math.min(last.close, v), close: v }; tv.bars.push(k); tv.n = tv.bars.length; isNew = true; }
     else return;
-    try { tv.candles.update(k); tv.line.update({ time: k.time, value: k.close }); } catch (e) { /* a candle older than the chart's last: the next reading redraws */ }
+    try { tv.api.update(cp(k), isNew); tv.line.update({ time: k.time, value: k.close }); } catch (e) { /* a candle older than the chart's last: the next reading redraws */ }
     if (!tv.hover) tv.say();
   }
 
@@ -187,12 +196,16 @@
 
   // ---- Overview ----
   function overview(root) {
-    const M = calc(), f = M.perf, st = M.stats; root.textContent = ''; status(root, M);
-    const top = root.appendChild(el('div', 't-top')); top.appendChild(el('div', 't-value', usd(M.value)));
+    const M = calc(), f = M.perf, st = M.stats;
+    // three parts: the figures on top and everything under the chart are drawn again at each reading; the chart in between stays (a drag or a pinch on it is never cut)
+    let A = root.querySelector(':scope > .t-ov-a'), Bc = root.querySelector(':scope > .t-ov-b'), Z = root.querySelector(':scope > .t-ov-c');
+    if (!A || !Bc || !Z) { root.textContent = ''; A = root.appendChild(el('div', 't-ov-a')); Bc = root.appendChild(el('div', 't-ov-b')); Z = root.appendChild(el('div', 't-ov-c')); }
+    A.textContent = ''; Z.textContent = ''; status(A, M);
+    const top = A.appendChild(el('div', 't-top')); top.appendChild(el('div', 't-value', usd(M.value)));
     const sub = top.appendChild(el('div', 't-sub'));
     if (f.total != null) { sub.appendChild(el('b', sign(f.total), `${usd2(f.total)} (${pc(f.totalPct)})`)); sub.appendChild(document.createTextNode(' since the start')); }
     if (f.day != null) { sub.appendChild(el('span', 't-sep', '·')); sub.appendChild(el('b', sign(f.day), `${usd2(f.day)} (${pc(100 * f.day / f.dayBase)})`)); sub.appendChild(document.createTextNode(' today')); }
-    chart(root, M); liveFollow(root, M);
+    chart(Bc, M); liveFollow(Bc, M); root = Z;
     head(root, 'Result'); let g = root.appendChild(el('div', 'g-stats'));
     tile(g, 'Open positions', usd2(M.run), `${M.positions.length} open, ${M.waiting.length} waiting`, sign(M.run));
     tile(g, 'Closed trades', usd2(st.realized), st.n ? `${st.n} closed since the start` : 'none closed yet', sign(st.realized));

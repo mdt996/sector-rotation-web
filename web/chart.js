@@ -372,7 +372,7 @@
         if (dead) return;
         bars = newBars; frame = f || frame;
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
-        vol.setData(bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })));
+        vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
         chart.applyOptions({ timeScale: { timeVisible: frame.sec < 86400 } });
         applyIndicators();
         if (fit && bars.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - (frame.show || 160)), to: bars.length + 5 });
@@ -386,6 +386,7 @@
       setFair(f) { fair = f && f.bear > 0 && f.bull > 0 ? f : null; redraw(); },
 slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }, isFull: () => root.classList.contains('is-full'),
       setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
+      lw: () => ({ chart, candles }),   // for a chart of something else than an asset (the account's value): its own lines and markers
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
