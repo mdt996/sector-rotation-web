@@ -15,7 +15,8 @@
   const el = (tag, className, text) => { const e = document.createElement(tag); if (className) e.className = className; if (text != null) e.textContent = text; return e; };
   const hhmm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   // the US trading day (America/New_York): a day's change is measured against the close before it
-  const todayET = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const ET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }); let etAt = 0, etDay = '';
+  const todayET = () => { const now = Date.now(); if (now - etAt > 30000) { etDay = ET.format(new Date(now)); etAt = now; } return etDay; };   // one formatter, the day read again every 30 s (it was built anew on every call: thousands of times a minute)
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* not kept */ } };
   const hasKeys = () => { const c = SRApp.config(); return !!(c.apiKey && c.userKey); };
@@ -610,7 +611,7 @@
       const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === base);
       const us = (h && h.tracks) || (r && r.us) || null;
       const id = us ? SRApp.idOf(us) : null;
-      return id && id !== inst.id ? { id, symbol: us } : null;
+      return id && id !== inst.id ? { id, symbol: us, yours: !!h } : null;
     }
     let nodata = false;
     function noData() {
@@ -619,8 +620,12 @@
       const t = twinOf();
       if (t && !wrap.querySelector('.av-twin')) {
         const b = el('button', 'btn primary av-twin', `Show ${t.symbol} instead (same holdings, live prices)`); b.type = 'button';
-        b.addEventListener('click', () => { if (window.SRLive && window.SRLive.openAsset) window.SRLive.openAsset({ id: t.id, symbol: t.symbol, name: `${inst.symbol} shown through its US twin ${t.symbol}`, exchange: '' }); });
+        const go = () => { if (window.SRLive && window.SRLive.openAsset) window.SRLive.openAsset({ id: t.id, symbol: t.symbol, name: `${t.yours ? 'Your ' : ''}${inst.symbol}, shown through its twin ${t.symbol} (eToro sends no prices for ${inst.symbol})`, exchange: '' }); };
+        b.addEventListener('click', go);
         sub.after(b);
+        // a page opened on its own (not the Mac's panel beside the list) goes straight to the twin: the same holdings, with live prices,
+        // rather than an empty chart. The twin's page replaces this one, so Back does not come back here.
+        if (!(opts && opts.embed) && !inst.noTwinJump) setTimeout(() => { if (!dead) go(); }, 250);
       }
     }
     let retried = 0, retryBtn = null, loadSeq = 0, lastLoad = null, drawErr = '';
@@ -641,13 +646,13 @@
         // 1. what the device already has: the chart appears at once
         let kd = await kept(inst.id, 'OneDay'); if ((!kd || kd.rows.length < 300) && await fromPack(inst.id)) kd = await kept(inst.id, 'OneDay');   // nothing on the device: the published history, if this asset is scanned
         const kf = frame.iv === 'OneDay' ? kd : await kept(inst.id, frame.iv);
-        if (kd && kd.rows.length >= 80 && kf && kf.rows.length >= 60) { show(kd.rows.slice(-1000), kf.rows.slice(-frame.n), fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: true, ms: Date.now() - t0 }; }
+        if (kd && kd.rows.length >= 80 && kf && kf.rows.length >= 60) { show(kd.rows.slice(-1000), kf.rows.slice(-frame.n), fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: true, ms: Date.now() - t0 }; if (window.SRSpeed) window.SRSpeed.mark('asset', lastLoad.ms, 1); }
         // 2. an asset never opened: 300 candles first, the rest of its history right after
         const first = !kd || (kd.rows.length < 1000 && !kd.all);
         d = await candles(inst.id, 'OneDay', first ? 300 : 1000);
         if (first && !shown && d.length) {
           const r0 = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n).catch(() => []);
-          show(d, r0.length ? r0 : d, fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: false, ms: Date.now() - t0 };
+          show(d, r0.length ? r0 : d, fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: false, ms: Date.now() - t0 }; if (window.SRSpeed) window.SRSpeed.mark('asset', lastLoad.ms, 0);
         }
         if (first && d.length >= 300) d = await candles(inst.id, 'OneDay', 1000);   // the longer history: long-term lines and the asset's own test
         pc = await prevClose(inst.id);
@@ -893,6 +898,22 @@
   }
   const onTick = (fn) => { ticks.add(fn); return () => ticks.delete(fn); };
   const backs = new Set(), onBack = (fn) => { backs.add(fn); return () => backs.delete(fn); };   // other charts' full view and drawing mode (the account's value)   // a screen that follows the streamed prices itself (the account's value)
-  window.SRLive = { marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  // The pages most likely to be opened next (the account's positions, today's scouted ideas) get their candles ahead, one asset at a time
+  // and only when eToro's queue is quiet (the lowest priority): their charts then open at once from the device, and later visits only
+  // ask for the newest candles. Skipped when the phone asks to save data.
+  let preloaded = 0;
+  async function preload(ids) {
+    if (Date.now() - preloaded < 30 * 60e3 || (navigator.connection && navigator.connection.saveData) || !hasKeys()) return;
+    preloaded = Date.now();
+    const fr = FRAMES.find((f) => f.k === lsGet('sr.frame', '1D')) || FRAMES.find((f) => f.k === '1D');
+    for (const id of [...new Set(ids)].filter((x) => x > 0).slice(0, 24)) {
+      try {
+        const kd = await kept(id, 'OneDay'); if (!kd || (kd.rows.length < 1000 && !kd.all) || Date.now() - kd.at > 6 * 36e5) await candles(id, 'OneDay', 1000, 0);
+        if (fr.iv !== 'OneDay') { const kf = await kept(id, fr.iv); if (!kf || kf.rows.length < 200 || Date.now() - kf.at > 36e5) await candles(id, fr.iv, fr.n, 0); }
+        stats.preloaded = (stats.preloaded || 0) + 1;
+      } catch (e) { /* asked again at the next round */ }
+    }
+  }
+  window.SRLive = { preload, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

@@ -225,7 +225,7 @@
     if (!keepScroll) window.scrollTo(0, 0);
     SRApp.render(); // drawings skip hidden blocks, so the newly shown ones are drawn now
   }
-  for (const b of tabBtns) b.addEventListener('click', () => { cameFrom = null; showTab(b.getAttribute('data-tab')); });
+  for (const b of tabBtns) b.addEventListener('click', () => { cameFrom = null; const id = b.getAttribute('data-tab'), t0 = performance.now(); showTab(id); requestAnimationFrame(() => requestAnimationFrame(() => { if (window.SRSpeed) window.SRSpeed.mark('tab:' + id, performance.now() - t0); })); });   // the time until the tab is on screen
   // opening a chart (a row in Holdings, the ranking, the map…) switches to the Chart tab; Back returns
   window.appShowTab = (t, s) => { cameFrom = null; showTab(t, s); };
   if (window.SR) {

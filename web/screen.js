@@ -42,7 +42,7 @@
     await Promise.all(todo.map(async ([sym, id]) => {
       try { const r = await window.SRLive.candles(id, 'OneDay', 400, 1.5); extra.set(sym, r.map(({ date, open, high, low, close }) => ({ date, open, high, low, close }))); stale.delete(sym); if (r.length) keep(sym); } catch (e) { failAt.set(sym, Date.now()); }   // asked again a minute later, not given up for the session
     }));
-    busy = false; if (todo.length) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
+    busy = false; if (todo.length) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); prepare(); }
   }
   // last night's wide scan (a job in the private sync repository writes scan.json; see scan.js there)
   let wide = null, wideAt = 0, wideBusy = false;
@@ -142,12 +142,34 @@
   // the home card shows assets one can really trade: shares of companies worth at least $2 billion (the tested edge is smaller on tiny ones), any fund, index, commodity, currency or crypto
   const liquid = (r) => !r.scanned || r.cls !== 'Stocks' || r.cap >= 2e9;
   function top(n) { return all().filter((r) => r.buy && liquid(r)).sort(rankOrder).slice(0, n); }
+  // an asset's analysis, kept until its history changes (a new day, a longer history)
+  function analysed(u) {
+    const n = u.rows.length, key = n + '|' + u.rows[n - 1].date; let c = cache.get(u.sym);
+    if (!c || c.key !== key) { c = { key, A: window.SRTA.analyze(u.rows), ms: null }; if (window.SRTA.mscore && n >= 262) { const p = window.SRTA.mscore(u.rows); c.ms = isFinite(p[n - 1]) ? p[n - 1] : null; } cache.set(u.sym, c); }
+    return c;
+  }
+  // done ahead, one asset at a time when the phone has nothing else to do: opening Markets then finds them ready instead of freezing for
+  // the time of some fifty analyses (about 0.8 s on a mid-range phone)
+  let warming = false;
+  function prepare() {
+    if (warming || !window.SRTA) return; warming = true;
+    const idle = window.requestIdleCallback ? (f) => window.requestIdleCallback(f, { timeout: 2000 }) : (f) => setTimeout(f, 60);
+    let todo = null;
+    const step = (dl) => {
+      try {
+        if (!todo) todo = universe().filter((u) => u.rows && u.rows.length >= 260);
+        const until = Date.now() + Math.max(8, dl && dl.timeRemaining ? dl.timeRemaining() : 12);
+        while (todo.length && Date.now() < until) analysed(todo.shift());
+      } catch (e) { todo = []; }
+      if (todo.length) idle(step); else warming = false;
+    };
+    idle(step);
+  }
   function rows() {
     const S = stats(), out = [], today = new Date().toISOString().slice(0, 10);
     for (const u of universe()) {
       if (!u.rows || u.rows.length < 260) { if (u.group === 'World') out.push({ ...u, A: null }); continue; }
-      const n = u.rows.length, key = n + '|' + u.rows[n - 1].date; let c = cache.get(u.sym);
-      if (!c || c.key !== key) { c = { key, A: window.SRTA.analyze(u.rows), ms: null }; if (window.SRTA.mscore && n >= 262) { const p = window.SRTA.mscore(u.rows); c.ms = isFinite(p[n - 1]) ? p[n - 1] : null; } cache.set(u.sym, c); }
+      const n = u.rows.length, c = analysed(u);
       const A = c.A; if (!A) continue;
       const q = window.SRLive && window.SRLive.quotes.get(u.id), px = q ? q.price : A.price, prev = u.rows[n - 1].date >= today && n > 1 ? u.rows[n - 2].close : u.rows[n - 1].close;
       const sig = A.signals.filter((x) => x.ago <= 3 && S[x.id] && S[x.id].ok);
@@ -326,5 +348,9 @@
     try { for (const r of top(6)) add(r.sym, r.id, r.name); } catch (e) { /* no scan yet */ }
     return m;
   }
-  window.SRScreen = { known, dayMove, packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  dash.onData(() => setTimeout(prepare, 1200));   // new histories: their analyses are prepared in idle moments
+  // 20 s after the start (what the screen needs first goes first), then every 30 minutes: the likely next pages are loaded ahead
+  const ahead = () => { try { const ids = [...((prac && prac.open) || []).map((t) => +t.id), ...top(6).map((r) => +r.id)]; if (window.SRLive && SRLive.preload) SRLive.preload(ids); } catch (e) { /* not ready */ } };
+  setTimeout(ahead, 20000); setInterval(ahead, 30 * 60e3);
+  window.SRScreen = { prepare, known, dayMove, packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();

@@ -237,7 +237,7 @@
         emit();
         return false;
       }
-      state.loading = true; state.error = null; emit();
+      state.loading = true; state.error = null; emit(); const tRefresh = Date.now();
       const got = {}, errors = [], before = loadCache(), full = ls.get('sr.fullAt', {}) || {};
       const keptOf = (s) => { try { return before && before.source === 'etoro' && before.rows && before.rows[s] ? unpack(before.rows[s]) : null; } catch (e) { return null; } };
       await pool(DATASETS, 4, async ([sym, iid]) => {
@@ -247,7 +247,7 @@
           got[sym] = rows;
         } catch (e) { errors.push({ sym, status: e.status || 0, reason: e.reason || '', message: String(e.message || e) }); }
       });
-      state.loading = false; if (src === 'etoro') ls.set('sr.fullAt', full);
+      state.loading = false; if (src === 'etoro') ls.set('sr.fullAt', full); if (window.SRSpeed) window.SRSpeed.mark('refresh', Date.now() - tRefresh);
       if (!Object.keys(got).length) {
         const auth = errors.find((e) => e.status === 401 || e.status === 403);
         state.error = { kind: auth ? 'keys' : 'network', message: auth ? `eToro refused the API keys (${auth.status}${auth.reason ? ': ' + auth.reason : ''}). Check them in Settings, or use Test keys there.` : 'Could not reach ' + (src === 'yahoo' ? 'Yahoo Finance' : 'eToro') + ': ' + ((errors[0] && errors[0].message) || 'no connection') };
@@ -479,11 +479,13 @@
     const run = () => { queued = false; renderNow(); };
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 0);
   }
+  let startMarked = false;
   function renderNow() {
     onDataFns.forEach((fn) => safe(fn));
     for (const [name, fn] of Object.entries(draws)) {
       document.querySelectorAll('[data-draw="' + name + '"]').forEach((el) => { if (!el.closest('[hidden]')) safe(() => fn(el)); });
     }
+    if (!startMarked && DATASETS.some(([s]) => store[s] && store[s].status === 'ok') && window.SRSpeed && window.performance) { startMarked = true; window.SRSpeed.mark('start', performance.now()); }   // from the app's opening to its first screen with data
   }
   function emit() { listeners.forEach((fn) => safe(() => fn(state))); render(); }
 
@@ -510,10 +512,10 @@
   // the app is built on (prio 1.5), 57 for what the screen is waiting for (prio 2: quotes, the asset opened, search). So the
   // fund history always completes and the screen keeps room. A 429 answer pauses the queue (4, 8, 16, 32 s) and the same
   // request is sent again: a chart waits instead of failing.
-  const EQ = { q: [], run: 0, sent: [], pauseUntil: 0, strikes: 0, strikeAt: 0, timer: null };
+  const EQ = { q: [], run: 0, sent: [], pauseUntil: 0, strikes: 0, strikeAt: 0, timer: null, log: [] };
   const CAP_SCREEN = 112;
   function etoroSend(url, headers, prio) {
-    return new Promise((resolve) => { EQ.q.push({ url, headers, prio: prio == null ? 2 : prio, tries: 0, resolve }); pump(); });
+    return new Promise((resolve) => { EQ.q.push({ url, headers, prio: prio == null ? 2 : prio, tries: 0, resolve, queuedAt: Date.now() }); pump(); });
   }
   function pump() {
     clearTimeout(EQ.timer); EQ.timer = null;
@@ -532,7 +534,7 @@
           if (job.sentAt >= EQ.strikeAt) { EQ.strikes = Math.min(EQ.strikes + 1, 4); EQ.strikeAt = t; EQ.pauseUntil = t + 4000 * Math.pow(2, EQ.strikes - 1); }   // one strike per burst, not per request
           EQ.q.push(job);
         } else if ((r.status === 0 || r.status >= 500) && job.prio >= 2 && job.tries < 2) { job.tries++; setTimeout(() => { EQ.q.push(job); pump(); }, 1200 * job.tries); }   // a lost connection or a server error: two more tries
-        else { if (r.status === 200) EQ.strikes = 0; job.resolve(r); }
+        else { if (r.status === 200) EQ.strikes = 0; EQ.log.push({ at: t, ms: t - job.sentAt, wait: job.sentAt - job.queuedAt, status: r.status, prio: job.prio }); if (EQ.log.length > 400) EQ.log.splice(0, 100); job.resolve(r); }   // for Settings > Speed on this phone
         pump();
       });
     }
@@ -552,5 +554,5 @@
   }
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, alertCheck, alertText, hasAlert, toggleAlert, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
+  window.SRApp = { etoroLog: () => EQ.log.slice(), DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, alertCheck, alertText, hasAlert, toggleAlert, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();

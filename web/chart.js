@@ -63,12 +63,14 @@
 
     const up = css('--av-up', '#089981'), down = css('--av-down', '#f23645');
     // the times under the chart in this device's own time (the library writes UTC); daily and weekly candles keep their calendar date, which is a UTC date
+    // (the formatters are made once and kept: the labels are written again on every frame of a drag or a zoom)
+    const FMT = new Map(), fmt = (key, o) => { let f = FMT.get(key); if (!f) { f = new Intl.DateTimeFormat([], o); FMT.set(key, f); } return f; };
     function tickText(t, type) {
-      const d = new Date(t * 1000), utc = frame.sec >= 86400, o = utc ? { timeZone: 'UTC' } : {};
-      if (type === 0) return d.toLocaleString([], { year: 'numeric', ...o });
-      if (type === 1) return d.toLocaleString([], { month: 'short', ...o });
-      if (type === 2) return d.toLocaleString([], { day: 'numeric', ...o });
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(type === 4 ? { second: '2-digit' } : {}) });
+      const d = new Date(t * 1000), utc = frame.sec >= 86400, o = utc ? { timeZone: 'UTC' } : {}, u = utc ? 'u' : 'l';
+      if (type === 0) return fmt('y' + u, { year: 'numeric', ...o }).format(d);
+      if (type === 1) return fmt('m' + u, { month: 'short', ...o }).format(d);
+      if (type === 2) return fmt('d' + u, { day: 'numeric', ...o }).format(d);
+      return fmt(type === 4 ? 's' : 't', { hour: '2-digit', minute: '2-digit', ...(type === 4 ? { second: '2-digit' } : {}) }).format(d);
     }
     const chart = LW().createChart(main, {
       autoSize: true,
@@ -77,7 +79,7 @@
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.2 } },
       timeScale: { borderVisible: false, rightOffset: 6, timeVisible: true, secondsVisible: false, tickMarkFormatter: (t, type) => tickText(t, type) },
       crosshair: { mode: LW().CrosshairMode.Normal },
-      localization: { priceFormatter: fmtP, timeFormatter: (t) => new Date(t * 1000).toLocaleString([], frame.sec >= 86400 ? { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) },
+      localization: { priceFormatter: fmtP, timeFormatter: (t) => (frame.sec >= 86400 ? fmt('cd', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : fmt('ct', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })).format(new Date(t * 1000)) },
     });
     const candles = chart.addSeries(LW().CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down });
     const vol = chart.addSeries(LW().HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
