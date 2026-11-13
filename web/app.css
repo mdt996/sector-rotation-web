@@ -197,6 +197,21 @@ body.chart-full { overflow: hidden; }
 body.chart-full .tabbar { display: none; }
 .av-stats .z-fv dt::before { content: ''; display: inline-block; width: 10px; height: 0; border-top: 2px dashed rgba(41,98,255,.8); margin-right: 6px; vertical-align: 3px; }
 
+/* asset comparison, in the normal and full chart views */
+.ch-compare-slot { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--color-border-line); border-radius: 10px; }
+.ch-compare-slot[hidden] { display: none; }
+.ch-compare-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ch-compare-row input, .ch-compare-row select, .ch-compare-row button { box-sizing: border-box; min-height: 36px; padding: 5px 8px; font: inherit; font-size: 14px; border: 1px solid var(--color-border-line); border-radius: 8px; background: var(--color-panel); color: var(--color-fg); }
+.ch-compare-row input { flex: 1 1 165px; min-width: 0; }
+.ch-compare-row button, .ch-compare-row select { cursor: pointer; }
+.ch-compare-results { max-height: 135px; overflow: auto; font-size: 13px; color: var(--color-fg-muted); }
+.ch-compare-results .sr-res { padding: 7px 3px; font-size: 13px; }
+.ch-compare-status { font-size: 12px; color: var(--color-fg-muted); }
+.ch-compare-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 12px; }
+.ch-compare-a { color: #2962ff; }
+.ch-compare-b { color: #a54c00; }
+@media (prefers-color-scheme: dark) { .ch-compare-a { color: #7ea7ff; } .ch-compare-b { color: #ffab62; } }
+
 /* rotation: phase gauge, board, heatmap */
 .rot-phase { display: grid; gap: 6px; margin: 2px 0 14px; padding: 12px; border-radius: 12px; background: var(--color-bg); }
 .rot-phase-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }

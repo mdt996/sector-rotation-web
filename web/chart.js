@@ -22,6 +22,7 @@
     ind: '<path d="M3 17l5-6 4 3 4-7 5 5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
     clear: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+    compare: '<path d="M3 18l6-6 4 3 8-9M3 15l5 2 6-8 7 4"/>',
     full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   };
   const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -32,11 +33,48 @@
   function stdev(v, n) { const o = []; for (let i = 0; i < v.length; i++) { if (i < n - 1) { o.push(null); continue; } let m = 0; for (let j = i - n + 1; j <= i; j++) m += v[j]; m /= n; let s = 0; for (let j = i - n + 1; j <= i; j++) s += (v[j] - m) ** 2; o.push(Math.sqrt(s / n)); } return o; }
   function rsi(v, n) { const o = [null]; let g = 0, l = 0; for (let i = 1; i < v.length; i++) { const d = v[i] - v[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0); if (i <= n) { g += up / n; l += dn / n; o.push(i === n ? 100 - 100 / (1 + g / (l || 1e-12)) : null); } else { g = (g * (n - 1) + up) / n; l = (l * (n - 1) + dn) / n; o.push(100 - 100 / (1 + g / (l || 1e-12))); } } return o; }
 
+  function quoteBars(rows, quote, frame) {
+    if (!rows.length || !quote || !Number.isFinite(quote.price) || quote.price <= 0 || !Number.isFinite(quote.at)) return rows;
+    const last = rows[rows.length - 1], t = Math.floor(quote.at / 1000), sec = frame.sec;
+    if (t < last.time) return rows;
+    const time = sec === 604800 ? last.time + Math.floor((t - last.time) / sec) * sec : Math.floor(t / sec) * sec;
+    if (time <= last.time && quote.price === last.close) return rows;
+    return time <= last.time
+      ? rows.slice(0, -1).concat({ time: last.time, close: quote.price })
+      : rows.concat({ time, close: quote.price });
+  }
+
+  // Match candles in the same interval. Both returns use the first shared close in the starting view.
+  function comparePrices(primary, other, frame, latest) {
+    const sec = frame.sec, offset = sec === 604800 ? 4 * 86400 : 0;   // weekly candles start on Sunday
+    const bucket = (t) => Math.floor((t + offset) / sec);
+    const valid = (x) => Number.isFinite(x) && x > 0;
+    // Update each asset only in its quote's interval; a missing shared interval stays empty.
+    primary = quoteBars(primary, latest && latest.a, frame);
+    other = quoteBars(other, latest && latest.b, frame);
+    const closes = new Map(other.filter((b) => valid(b.close)).map((b) => [bucket(b.time), b.close]));
+    const matches = primary.map((b) => ({ time: b.time, a: b.close, b: closes.get(bucket(b.time)) }));
+    const start = matches.findIndex((x, i) => i >= Math.max(0, matches.length - frame.show) && valid(x.a) && valid(x.b));
+    if (start < 0) return null;
+    const base = matches[start];
+    let last = null, count = 0;
+    const points = matches.slice(start).map(({ time, a, b }) => {
+      if (!valid(a) || !valid(b)) return { time };
+      const x = a / base.a, y = b / base.b;
+      last = { time, a: (x - 1) * 100, b: (y - 1) * 100, ratio: (x / y - 1) * 100 };
+      count++;
+      return last;
+    });
+    return count > 1 ? { points, start: base.time, last } : null;
+  }
+  const comparePct = (v) => (v >= 0.005 ? '+' : '') + (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2)) + '%';
+
   function create(container, opts) {
     opts = opts || {};
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
     let autos = [], marks = [], bench = [], posn = null, events = [];   // bench: the S&P 500's candles of the same size; posn: the demo account's trade; events: dates ahead (results)
+    let comparison = null;
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
 
@@ -46,10 +84,15 @@
     const btn = (k, title) => { const b = tools.appendChild(el('button', 'ch-btn')); b.type = 'button'; b.title = title; b.setAttribute('aria-label', title); b.innerHTML = svg(ICON[k]); b.dataset.k = k; return b; };
     const bCursor = btn('cursor', 'Move and zoom'), bMeasure = btn('measure', 'Measure'), bFib = btn('fib', 'Fibonacci retracement'), bTrend = btn('trend', 'Trend line'), bH = btn('hline', 'Horizontal line');
     tools.appendChild(el('span', 'ch-sep'));
+    const bCompare = opts.onCompare ? btn('compare', 'Compare assets') : null;
+    if (bCompare) { bCompare.addEventListener('click', opts.onCompare); bCompare.setAttribute('aria-expanded', 'false'); }
+
     const bInd = btn('ind', 'Indicators'), bUndo = btn('undo', 'Undo last drawing'), bClear = btn('clear', 'Clear drawings'), bFull = btn('full', 'Fullscreen');
     const bClose = el('button', 'ch-close'); bClose.append(el('span', '', '✕'), el('span', 'ch-close-w', ' Close')); bClose.type = 'button'; bClose.setAttribute('aria-label', 'Close the full view'); tools.insertBefore(bClose, tools.firstChild);   // the way back from the full view, always first in the bar
     const hint = root.appendChild(el('div', 'ch-hint', ''));
     const noteEl = root.appendChild(el('div', 'ch-note'));   // in full view: what the tapped line or level is
+    const compareSlot = opts.onCompare ? root.appendChild(el('div', 'ch-compare-slot')) : null;
+    if (compareSlot) compareSlot.hidden = true;
     const main = root.appendChild(el('div', 'ch-main'));
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
@@ -407,7 +450,10 @@
       const parts = [`O ${fmtP(b.open)}`, `H ${fmtP(b.high)}`, `L ${fmtP(b.low)}`, `C ${fmtP(b.close)}`];
       const prevBar = bars[Math.max(0, bars.findIndex((x) => x.time === p.time) - 1)];
       if (prevBar) parts.push(`${b.close >= prevBar.close ? '+' : ''}${((b.close / prevBar.close - 1) * 100).toFixed(2)}%`);
-      for (const [k, s] of Object.entries(S)) { const v = p.seriesData.get(s); if (v && v.value != null && !k.startsWith('bb') && !k.startsWith('macd')) parts.push(`${k.toUpperCase().replace('MA', 'MA ')} ${k === 'rsi' ? v.value.toFixed(1) : fmtP(v.value)}`); }
+      for (const [k, s] of Object.entries(S)) { const v = p.seriesData.get(s); if (v && v.value != null && !k.startsWith('comp') && !k.startsWith('bb') && !k.startsWith('macd')) parts.push(`${k.toUpperCase().replace('MA', 'MA ')} ${k === 'rsi' ? v.value.toFixed(1) : fmtP(v.value)}`); }
+      if (comparison) for (const [k, label] of Object.entries(comparison.mode === 'ratio' ? { compRatio: 'Ratio' } : { compA: comparison.a, compB: comparison.b })) {
+        const v = S[k] && p.seriesData.get(S[k]); if (v && v.value != null) parts.push(label + ' ' + comparePct(v.value));
+      }
       legend.textContent = parts.join('  ');
       if (opts.onHover) opts.onHover({ time: p.time, ...b });
     });
@@ -449,7 +495,7 @@
       }
       // strength against the S&P 500: the asset's price divided by the index's, at the same moments, set to 100 where the first view starts
       // (above 100 and rising: it does better than the market). Its 50-candle average, dotted, shows the trend of that strength.
-      if (ind.rs && bench.length > 20) {
+      if (!comparison && ind.rs && bench.length > 20) {
         const bucket = (time) => Math.floor(time / frame.sec);
         const closes = new Map(bench.map((b) => [bucket(b.time), b.close]));
         const at = (time) => closes.get(bucket(time));
@@ -468,6 +514,21 @@
           pane++;
         }
       }
+      if (comparison) {
+        const { data, mode, a, b } = comparison;
+        const add = (key, color, title) => {
+          const series = chart.addSeries(LW().LineSeries, { color, title, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'custom', minMove: 0.01, formatter: comparePct } }, pane);
+          series.setData(data.points.map((p) => p[key] == null ? { time: p.time } : { time: p.time, value: p[key] }));
+          return series;
+        };
+        let first;
+        if (mode === 'ratio') first = S.compRatio = add('ratio', '#ef6c00', a + ' / ' + b);
+        else {
+          first = S.compA = add('a', '#2962ff', a);
+          S.compB = add('b', '#ef6c00', b);
+        }
+        first.createPriceLine({ price: 0, color: 'rgba(120,120,120,0.6)', lineStyle: 2, lineWidth: 1, axisLabelVisible: false });
+      }
       const panes = chart.panes();
       if (panes.length > 1) { panes[0].setStretchFactor(3); for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1); }
       main.dataset.panes = String(panes.length); sizeMain();
@@ -478,7 +539,7 @@
       setBars(newBars, f, fit) {
         if (dead) return;
         const n0 = bars.length, vr0 = !fit && n0 ? chart.timeScale().getVisibleLogicalRange() : null, atEnd = !!(vr0 && vr0.to >= n0 - 1.5) && (!f || f.sec === frame.sec);
-        if (f && f.sec !== frame.sec) bench = [];
+        if (f && f.sec !== frame.sec) { bench = []; comparison = null; }
         bars = newBars; frame = f || frame;
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
         vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
@@ -503,11 +564,22 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
       setBench(b) { if (b === bench) return; bench = Array.isArray(b) ? b : []; if (bars.length) applyIndicators(); },
+      compareSlot, compareButton: bCompare,
+      setComparison(value) {
+        if (value === comparison) return;
+        const same = value && comparison && value.a === comparison.a && value.b === comparison.b && value.mode === comparison.mode;
+        comparison = value;
+        if (!bars.length) return;
+        const keys = value && (value.mode === 'ratio' ? { compRatio: 'ratio' } : { compA: 'a', compB: 'b' });
+        if (same && Object.keys(keys).every((k) => S[k])) {
+          for (const [k, field] of Object.entries(keys)) S[k].setData(value.data.points.map((p) => p[field] == null ? { time: p.time } : { time: p.time, value: p[field] }));
+        } else applyIndicators();
+      },
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
   }
-  window.SRChart = { create, sma, ema, rsi };
+  window.SRChart = { create, sma, ema, rsi, comparePrices, quoteBars };
 })();
