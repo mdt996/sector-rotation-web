@@ -30,16 +30,19 @@
   const WB = 'sr.wb2', TTL = 2 * 3600e3;
   const failAt = new Map();
   function keep(sym) { try { const all = JSON.parse(localStorage.getItem(WB) || '{}'); all[sym] = { at: Date.now(), r: extra.get(sym).map((x) => [x.date, x.open, x.high, x.low, x.close]) }; localStorage.setItem(WB, JSON.stringify(all)); } catch (e) { /* storage full: asked again next time */ } }
-  try { const all = JSON.parse(localStorage.getItem(WB) || '{}'); for (const [sym, v] of Object.entries(all)) if (v && Date.now() - v.at < TTL && v.r && v.r.length) extra.set(sym, v.r.map(([date, open, high, low, close]) => ({ date, open, high, low, close }))); } catch (e) { /* no cache */ }
+  // Older than 2 hours they are still shown while they are asked again (all at once, ahead of the once-a-day extras: the tiles wait for
+  // them), unless their last candle is older than yesterday's.
+  const stale = new Set();
+  try { const all = JSON.parse(localStorage.getItem(WB) || '{}'); for (const [sym, v] of Object.entries(all)) if (v && v.r && v.r.length) { extra.set(sym, v.r.map(([date, open, high, low, close]) => ({ date, open, high, low, close }))); if (Date.now() - v.at >= TTL) stale.add(sym); } } catch (e) { /* no cache */ }
+  const tooOld = (sym, R) => stale.has(sym) && R && R.length && R[R.length - 1].date < new Date(Date.now() - 864e5).toISOString().slice(0, 10);
   async function load() {
     if (busy || !window.SRLive || !window.SRLive.candles) return;
-    busy = true; let k = 0;
-    for (const [sym, id] of BOARD) {
-      if (extra.has(sym) || (SRApp._store[sym] && SRApp._store[sym].status === 'ok') || Date.now() - (failAt.get(sym) || 0) < 60000) continue;
-      try { const r = await window.SRLive.candles(id, 'OneDay', 400, 0); extra.set(sym, r.map(({ date, open, high, low, close }) => ({ date, open, high, low, close }))); if (r.length) keep(sym); } catch (e) { failAt.set(sym, Date.now()); }   // asked again a minute later, not given up for the session
-      if (++k % 5 === 0) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
-    }
-    busy = false; if (k) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
+    busy = true;
+    const todo = BOARD.filter(([sym]) => (!extra.has(sym) || stale.has(sym)) && !(SRApp._store[sym] && SRApp._store[sym].status === 'ok') && Date.now() - (failAt.get(sym) || 0) >= 60000);
+    await Promise.all(todo.map(async ([sym, id]) => {
+      try { const r = await window.SRLive.candles(id, 'OneDay', 400, 1.5); extra.set(sym, r.map(({ date, open, high, low, close }) => ({ date, open, high, low, close }))); stale.delete(sym); if (r.length) keep(sym); } catch (e) { failAt.set(sym, Date.now()); }   // asked again a minute later, not given up for the session
+    }));
+    busy = false; if (todo.length) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); }
   }
   // last night's wide scan (a job in the private sync repository writes scan.json; see scan.js there)
   let wide = null, wideAt = 0, wideBusy = false;
@@ -251,7 +254,7 @@
     const UN = new Map(universe().map((u) => [u.sym, u]));
     const tile = (map, r, short) => {
       const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
-      const u = UN.get(r.sym), d = SRApp._store[r.sym], m = dayMove((u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null), r.id);
+      const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null), m = tooOld(r.sym, RR) ? null : dayMove(RR, r.id);
       t.appendChild(el('b', '', r.sym)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.title = `${r.name || r.sym}: ${m.day}'s change. Its market has not traded yet today.`; t.classList.add('is-last'); }
       if (short) t.appendChild(el('small', '', short));
       if (m) t.style.background = `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;

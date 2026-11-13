@@ -96,12 +96,20 @@
     const r = await httpGet('https://public-api.etoro.com/api/v1/market-data/instruments/3000/history/candles/desc/OneDay/2', etoroHeaders(apiKey, userKey));
     return { ok: r.status === 200, status: r.status, reason: r.status === 200 ? '' : reasonOf(r.body) };
   }
-  async function fetchEtoro(sym, iid, cfg) {
-    const url = `https://public-api.etoro.com/api/v1/market-data/instruments/${iid}/history/candles/desc/OneDay/${sym === 'SMH' ? 1000 : 400}`; // SMH: enough weeks for the plan's trend rule
+  // A refresh asks eToro only for the days since the history kept on the device (5 candles or a few more: a few kB each) and puts them
+  // on its end; the whole history (400 days, 1,000 for SMH: enough weeks for the plan's trend rule) is asked again once a week, or when
+  // nothing usable is kept. Before this, every refresh downloaded about 2 MB.
+  async function fetchEtoro(sym, iid, cfg, kept, full) {
+    const n = sym === 'SMH' ? 1000 : 400, last = kept && kept.length ? kept[kept.length - 1] : null;
+    const age = last ? (Date.now() - Date.parse(last.date + 'T00:00:00Z')) / 864e5 : Infinity;
+    const delta = !!(kept && kept.length >= 260 && age < 30 && full && Date.now() - (full[sym] || 0) < 7 * 864e5);
+    const url = `https://public-api.etoro.com/api/v1/market-data/instruments/${iid}/history/candles/desc/OneDay/${delta ? Math.min(n, Math.ceil(age) + 5) : n}`;
     const r = await etoroSend(url, etoroHeaders(cfg.apiKey, cfg.userKey), 1.5);   // paced: behind what the screen waits for, ahead of the once-a-day extras
     if (r.status !== 200) throw httpError('eToro', sym, r);
-    const L = loaders[sym];
-    return L ? L.fn({ answer: r.body }) : [];
+    const L = loaders[sym], rows = L ? L.fn({ answer: r.body }) : [];
+    if (!delta) { if (full && rows.length) full[sym] = Date.now(); return rows; }
+    if (!rows.length) return kept;
+    const first = rows[0].date; return kept.filter((x) => x.date < first).concat(rows).slice(-n);
   }
   function parseYahoo(body, sym) {
     const j = typeof body === 'string' ? JSON.parse(body) : body;
@@ -230,15 +238,16 @@
         return false;
       }
       state.loading = true; state.error = null; emit();
-      const got = {}, errors = [];
+      const got = {}, errors = [], before = loadCache(), full = ls.get('sr.fullAt', {}) || {};
+      const keptOf = (s) => { try { return before && before.source === 'etoro' && before.rows && before.rows[s] ? unpack(before.rows[s]) : null; } catch (e) { return null; } };
       await pool(DATASETS, 4, async ([sym, iid]) => {
         try {
-          const rows = src === 'yahoo' ? await fetchYahoo(sym) : await fetchEtoro(sym, iid, cfg);
+          const rows = src === 'yahoo' ? await fetchYahoo(sym) : await fetchEtoro(sym, iid, cfg, keptOf(sym), full);
           if (!rows.length) throw new Error(sym + ': no candles');
           got[sym] = rows;
         } catch (e) { errors.push({ sym, status: e.status || 0, reason: e.reason || '', message: String(e.message || e) }); }
       });
-      state.loading = false;
+      state.loading = false; if (src === 'etoro') ls.set('sr.fullAt', full);
       if (!Object.keys(got).length) {
         const auth = errors.find((e) => e.status === 401 || e.status === 403);
         state.error = { kind: auth ? 'keys' : 'network', message: auth ? `eToro refused the API keys (${auth.status}${auth.reason ? ': ' + auth.reason : ''}). Check them in Settings, or use Test keys there.` : 'Could not reach ' + (src === 'yahoo' ? 'Yahoo Finance' : 'eToro') + ': ' + ((errors[0] && errors[0].message) || 'no connection') };
