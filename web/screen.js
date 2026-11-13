@@ -10,6 +10,10 @@
   // the wider picture: indices, the dollar, Treasuries, metals, energy, crypto (eToro instrument ids)
   const BOARD = [['SPX500', 27, 'S&P 500'], ['NSDQ100', 28, 'Nasdaq-100'], ['GER40', 32, 'Germany 40'], ['EUSTX50', 43, 'Euro Stoxx 50'], ['JPN225', 36, 'Japan 225'], ['HKG50', 38, 'Hong Kong 50'], ['CHINA50', 253, 'China A50'],
     ['USDOLLAR', 25, 'US dollar index'], ['IEF', 3101, '10-year Treasuries (fall when yields rise)'], ['GOLD', 18, 'Gold'], ['SILVER', 19, 'Silver'], ['OIL', 17, 'Oil'], ['NATGAS', 22, 'Natural gas'], ['BTC', 100000, 'Bitcoin'], ['ETH', 100001, 'Ether']];
+  const TILES = [['US sectors', [['XLK', 'Tech', 'Technology'], ['XLF', 'Financials', 'Financials'], ['XLE', 'Energy', 'Energy'], ['XLV', 'Health', 'Health care'], ['XLI', 'Industrials', 'Industrials'], ['XLY', 'Cons. disc.', 'Consumer discretionary'],
+    ['XLP', 'Staples', 'Consumer staples'], ['XLU', 'Utilities', 'Utilities'], ['XLB', 'Materials', 'Materials'], ['XLRE', 'Real estate', 'Real estate'], ['XLC', 'Comms', 'Communication services']]],
+  ['Industries', [['SMH', 'Chips', 'Semiconductors'], ['IGV', 'Software', 'Software'], ['XBI', 'Biotech', 'Biotech'], ['KRE', 'Reg. banks', 'Regional banks'], ['ITA', 'Defense', 'Aerospace & defense'], ['GDX', 'Gold miners', 'Gold miners'],
+    ['SIL', 'Silver miners', 'Silver miners'], ['COPX', 'Copper', 'Copper miners'], ['URA', 'Uranium', 'Uranium']]]];
   const SHORT = { tri_brk_up: 'Triangle breakout', wedge_fall_brk: 'Falling-wedge breakout', tl_brk_up: 'Trendline break', div_bull: 'RSI divergence', fib_sup: 'Fibonacci pullback', rsi30: 'RSI below 30', rsi70: 'RSI above 70', lo250: 'New 1-year low', neg_bear: 'Up candle negated', tri_brk_dn: 'Triangle breakdown', wedge_rise_brk: 'Rising-wedge breakdown' };
   const stats = () => (window.SR_TASTATS || {}).by || {};
   const cache = new Map(), extra = new Map();
@@ -242,11 +246,18 @@
     sb.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
     const rec = wide ? wide.record || {} : {}, U = wide && wide.universe ? wide.universe : null;
     box.appendChild(el('p', 'g-muted g-sub', `${ALL.length} assets analysed with the same rules. ` + (wide ? `${wide.scanned} come from the scan of ${String(wide.made).slice(0, 10)}: the largest of every sector and asset class first${U && U.next > U.limit ? `, ${U.next - U.limit} more each night` : ''}. Ideas graded so far: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wide scan has not been read yet.')));
-    const map = box.appendChild(el('div', 'sc-map'));
-    for (const r of R.filter((x) => x.group === 'World')) {
+    // the day's change as coloured tiles: the world first, then the eleven US sectors and the industries the app follows (the same funds as the ranking)
+    const tile = (map, r, short) => {
       const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
-      t.appendChild(el('b', '', r.sym)); t.appendChild(el('span', '', r.A ? pct(r.chg) : '…'));
+      t.appendChild(el('b', '', r.sym)); t.appendChild(el('span', '', r.A ? pct(r.chg) : '…')); if (short) t.appendChild(el('small', '', short));
       if (r.A) t.style.background = `color-mix(in srgb, var(--color-${r.chg >= 0 ? 'ok' : 'bad'}) ${Math.min(55, Math.round(Math.abs(r.chg) * 1800))}%, var(--color-panel))`;
+    };
+    const map = box.appendChild(el('div', 'sc-map'));
+    for (const r of R.filter((x) => x.group === 'World')) tile(map, r);
+    const bySym = new Map(R.map((r) => [r.sym, r]));
+    for (const [head, list] of TILES) {
+      box.appendChild(el('div', 'sc-maph', head)); const m2 = box.appendChild(el('div', 'sc-map sc-map2'));
+      for (const [sym, short, name] of list) tile(m2, bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short);
     }
     box.appendChild(howBox());
     // filters: every choice is one tap; the list below answers at once
