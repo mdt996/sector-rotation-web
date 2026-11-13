@@ -31,43 +31,57 @@
     pf.busy = true;
     SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,dailyPriceChange,currentRate,sector,internalExchangeName,internalAssetClassName&instrumentId=${key}&pageSize=100`, 2)
       .then((r) => { if (!r || r.status !== 200) return; const j = JSON.parse(r.body);
-        for (const it of j.items || []) { const d = +it.dailyPriceChange, c = +it.currentRate; pf.m.set(+it.instrumentId, { close: c > 0 && isFinite(d) && d > -100 ? c / (1 + d / 100) : null, sec: it.sector || null, ex: it.internalExchangeName || '', cls: it.internalAssetClassName || '' }); }
+        const facts = new Map();
+        for (const it of j.items || []) {
+          const d = it.dailyPriceChange == null || it.dailyPriceChange === '' ? NaN : Number(it.dailyPriceChange), c = Number(it.currentRate);
+          facts.set(+it.instrumentId, { close: Number.isFinite(c) && c > 0 && Number.isFinite(d) && d > -100 ? c / (1 + d / 100) : null, sec: it.sector || null, ex: it.internalExchangeName || '', cls: it.internalAssetClassName || '' });
+        }
+        pf.m = facts;
         pf.key = key; pf.at = Date.now(); })
       .catch(() => { /* asked again at the next reading */ }).finally(() => { pf.busy = false; });
   }
   // where an asset is listed: its country and currency (indices and currency pairs by their name)
-  const EXC = [[/nasdaq (iceland|tallinn|vilnius|riga)/i, 'Baltics & Iceland', 'EUR'], [/nasdaq|nyse|otc|chicago|cboe|cme|regular trading|texas/i, 'US', 'USD'], [/lse/i, 'UK', 'GBP'], [/fra|xetra/i, 'Germany', 'EUR'], [/paris/i, 'France', 'EUR'],
+  const EXC = [[/nasdaq iceland/i, 'Iceland', 'ISK'], [/nasdaq tallinn/i, 'Estonia', 'EUR'], [/nasdaq vilnius/i, 'Lithuania', 'EUR'], [/nasdaq riga/i, 'Latvia', 'EUR'],
+    [/lse/i, 'UK', 'GBP'], [/frankfurt|^fra$|xetra/i, 'Germany', 'EUR'], [/paris/i, 'France', 'EUR'],
     [/madrid/i, 'Spain', 'EUR'], [/italiana/i, 'Italy', 'EUR'], [/six/i, 'Switzerland', 'CHF'], [/tyo|tokyo/i, 'Japan', 'JPY'], [/oslo/i, 'Norway', 'NOK'], [/stockholm/i, 'Sweden', 'SEK'], [/copenhagen/i, 'Denmark', 'DKK'], [/helsinki/i, 'Finland', 'EUR'],
     [/toronto|tsx/i, 'Canada', 'CAD'], [/hong kong/i, 'Hong Kong', 'HKD'], [/lisbon/i, 'Portugal', 'EUR'], [/brussels/i, 'Belgium', 'EUR'], [/amsterdam/i, 'Netherlands', 'EUR'], [/sydney/i, 'Australia', 'AUD'], [/vienna/i, 'Austria', 'EUR'], [/dublin/i, 'Ireland', 'EUR'],
-    [/tadawul/i, 'Saudi Arabia', 'SAR'], [/dubai|abu dhabi/i, 'UAE', 'AED'], [/warsaw/i, 'Poland', 'PLN'], [/prague/i, 'Czechia', 'CZK'], [/budapest/i, 'Hungary', 'HUF'], [/shenzen|shanghai/i, 'China', 'CNY'], [/india/i, 'India', 'INR'], [/singapore/i, 'Singapore', 'SGD'], [/korea/i, 'Korea', 'KRW'], [/taiwan/i, 'Taiwan', 'TWD'], [/tel aviv/i, 'Israel', 'ILS']];
+    [/tadawul/i, 'Saudi Arabia', 'SAR'], [/dubai|abu dhabi/i, 'UAE', 'AED'], [/warsaw/i, 'Poland', 'PLN'], [/prague/i, 'Czechia', 'CZK'], [/budapest/i, 'Hungary', 'HUF'], [/shenz?hen|shanghai/i, 'China', 'CNY'], [/india/i, 'India', 'INR'], [/singapore/i, 'Singapore', 'SGD'], [/korea/i, 'Korea', 'KRW'], [/taiwan/i, 'Taiwan', 'TWD'], [/tel aviv/i, 'Israel', 'ILS'],
+    [/nasdaq|nyse|otc|chicago|cboe|cme|regular trading|texas/i, 'US', 'USD']];
   const IDX = { SPX500: ['US', 'USD'], NSDQ100: ['US', 'USD'], DJ30: ['US', 'USD'], US2000: ['US', 'USD'], GER40: ['Germany', 'EUR'], UK100: ['UK', 'GBP'], FRA40: ['France', 'EUR'], JPN225: ['Japan', 'JPY'], AUS200: ['Australia', 'AUD'], HKG50: ['Hong Kong', 'HKD'], EUSTX50: ['Euro area', 'EUR'], ESP35: ['Spain', 'EUR'], ITA40: ['Italy', 'EUR'], CHINA50: ['China', 'CNY'] };
   function placeOf(p) {   // [country, [[currency, sign], ...]]
     const f = pf.m.get(p.id) || {}, sym = String(p.sym || '').toUpperCase().replace(/\..*$/, '');
-    if (p.cls === 'Forex' || /^FX$/i.test(f.ex) || /currenc/i.test(f.cls)) return /^[A-Z]{6}$/.test(sym) ? ['Currencies', [[sym.slice(0, 3), 1], [sym.slice(3), -1]]] : ['Currencies', [['USD', 1]]];
+    if (p.cls === 'Forex' || /^FX$/i.test(f.ex) || /currenc/i.test(f.cls)) return /^[A-Z]{6}$/.test(sym) ? ['Currencies', [[sym.slice(0, 3), 1], [sym.slice(3), -1]]] : ['Currencies', [['Unknown', 1]]];
     if (IDX[sym]) return [IDX[sym][0], [[IDX[sym][1], 1]]];
     if (/crypto|digital/i.test(p.cls + ' ' + f.ex + ' ' + f.cls)) return ['Crypto', [['USD', 1]]];
     if (/commod/i.test(p.cls + ' ' + f.ex + ' ' + f.cls)) return ['World', [['USD', 1]]];
     for (const [re, c, cur] of EXC) if (re.test(f.ex || '')) return [c, [[cur, 1]]];
     const suf = /\.([A-Z]+)$/.exec(String(p.sym || '').toUpperCase()), BY = { L: ['UK', 'GBP'], DE: ['Germany', 'EUR'], PA: ['France', 'EUR'], MI: ['Italy', 'EUR'], MC: ['Spain', 'EUR'], AS: ['Netherlands', 'EUR'], SW: ['Switzerland', 'CHF'], ZU: ['Switzerland', 'CHF'], T: ['Japan', 'JPY'], HK: ['Hong Kong', 'HKD'], OL: ['Norway', 'NOK'], ST: ['Sweden', 'SEK'], CO: ['Denmark', 'DKK'] };
     if (suf && BY[suf[1]]) return [BY[suf[1]][0], [[BY[suf[1]][1], 1]]];
-    return ['US', [['USD', 1]]];
+    return ['Unknown', [['Unknown', 1]]];
   }
   // how much the open positions move together: daily moves of the last 60 sessions, from the charts already on the phone (no read)
-  const cor = { key: '', at: 0, pairs: [], n: 0, busy: false };
-  function corrSoon(pos) {
-    const key = pos.map((p) => p.id + ':' + p.side).sort().join(',');
+  const cor = { key: '', at: 0, pairs: [], total: 0, busy: false };
+  const corrKey = (p) => [p.id, p.side, p.o.positionID, p.o.orderID].join(':');
+  function corrSoon(pos, key) {
     if (cor.busy || pos.length < 2 || !window.SRLive || !SRLive.kept || (key === cor.key && Date.now() - cor.at < 600000)) return;
     cor.busy = true;
     Promise.all(pos.map((p) => SRLive.kept(p.id, 'OneDay').catch(() => null))).then((ks) => {
-      const ret = ks.map((k) => { const m = new Map(); if (!k || !k.rows) return m; const r = k.rows.slice(-61); for (let i = 1; i < r.length; i++) if (r[i - 1].close > 0 && r[i].close > 0) m.set(new Date(r[i].t).toISOString().slice(0, 10), r[i].close / r[i - 1].close - 1); return m; });
-      const pairs = []; let n = 0;
+      const ret = ks.map((k) => {
+        const m = new Map(); if (!k || !k.rows) return m;
+        const r = k.rows.slice(-61);
+        for (let i = 1; i < r.length; i++) if (r[i - 1].close > 0 && r[i].close > 0 && Number.isFinite(r[i].t)) m.set(new Date(r[i].t).toISOString().slice(0, 10), r[i].close / r[i - 1].close - 1);
+        return m;
+      });
+      const pairs = []; let total = 0;
       for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) {
-        if (pos[i].id === pos[j].id) continue; const a = [], b = []; for (const [d, x] of ret[i]) if (ret[j].has(d)) { a.push(x); b.push(ret[j].get(d)); } if (a.length < 30) continue; n++;
+        if (pos[i].id === pos[j].id) continue;
+        total++;
+        const a = [], b = []; for (const [d, x] of ret[i]) if (ret[j].has(d)) { a.push(x); b.push(ret[j].get(d)); } if (a.length < 30) continue;
         const ma = a.reduce((x, y) => x + y, 0) / a.length, mb = b.reduce((x, y) => x + y, 0) / b.length; let sab = 0, saa = 0, sbb = 0; for (let k = 0; k < a.length; k++) { sab += (a[k] - ma) * (b[k] - mb); saa += (a[k] - ma) ** 2; sbb += (b[k] - mb) ** 2; }
-        const r = saa > 0 && sbb > 0 ? sab / Math.sqrt(saa * sbb) : 0; pairs.push({ a: pos[i].sym, b: pos[j].sym, r, s: r * pos[i].side * pos[j].side, risk: pos[i].risk + pos[j].risk });
+        if (saa > 0 && sbb > 0) pairs.push({ i, j, s: sab / Math.sqrt(saa * sbb) * pos[i].side * pos[j].side });
       }
-      Object.assign(cor, { key, at: Date.now(), pairs: pairs.sort((x, y) => y.s - x.s), n });
-    }).finally(() => { cor.busy = false; });
+      Object.assign(cor, { key, at: Date.now(), pairs: pairs.sort((x, y) => y.s - x.s), total });
+    }).catch(() => { /* retry at the next reading */ }).finally(() => { cor.busy = false; });
   }
 
   // ---- one reading of everything, worked into the figures every part of the tab uses ----
@@ -86,8 +100,16 @@
           amount: +o.amount || 0, expo, pl: +u.pnL || 0, plPct: (+o.amount || 0) > 0 ? 100 * (+u.pnL || 0) / +o.amount : 0, move: 100 * side * (now / +o.openRate - 1), r: t && t.riskMoney > 0 ? (+u.pnL || 0) / t.riskMoney : null, risk, opened: Date.parse(o.openDateTime), due: t ? Date.parse(t.due) : null, fees: (+o.totalExternalFees || 0) + (+o.totalFees || 0), score: t ? t.score : null });
       }
       posFacts(out.positions.map((p) => p.id)); const mid = new Date(); mid.setHours(0, 0, 0, 0);
-      for (const p of out.positions) { const f = pf.m.get(p.id), row = rows.get(p.id);
-        p.day = p.opened >= mid.getTime() ? p.pl : f && f.close > 0 && p.now > 0 ? p.side * p.expo * (p.now - f.close) / p.now : null;   // since the last close, or since it opened today
+      for (const p of out.positions) { const f = pf.m.get(p.id), row = rows.get(p.id), u = p.o.unrealizedPnL || {}, rate = +u.closeRate;
+        // Since the last close, or since it opened today.
+        p.day = null;
+        if (Number.isFinite(p.opened)) {
+          if (p.opened >= mid.getTime()) {
+            if (u.pnL != null && u.pnL !== '' && Number.isFinite(+u.pnL)) p.day = +u.pnL;
+          } else if (pf.at >= mid.getTime() && f && f.close > 0 && Number.isFinite(rate) && rate > 0) {
+            p.day = p.side * p.expo * (rate - f.close) / rate;
+          }
+        }
         p.sec = (f && f.sec) || (p.t && p.t.sec) || (row && row.sec) || null; p.msNow = row && row.ms != null ? row.ms : null; p.buyNow = row ? !!row.buy : null; }
       for (const o of D.ordersForOpen || []) { const t = known(o); out.waiting.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side: o.isBuy ? 1 : -1, amount: +o.amount || 0, frozen: +o.frozenAmount || +o.amount || 0, stop: t ? t.stop : 0, target: t ? t.target : 0, placed: Date.parse(o.openDateTime) || (t ? Date.parse(t.placed) : NaN) }); }
     }
@@ -107,7 +129,6 @@
     // exposure: net (long minus short), in dollars, by sector, by country and by currency
     out.expo = { sec: new Map(), cty: new Map(), cur: new Map() }; const addE = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
     for (const p of pos) { const [cty, curs] = placeOf(p), v = p.side * p.expo; addE(out.expo.sec, p.sec || ({ Forex: 'Currencies', Indices: 'Indices', Commodity: 'Commodities' }[p.cls] || p.cls || 'Other'), v); addE(out.expo.cty, cty, v); for (const [c, sg] of curs) addE(out.expo.cur, c, v * sg); }
-    corrSoon(pos);
     const wins = cl.filter((c) => c.net > 0), loss = cl.filter((c) => c.net <= 0), gp = sum(wins, (c) => c.net), gl = -sum(loss, (c) => c.net), rs = cl.filter((c) => c.r != null);
     out.stats = { n: cl.length, wins: wins.length, winPct: cl.length ? 100 * wins.length / cl.length : null, realized: gp - gl, gp, gl, pf: gl > 0 ? gp / gl : wins.length ? Infinity : null, avgWin: wins.length ? gp / wins.length : null, avgLoss: loss.length ? -gl / loss.length : null,
       expR: rs.length ? sum(rs, (c) => c.r) / rs.length : null, best: cl.length ? cl.reduce((a, b) => (b.net > a.net ? b : a)) : null, worst: cl.length ? cl.reduce((a, b) => (b.net < a.net ? b : a)) : null, hold: cl.filter((c) => c.at > c.opened).length ? sum(cl.filter((c) => c.at > c.opened), (c) => c.at - c.opened) / cl.filter((c) => c.at > c.opened).length : null, fees: sum(cl, (c) => c.fees) + out.feesOpen,
@@ -382,10 +403,18 @@
       const ex = (m, k) => { const L = [...m.entries()].filter(([, v]) => Math.abs(v) >= M.value * 0.005).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])); if (!L.length) return; const d = root.appendChild(el('div', 't-expo')); d.appendChild(el('span', 't-expo-k', k));
         for (const [n, v] of L.slice(0, 5)) d.appendChild(el('span', 't-expo-v ' + (v >= 0 ? 'up' : 'down'), `${n} ${v >= 0 ? '+' : '−'}${Math.round(100 * Math.abs(v) / M.value)}%`)); if (L.length > 5) d.appendChild(el('span', 't-expo-v', `+${L.length - 5} more`)); };
       ex(M.expo.sec, 'Sector'); ex(M.expo.cty, 'Country'); ex(M.expo.cur, 'Currency');
-      const tog = cor.pairs.filter((x) => x.s > 0.7).slice(0, 3), off = cor.pairs.filter((x) => x.s < -0.7).slice(0, 2);
-      for (const x of tog) root.appendChild(el('div', 'g-line g-warn', `${x.a} and ${x.b} move together (${x.r.toFixed(2)}): in effect one bet, ${usd(x.risk)} at risk.`));
-      for (const x of off) root.appendChild(el('div', 'g-hint', `${x.a} and ${x.b} offset each other (${x.r.toFixed(2)}).`));
-      if (cor.n && !tog.length) root.appendChild(el('div', 'g-hint', 'No two positions move closely together (60 days).'));
+      const pos = M.positions.slice().sort((a, b) => corrKey(a).localeCompare(corrKey(b)));
+      const key = pos.map(corrKey).join(',');
+      corrSoon(pos, key);
+      if (key === cor.key) {
+        const tog = cor.pairs.filter((x) => x.s > 0.7).slice(0, 3), off = cor.pairs.filter((x) => x.s < -0.7).slice(0, 2);
+        for (const { i, j, s } of tog) {
+          const a = pos[i], b = pos[j];
+          root.appendChild(el('div', 'g-line g-warn', `${a.sym} and ${b.sym} move together (${s.toFixed(2)}). ${usd(a.risk + b.risk)} at risk at their stops.`));
+        }
+        for (const { i, j, s } of off) root.appendChild(el('div', 'g-hint', `${pos[i].sym} and ${pos[j].sym} offset each other (${s.toFixed(2).replace('-', '−')}).`));
+        if (cor.total && cor.pairs.length === cor.total && !tog.length) root.appendChild(el('div', 'g-hint', 'No two positions move closely together (60 days).'));
+      }
     }
     // by rule and by kind of asset
     const group = (key, names) => { const G = {}; for (const p of M.positions) { const o = G[key(p)] = G[key(p)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.open++; o.run += p.pl; o.expo += p.expo; } for (const c of M.closed) { const o = G[key(c)] = G[key(c)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.n++; o.won += c.net > 0 ? 1 : 0; o.net += c.net; if (c.r != null) { o.r += c.r; o.rn++; } }
@@ -641,8 +670,14 @@
   let briefMemo = null;
   window.SRTrade = { brief() {
     if (briefMemo && Date.now() - briefMemo.at < 10000) return briefMemo.b;
-    let b = null; try { const M = calc(), day0 = Date.now() - 864e5, log = (M.P.log || []).filter((l) => Date.parse(l.at) > day0);
+    let b = null; try { const M = calc(), day0 = Date.now() - 864e5;
+      const program = (p) => p.t && p.arm !== 'hand';
+      const recent = [...M.positions, ...M.closed].filter((p) => program(p) && p.opened > day0);
+      const opened = new Set(recent.map((p) => {
+        const id = p.o ? p.o.positionID : p.h.positionId;
+        return id ? String(id) : p;
+      })).size;
       b = { live: M.live, value: M.value, day: M.perf.day, dayBase: M.perf.dayBase, n: M.positions.length, ids: M.positions.map((p) => [p.id, p.sym]),
-        opened: log.reduce((a, l) => a + (l.opened || []).length, 0), closed: M.closed.filter((c) => c.at > day0), lastRun: M.P.made ? Date.parse(M.P.made) : null }; } catch (e) { b = null; }
+        opened, closed: M.closed.filter((c) => program(c) && c.at > day0), lastRun: M.P.made ? Date.parse(M.P.made) : null }; } catch (e) { b = null; }
     briefMemo = { at: Date.now(), b }; return b; } };
 })();

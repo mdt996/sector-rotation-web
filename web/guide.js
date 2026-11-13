@@ -73,21 +73,31 @@
   // ---- costs: each fund's own yearly fee (TER, taken inside its price) and the French tax (31.4%) a sale would cost ----
   const TAX = 0.314, TER_MORE = { SEC0: 0.0035, EXI2: 0.0051, IS0E: 0.0055 };
   const terOf = (t) => { if (TER_MORE[t] != null) return TER_MORE[t]; const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === t); return r && r.ter != null ? r.ter : null; };   // null: a share, no fund fee
-  const gainOf = (h) => (h.paid > 0 && h.value > 0 ? h.value - h.paid : null);
+  const gainOf = (h) => (h.live && h.paid > 0 && h.value >= 0 ? h.value - h.paid : null);
   const taxOf = (h, sold) => { const g = gainOf(h); return g == null ? null : g > 0 ? TAX * g * Math.min(1, (sold == null ? h.value : sold) / h.value) : 0; };
   // ---- what a plan could become: every 5- and 10-year stretch of the 2000–2026 test, with money added each month ----
-  const ocMemo = new Map();
+  let ocMemo = null;
   function outcomes(key, start, add) {
-    const C = (window.SR_STUDY || {}).curve || [], R = study(key), mk = `${key}|${Math.round(start)}|${add}`;
-    if (ocMemo.has(mk)) return ocMemo.get(mk); if (C.length < 600 || !R || !(R.cagr > -1)) return null;
+    const C = (window.SR_STUDY || {}).curve || [], R = study(key);
+    if (ocMemo && ocMemo.key === key && ocMemo.start === start && ocMemo.add === add) return ocMemo.res;
+    if (C.length < 600 || !R || !(R.cagr > -1)) return null;
     const k = Math.pow((1 + (R.cagr_tax != null ? R.cagr_tax : R.cagr)) / (1 + R.cagr), 1 / 52), res = {};   // the test's costs and tax, spread evenly over the weeks
     for (const yrs of [5, 10]) {
       const W = yrs * 52, out = [];
-      for (let i = 0; i + W < C.length; i++) { let v = start; for (let j = i + 1; j <= i + W; j++) { v *= (C[j][key] / C[j - 1][key]) * k; if (C[j].date.slice(5, 7) !== C[j - 1].date.slice(5, 7)) v += add; } out.push(v); }
+      let putLow = Infinity, putHigh = -Infinity;
+      for (let i = 0; i + W < C.length; i++) {
+        let v = start, put = start;
+        for (let j = i + 1; j <= i + W; j++) {
+          v *= (C[j][key] / C[j - 1][key]) * k;
+          if (C[j].date.slice(5, 7) !== C[j - 1].date.slice(5, 7)) { v += add; put += add; }
+        }
+        out.push(v);
+        putLow = Math.min(putLow, put); putHigh = Math.max(putHigh, put);
+      }
       out.sort((a, b) => a - b); const q = (x) => out[Math.floor(x * (out.length - 1))];
-      res[yrs] = { bad: q(0.1), mid: q(0.5), good: q(0.9), put: start + add * yrs * 12, n: out.length };
+      res[yrs] = { bad: q(0.1), mid: q(0.5), good: q(0.9), putLow, putHigh, n: out.length };
     }
-    ocMemo.set(mk, res); return res;
+    ocMemo = { key, start, add, res }; return res;
   }
   function totals(H) {
     const T = SR.liveTotals ? SR.liveTotals() : null;
@@ -142,6 +152,8 @@
     const st = { p, P, orders: [], cur: {}, size: 0, inPlan: 0, T: null, inn: null, keep: keepSet(p, H), total: live.reduce((x, h) => x + h.value, 0), swing: null, swingOn: p.swing !== false };
     if (!P) return st;
     const PT = planTickers(p); st.keep = new Set([...st.keep].filter((t) => !PT.has(t))); // a plan line cannot be kept outside the plan
+    const scope = live.filter((h) => !st.keep.has(h.ticker));
+    st.size = scope.reduce((x, h) => x + h.value, 0);
     st.inn = P.signal ? (sig && !sig.error ? sig.inn : null) : true;
     if (st.inn == null) return st;
     // semis out of trend but a swing trade is on (bought a sharp dip): that half stays in SEC0 until the swing sells
@@ -149,9 +161,8 @@
     st.swing = sw && sw.inTrade ? sw : null;
     let T = P.targets(st.inn || !!st.swing);
     if (st.swing) T = T.map((l) => (l.t === 'SEC0' ? { ...l, name: 'Semiconductors (swing trade)' } : l));
-    const scope = live.filter((h) => !st.keep.has(h.ticker)), other = {};
+    const other = {};
     for (const h of scope) { const l = lineFor(h, T); if (l) st.cur[l.t] = (st.cur[l.t] || 0) + h.value; else other[h.ticker] = (other[h.ticker] || 0) + h.value; }
-    st.size = scope.reduce((x, h) => x + h.value, 0);
     if (st.swing && st.size > 0) { // during a semis swing trade: keep the SEC0 you hold, don't add; the rest of that half waits in cash
       const held = Math.min(0.5, (st.cur.SEC0 || 0) / st.size);
       T = T.map((l) => (l.t === 'SEC0' ? { ...l, w: held } : l));
@@ -328,7 +339,7 @@
     if (!key || ev.busy || !SRApp.etoroGet || (key === ev.key && Date.now() - ev.at < 6 * 36e5)) return;
     ev.busy = true;
     SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,nextEarningDate&instrumentId=${key}&pageSize=100`, 2)
-      .then((r) => { if (!r || r.status !== 200) return; for (const it of JSON.parse(r.body).items || []) ev.m.set(+it.instrumentId, it.nextEarningDate || null); ev.key = key; ev.at = Date.now(); SRApp.renderDraw('today'); })
+      .then((r) => { if (!r || r.status !== 200) return; ev.m = new Map((JSON.parse(r.body).items || []).map((it) => [+it.instrumentId, it.nextEarningDate || null])); ev.key = key; ev.at = Date.now(); SRApp.renderDraw('today'); })
       .catch(() => { /* asked again later */ }).finally(() => { ev.busy = false; });
   }
   function briefCard(box, H, st) {
@@ -343,7 +354,11 @@
     const ids = new Map(); for (const h of H.filter((x) => x.value > 0 && x.ticker !== 'CASH')) { const l = window.SRLive && SRLive.liveOf ? SRLive.liveOf(h) : null; if (l && l.id) ids.set(l.id, h.ticker); }
     for (const [id, sym] of (D && D.ids) || []) if (!ids.has(id)) ids.set(id, sym);
     eventsSoon([...ids.keys()]);
-    const wk = []; for (const [id, sym] of ids) { const d = ev.m.get(id), t = d ? Date.parse(String(d).slice(0, 10) + 'T12:00:00Z') : NaN; if (t > Date.now() - 864e5 && t < Date.now() + 7 * 864e5) wk.push([t, sym]); }
+    const now = new Date(), today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()), wk = [];
+    for (const [id, sym] of ids) {
+      const d = ev.m.get(id), t = d ? Date.parse(String(d).slice(0, 10) + 'T00:00:00Z') : NaN;
+      if (t >= today && t < today + 7 * 864e5) wk.push([t, sym]);
+    }
     if (wk.length) lines.push(['Results', wk.sort((a, b) => a[0] - b[0]).map(([t, sym]) => [`${sym} ${d3.utcFormat('%a %-d')(new Date(t))}`, ''])]);
     if (!lines.length) return;
     const c = card(box, 'brief', 'Since yesterday');
@@ -611,7 +626,8 @@
       const c = card(box, 'cost', 'Costs and tax');
       if (fv > 0) c.appendChild(el('div', 'g-line', `Fund fees: ${eur(terE)} a year (${d3.format('.2%')(terE / fv)}), inside their prices.`));
       if (known.length) c.appendChild(el('div', 'g-line', `If sold today: ${g > 0 ? `${eur(TAX * g)} tax on ${eur(g)} of gains` : 'no tax'}${known.length < sold.length ? ` (${known.length} of ${sold.length} holdings)` : ''}.`));
-      else c.appendChild(el('div', 'g-hint', 'Add "paid" and the price you paid to a holding in Settings to see its tax.')); }
+      else if (sold.some((h) => h.paid > 0)) c.appendChild(el('div', 'g-hint', 'Tax needs a live value and an amount paid.'));
+      else c.appendChild(el('div', 'g-hint', 'Add the amount you paid in Settings to see tax.')); }
     const list = right.appendChild(el('div', 'g-list'));
     const max = d3.max(H, (h) => h.value) || 1;
     for (const h of H) {
@@ -665,12 +681,17 @@
     for (const id of ['smh', 'core', 'spx']) opt(id, PLANS[id].name, PLANS[id].line, PLANS[id].study);
     opt(null, 'No plan', 'Just track my holdings and the market.', null);
     box.appendChild(el('p', 'g-muted g-sub', 'Past results, not a promise. The reliable difference between them is the size of the drops, not the return.'));
-    { const key = (PLANS[p.id] || PLANS.spx).study, start = st.P && st.size > 0 ? st.size : totals(H.filter((h) => h.value > 0)).total || 0, add = [0, 200, 500, 1000].includes(p.monthly) ? p.monthly : 0;
+    { const key = (PLANS[p.id] || PLANS.spx).study, start = st.P ? st.size : st.total, add = [0, 200, 500, 1000].includes(p.monthly) ? p.monthly : 0;
       const oc = card(right, 'range', `What it could become · ${(PLANS[p.id] || PLANS.spx).name}`), ch = oc.appendChild(el('div', 'g-chips'));
       for (const a of [0, 200, 500, 1000]) { const b = ch.appendChild(el('button', 'g-chip g-toggle' + (a === add ? ' is-on' : ''), a ? `+${eur(a)}/month` : 'Nothing added')); b.type = 'button'; b.setAttribute('aria-pressed', String(a === add)); b.addEventListener('click', () => { const q = plan(); q.monthly = a; savePlan(q); }); }
       const O = start > 0 || add > 0 ? outcomes(key, start, add) : null;
       if (O) { const t = oc.appendChild(el('table', 'g-table g-range')); t.innerHTML = '<thead><tr><th></th><th class="num">Bad</th><th class="num">Typical</th><th class="num">Good</th><th class="num">Put in</th></tr></thead>'; const tb = t.appendChild(el('tbody'));
-        for (const y of [5, 10]) { const r = tb.appendChild(el('tr')), o = O[y]; r.appendChild(el('td', '', `${y} years`)).style.fontWeight = '600'; for (const v of [o.bad, o.mid, o.good, o.put]) r.appendChild(el('td', 'num', eur(v))); }
+        for (const y of [5, 10]) {
+          const r = tb.appendChild(el('tr')), o = O[y], lo = eur(o.putLow), hi = eur(o.putHigh);
+          r.appendChild(el('td', '', `${y} years`)).style.fontWeight = '600';
+          for (const v of [o.bad, o.mid, o.good]) r.appendChild(el('td', 'num', eur(v)));
+          r.appendChild(el('td', 'num', lo === hi ? lo : `${lo}–${hi}`));
+        }
         oc.appendChild(el('div', 'g-hint', 'Every 5- and 10-year stretch of 2000–2026, after costs and tax. Bad: 1 in 10 did worse. Overlapping stretches, so the real worst can be lower.')); }
       else oc.appendChild(el('div', 'g-hint', 'Add amounts to your holdings in Settings, or money each month.')); }
     if (!st.P) return;

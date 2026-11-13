@@ -395,14 +395,20 @@
     function benchSoon() {
       if (inst.id === 27 || inst.id === 3000 || !window.SRLive) return;
       const k = frame.iv, c = benchKept.get(k);
-      if (c && Date.now() - c.at < 300000) { if (c.bars) ch.setBench(c.bars); return; }
+      if (c && c.bars) ch.setBench(c.bars);
+      if (c && Date.now() - c.at < 300000) return;
       if (c && c.busy) return; benchKept.set(k, { busy: true, at: 0, bars: c && c.bars });
       // daily: SPY's history the app already holds (no request); other sizes: the index (it trades nearly round the clock), else SPY,
       // asked as what the screen waits for
       const spy = S().SPY;
-      if (frame.iv === 'OneDay' && spy && spy.status === 'ok' && spy.data && spy.data.length > 50) { const b = spy.data.map((r) => ({ time: Date.parse(r.date + 'T00:00:00Z') / 1000, open: r.open, high: r.high, low: r.low, close: r.close })); benchKept.set(k, { at: Date.now(), bars: b }); ch.setBench(b); return; }
-      const [b1, b2] = /Week/.test(frame.iv) ? [3000, 27] : [27, 3000];
-      candles(b1, frame.iv, frame.n, 2).catch(() => candles(b2, frame.iv, frame.n, 2)).then((r) => { if (dead) return; const b = toBars(r); benchKept.set(k, { at: Date.now(), bars: b }); if (frame.iv === k) ch.setBench(b); })
+      if (k === 'OneDay' && SRApp.state.source === 'etoro' && spy && spy.status === 'ok' && spy.data && spy.data.length > 50) { const b = spy.data.map((r) => ({ time: Date.parse(r.date + 'T00:00:00Z') / 1000, open: r.open, high: r.high, low: r.low, close: r.close })); benchKept.set(k, { at: Date.now(), bars: b }); ch.setBench(b); return; }
+      const [b1, b2] = /Week/.test(k) ? [3000, 27] : [27, 3000], n = frame.n;
+      const read = (id) => candles(id, k, n, 2).then((rows) => {
+        const b = toBars(rows);
+        if (!b.length) throw new Error('No benchmark candles');
+        return b;
+      });
+      read(b1).catch(() => read(b2)).then((b) => { if (dead) return; benchKept.set(k, { at: Date.now(), bars: b }); if (frame.iv === k) ch.setBench(b); })
         .catch(() => benchKept.set(k, { at: Date.now() - 240000, bars: c && c.bars }));   // asked again a minute later
     }
     // the demo account's trade on this asset, read from the account every 10 s (entry, stop, target, eToro's result)
