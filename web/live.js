@@ -370,7 +370,7 @@
     const phoneH = () => { const m = box.querySelector('.ch-main'), S = page.closest('.sheet'), head = S && S.querySelector('.search-head'); if (!m) return 0;
       const above = m.getBoundingClientRect().top - page.getBoundingClientRect().top, top = head ? head.getBoundingClientRect().bottom : 0;
       return Math.round(Math.max(300, Math.min(760, window.innerHeight - top - above - 14))); };
-    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, onCompare: () => setCompareOpen(comparePanel.hidden), height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : phone() ? phoneH() : 0), onPick: (hit) => showPick(hit), onPan: () => { if (pickBox && !pickBox.hidden) pickBox.hidden = true; }, onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
+    const ch = SRChart.create(box, { id: inst.id, priceFormat: fmtP, onFull, onRange: showComparisonRange, onCompare: () => setCompareOpen(comparePanel.hidden), height: () => (opts.embed && window.innerWidth >= 1100 ? Math.max(400, window.innerHeight - 380) : page.classList.contains('is-wide') ? Math.max(460, window.innerHeight - 250) : phone() ? phoneH() : 0), onPick: (hit) => showPick(hit), onPan: () => { if (pickBox && !pickBox.hidden) pickBox.hidden = true; }, onHover: (bar) => { hovering = !!bar; if (!bar) header(); } });
 
     const comparePanel = ch.compareSlot;
     const compareRow = comparePanel.appendChild(el('div', 'ch-compare-row'));
@@ -382,22 +382,30 @@
     const compareClear = compareRow.appendChild(el('button', 'ch-compare-clear', 'Clear')); compareClear.type = 'button'; compareClear.hidden = true;
     const compareResults = comparePanel.appendChild(el('div', 'ch-compare-results')); compareResults.hidden = true;
     const compareStatus = comparePanel.appendChild(el('div', 'ch-compare-status')); compareStatus.setAttribute('aria-live', 'polite');
-    let compareAsset = null, compareTimer, compareSearchSeq = 0, compareSeq = 0, compareFrame = null, compareRows = null, compareKey = '';
+    let compareAsset = null, compareTimer, compareSearchSeq = 0, compareSeq = 0, compareFrame = null, compareRows = null, compareKey = '', compareReady = null, compareShown = '';
     const compareDate = (t) => new Date(t * 1000).toLocaleString([], frame.sec >= 86400
       ? { dateStyle: 'medium', timeZone: 'UTC' }
       : { dateStyle: 'short', timeStyle: 'short' });
+    function setCompareStatus(message) {
+      compareShown = '';
+      if (compareStatus.textContent !== message) compareStatus.textContent = message;
+      delete compareStatus.dataset.from; delete compareStatus.dataset.to;
+    }
+    function clearComparison() {
+      compareReady = null; compareKey = ''; ch.setComparison(null);
+    }
     function setCompareOpen(open) {
       comparePanel.hidden = !open; ch.compareButton.setAttribute('aria-expanded', String(open));
       want(compareWho, open && compareAsset ? [compareAsset.id] : []);
       if (open) {
         if (compareAsset) renderComparison();
         else {
-          compareStatus.textContent = hasKeys() ? 'Compare eToro price changes from the same starting candle.' : 'Add your eToro keys in Settings to compare assets.';
+          setCompareStatus(hasKeys() ? 'Compare eToro price changes from the same starting candle.' : 'Add your eToro keys in Settings to compare assets.');
           compareInput.focus();
         }
       } else {
         ++compareSearchSeq; clearTimeout(compareTimer); compareResults.hidden = true;
-        compareKey = ''; ch.setComparison(null);
+        clearComparison();
       }
       ch.fit();
     }
@@ -405,38 +413,53 @@
       if (comparePanel.hidden || !compareAsset || !compareRows || compareFrame !== frame) return;
       compareRows = SRChart.quoteBars(compareRows, quotes.get(compareAsset.id), frame);
       const data = SRChart.comparePrices(bars, compareRows, frame, { a: quotes.get(inst.id) });
-      if (!data) { compareKey = ''; ch.setComparison(null); compareStatus.textContent = 'Not enough shared candles for this time frame.'; return; }
+      if (!data) { clearComparison(); setCompareStatus('Not enough shared candles for this time frame.'); return; }
       const a = inst.symbol, b = compareAsset.symbol, mode = compareMode.value, { last } = data;
       const key = [compareAsset.id, mode, data.start, data.points.length, last.time, last.a, last.b].join('/');
       if (key === compareKey) return;
       compareKey = key;
-      ch.setComparison({ a, b, mode, data });
+      compareReady = { a, b, mode, data };
+      ch.setComparison(compareReady);
+    }
+    function showComparisonRange(shared, range) {
+      if (!compareReady || comparePanel.hidden) return;
+      const { a, b, mode, data } = compareReady;
+      if (!shared) { setCompareStatus('Fewer than two shared prices in view.'); return; }
+      const { first, last } = shared;
+      const aPct = fmtPct(last.a / 100), bPct = fmtPct(last.b / 100), ratio = fmtPct(last.ratio / 100);
+      const gap = last.a - last.b;
+      const lead = Math.abs(gap) < 0.005 ? 'Even' : (gap > 0 ? a : b) + ' leads by ' + Math.abs(gap).toFixed(2) + ' pp';
+      const startsLate = range.first.time < data.start;
+      const shown = [a, b, mode, first.time, last.time, aPct, bPct, ratio, lead, startsLate].join('/');
+      if (shown === compareShown) return;
+      compareShown = shown;
+      compareStatus.dataset.from = String(first.time); compareStatus.dataset.to = String(last.time);
       compareStatus.replaceChildren();
       const summary = compareStatus.appendChild(el('div', 'ch-compare-summary'));
-      if (mode === 'ratio') summary.appendChild(el('b', 'ch-compare-b', a + ' / ' + b + ' ' + fmtPct(last.ratio / 100)));
+      if (mode === 'ratio') summary.appendChild(el('b', 'ch-compare-b', a + ' / ' + b + ' ' + ratio));
       else {
-        summary.appendChild(el('b', 'ch-compare-a', a + ' ' + fmtPct(last.a / 100)));
-        summary.appendChild(el('b', 'ch-compare-b', b + ' ' + fmtPct(last.b / 100)));
+        summary.appendChild(el('b', 'ch-compare-a', a + ' ' + aPct));
+        summary.appendChild(el('b', 'ch-compare-b', b + ' ' + bPct));
       }
-      const gap = last.a - last.b;
-      summary.appendChild(el('span', '', Math.abs(gap) < 0.005 ? 'Even' : (gap > 0 ? a : b) + ' leads by ' + Math.abs(gap).toFixed(2) + ' pp'));
-      compareStatus.appendChild(el('div', '', compareDate(data.start) + ' – ' + compareDate(last.time) + ' · eToro prices in each asset’s currency'));
+      summary.appendChild(el('span', '', lead));
+      compareStatus.appendChild(el('div', '', compareDate(first.time) + ' – ' + compareDate(last.time) + ' · eToro prices in each asset’s currency'));
+      if (startsLate) compareStatus.appendChild(el('div', '', 'No shared eToro prices before ' + compareDate(data.start) + '.'));
     }
     async function loadComparison() {
       if (!compareAsset || compareFrame !== frame || !bars.length) return;
       const mine = ++compareSeq, f = frame, asset = compareAsset;
-      compareRows = null; compareKey = ''; ch.setComparison(null); compareStatus.textContent = 'Loading ' + asset.symbol + ' candles…';
+      compareRows = null; clearComparison(); setCompareStatus('Loading ' + asset.symbol + ' candles…');
       try {
         const rows = await candles(asset.id, f.iv, f.n, 2);
         if (dead || mine !== compareSeq || frame !== f) return;
         compareRows = toBars(rows); renderComparison();
       } catch (e) {
-        if (!dead && mine === compareSeq && frame === f) compareStatus.textContent = 'Could not load ' + asset.symbol + ' candles from eToro.';
+        if (!dead && mine === compareSeq && frame === f) setCompareStatus('Could not load ' + asset.symbol + ' candles from eToro.');
       }
     }
     function resetComparisonFrame() {
-      ++compareSeq; compareFrame = null; compareRows = null; compareKey = '';
-      if (compareAsset) { ch.setComparison(null); compareStatus.textContent = 'Loading ' + frame.k + ' comparison…'; }
+      ++compareSeq; compareFrame = null; compareRows = null; clearComparison();
+      if (compareAsset) setCompareStatus('Loading ' + frame.k + ' comparison…');
     }
     compareInput.addEventListener('input', () => {
       const term = compareInput.value.trim(), mine = ++compareSearchSeq;
@@ -462,7 +485,7 @@
     compareClear.addEventListener('click', () => {
       compareAsset = null; ++compareSeq; ++compareSearchSeq; clearTimeout(compareTimer);
       compareRows = null; compareInput.value = ''; compareResults.hidden = true; compareClear.hidden = true;
-      ch.setComparison(null); setCompareOpen(true);
+      clearComparison(); setCompareOpen(true);
     });
 
     chFit = () => { placeVerdict(); if (ch.fit) ch.fit(); };

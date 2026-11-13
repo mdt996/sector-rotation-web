@@ -197,6 +197,16 @@ body.chart-full { overflow: hidden; }
 body.chart-full .tabbar { display: none; }
 .av-stats .z-fv dt::before { content: ''; display: inline-block; width: 10px; height: 0; border-top: 2px dashed rgba(41,98,255,.8); margin-right: 6px; vertical-align: 3px; }
 
+/* visible chart dates and return */
+.ch-range { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+.ch-tools > .ch-range { margin-left: auto; padding: 0 2px 0 8px; flex-shrink: 0; }
+.ch-range[hidden], .ch-date-form[hidden] { display: none; }
+.ch-date-form { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; padding: 6px 8px; border: 1px solid var(--color-border-line); border-radius: 10px; font-size: 12px; color: var(--color-fg-muted); }
+.ch-date-form label { display: grid; flex: 1 1 120px; min-width: 0; gap: 3px; }
+.ch-date-form input, .ch-dates { box-sizing: border-box; min-height: 34px; min-width: 0; padding: 4px 8px; border: 1px solid var(--color-border-line); border-radius: 8px; background: var(--color-panel); color: var(--color-fg); font: inherit; }
+.ch-dates { cursor: pointer; }
+.ch-date-error:not(:empty) { flex-basis: 100%; }
+
 /* asset comparison, in the normal and full chart views */
 .ch-compare-slot { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--color-border-line); border-radius: 10px; }
 .ch-compare-slot[hidden] { display: none; }

@@ -235,7 +235,7 @@
     B.textContent = '';
     const hdr = B.appendChild(el('div', 't-chhdr')), host = B.appendChild(el('div', 't-tv')), note = B.appendChild(el('div', 'g-hint t-chnote'));
     const T = { B, hdr, host, note, sig: '', n: 0, bars: [], hover: null, startLine: null, startAt: null, tf: 36e5 };
-    T.api = SRChart.create(host, { id: 'demo-account', priceFormat: (v) => '$' + Math.round(v).toLocaleString('en-US'), height: () => (window.innerWidth >= 900 ? Math.max(420, Math.min(620, window.innerHeight - 380)) : 0),
+    T.api = SRChart.create(host, { id: 'demo-account', rangeLabel: 'Value change', priceFormat: (v) => '$' + Math.round(v).toLocaleString('en-US'), height: () => (window.innerWidth >= 900 ? Math.max(420, Math.min(620, window.innerHeight - 380)) : 0),
       onFull: (on) => { if (on) T.api.slot.replaceChildren(hdr); else B.insertBefore(hdr, host); },   // in full view the time frames and the figures move above the chart, as on an asset
       onHover: (b) => { T.hover = b ? T.bars.find((k) => k.time === b.time) || null : null; T.say(); } });
     const L = window.LightweightCharts, { chart: ch, candles } = T.api.lw(), blue = cssVar('--sr-c1', '#2563eb');

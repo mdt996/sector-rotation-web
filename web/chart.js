@@ -44,7 +44,7 @@
       : rows.concat({ time, close: quote.price });
   }
 
-  // Match candles in the same interval. Both returns use the first shared close in the starting view.
+  // Match candles in the same interval. Base both returns on the first shared close in the loaded history.
   function comparePrices(primary, other, frame, latest) {
     const sec = frame.sec, offset = sec === 604800 ? 4 * 86400 : 0;   // weekly candles start on Sunday
     const bucket = (t) => Math.floor((t + offset) / sec);
@@ -54,7 +54,7 @@
     other = quoteBars(other, latest && latest.b, frame);
     const closes = new Map(other.filter((b) => valid(b.close)).map((b) => [bucket(b.time), b.close]));
     const matches = primary.map((b) => ({ time: b.time, a: b.close, b: closes.get(bucket(b.time)) }));
-    const start = matches.findIndex((x, i) => i >= Math.max(0, matches.length - frame.show) && valid(x.a) && valid(x.b));
+    const start = matches.findIndex((x) => valid(x.a) && valid(x.b));
     if (start < 0) return null;
     const base = matches[start];
     let last = null, count = 0;
@@ -68,6 +68,26 @@
     return count > 1 ? { points, start: base.time, last } : null;
   }
   const comparePct = (v) => (v >= 0.005 ? '+' : '') + (Math.abs(v) < 0.005 ? '0.00' : v.toFixed(2)) + '%';
+  const rebase = (value, base) => (100 + value) / (100 + base) * 100 - 100;
+  function comparisonWindow(data, range) {
+    if (!range) return null;
+    let first, last;
+    for (const p of data.points) {
+      if (p.time > range.last.time) break;
+      if (p.time < range.first.time || p.a == null) continue;
+      if (!first) first = p;
+      last = p;
+    }
+    return first && last !== first ? { first, last: { time: last.time, a: rebase(last.a, first.a), b: rebase(last.b, first.b), ratio: rebase(last.ratio, first.ratio) } } : null;
+  }
+  function dateInputValue(time, utc) {
+    const d = new Date(time * 1000), y = utc ? d.getUTCFullYear() : d.getFullYear(), m = utc ? d.getUTCMonth() : d.getMonth(), day = utc ? d.getUTCDate() : d.getDate();
+    return [y, String(m + 1).padStart(2, '0'), String(day).padStart(2, '0')].join('-');
+  }
+  function dateBoundary(value, utc, next = false) {
+    const [y, m, d] = value.split('-').map(Number);
+    return (utc ? Date.UTC(y, m - 1, d + +next) : new Date(y, m - 1, d + +next).getTime()) / 1000;
+  }
 
   function create(container, opts) {
     opts = opts || {};
@@ -91,6 +111,16 @@
     const bClose = el('button', 'ch-close'); bClose.append(el('span', '', '✕'), el('span', 'ch-close-w', ' Close')); bClose.type = 'button'; bClose.setAttribute('aria-label', 'Close the full view'); tools.insertBefore(bClose, tools.firstChild);   // the way back from the full view, always first in the bar
     const hint = root.appendChild(el('div', 'ch-hint', ''));
     const noteEl = root.appendChild(el('div', 'ch-note'));   // in full view: what the tapped line or level is
+    const rangeBar = root.appendChild(el('div', 'ch-range')); rangeBar.hidden = true;
+    const rangeStatus = rangeBar.appendChild(el('div', 'ch-range-status'));
+    const rangeValue = rangeStatus.appendChild(el('b'));
+    const rangeDates = rangeStatus.appendChild(el('div'));
+    const dateButton = rangeBar.appendChild(el('button', 'ch-dates', 'Dates')); dateButton.type = 'button'; dateButton.setAttribute('aria-expanded', 'false');
+    const dateForm = root.appendChild(el('form', 'ch-date-form')); dateForm.hidden = true;
+    const dateField = (name) => { const label = dateForm.appendChild(el('label', '', name)); const input = label.appendChild(el('input')); input.type = 'date'; input.required = true; return input; };
+    const dateFrom = dateField('Start date'), dateTo = dateField('End date');
+    const dateApply = dateForm.appendChild(el('button', 'ch-dates', 'Apply')); dateApply.type = 'submit';
+    const dateError = dateForm.appendChild(el('span', 'ch-date-error')); dateError.setAttribute('role', 'status');
     const compareSlot = opts.onCompare ? root.appendChild(el('div', 'ch-compare-slot')) : null;
     if (compareSlot) compareSlot.hidden = true;
     const main = root.appendChild(el('div', 'ch-main'));
@@ -120,7 +150,7 @@
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, attributionLogo: true, panes: { separatorColor: dark() ? '#2a2e39' : '#e0e3eb' } },
       grid: { vertLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.2 } },
-      timeScale: { borderVisible: false, rightOffset: 6, timeVisible: true, secondsVisible: false, tickMarkFormatter: (t, type) => tickText(t, type) },
+      timeScale: { borderVisible: false, rightOffset: 6, minBarSpacing: 0.2, timeVisible: true, secondsVisible: false, tickMarkFormatter: (t, type) => tickText(t, type) },
       crosshair: { mode: LW().CrosshairMode.Normal },
       localization: { priceFormatter: fmtP, timeFormatter: (t) => (frame.sec >= 86400 ? fmt('cd', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : fmt('ct', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })).format(new Date(t * 1000)) },
     });
@@ -140,6 +170,68 @@
     }
     const line = (color, w, pane) => chart.addSeries(LW().LineSeries, { color, lineWidth: w || 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane || 0);
     const S = {}; // indicator series
+    const scale = chart.timeScale(), datesUTC = () => frame.sec >= 86400;
+    let rangeFrame = null, compareDataShown = null, compareBaseShown = null;
+    const rangeDate = (t) => fmt(datesUTC() ? 'range-day' : 'range-time', datesUTC()
+      ? { dateStyle: 'medium', timeZone: 'UTC' } : { dateStyle: 'short', timeStyle: 'short' }).format(new Date(t * 1000));
+    function visiblePrices() {
+      const visible = scale.getVisibleLogicalRange();
+      if (!visible || !bars.length) return null;
+      const from = Math.ceil(visible.from), to = Math.floor(visible.to);
+      if (from > to) return null;
+      const first = candles.dataByIndex(from, LW().MismatchDirection.NearestRight), last = candles.dataByIndex(to, LW().MismatchDirection.NearestLeft);
+      return first && last && first.time <= last.time ? { first, last } : null;
+    }
+    function syncCompareLines(shared) {
+      if (!comparison) return;
+      const data = comparison.data, base = shared ? shared.first : data.points[0];
+      if (data === compareDataShown && base.time === compareBaseShown) return;
+      compareDataShown = data; compareBaseShown = base.time;
+      const fields = comparison.mode === 'ratio' ? { compRatio: 'ratio' } : { compA: 'a', compB: 'b' };
+      for (const [k, field] of Object.entries(fields)) if (S[k]) {
+        S[k].setData(data.points.map((p) => p[field] == null ? { time: p.time } : { time: p.time, value: rebase(p[field], base[field]) }));
+      }
+    }
+    function queueRange() {
+      if (dead || rangeFrame !== null) return;
+      rangeFrame = requestAnimationFrame(() => {
+        rangeFrame = null;
+        const range = visiblePrices();
+        if (rangeBar.hidden === !!bars.length) { rangeBar.hidden = !bars.length; sizeMain(); }
+        const moved = range && range.first.time < range.last.time && range.first.close > 0;
+        const text = moved ? (opts.rangeLabel || 'Price change') + ' in view: ' + comparePct((range.last.close / range.first.close - 1) * 100) : 'Fewer than two prices in view';
+        const dates = moved ? rangeDate(range.first.time) + ' – ' + rangeDate(range.last.time) : '';
+        if (rangeValue.textContent !== text) rangeValue.textContent = text;
+        if (rangeDates.textContent !== dates) rangeDates.textContent = dates;
+        const shared = comparison && comparisonWindow(comparison.data, range);
+        syncCompareLines(shared);
+        if (opts.onRange) opts.onRange(shared, range);
+      });
+    }
+    function toggleDates(open) {
+      const changed = dateForm.hidden === open;
+      dateForm.hidden = !open; dateButton.setAttribute('aria-expanded', String(open)); dateError.textContent = '';
+      if (changed) sizeMain();
+      if (!open || !bars.length) return;
+      const range = visiblePrices(), utc = datesUTC(), min = dateInputValue(bars[0].time, utc), max = dateInputValue(bars[bars.length - 1].time, utc);
+      for (const i of [dateFrom, dateTo]) { i.min = min; i.max = max; }
+      dateFrom.value = range ? dateInputValue(range.first.time, utc) : min;
+      dateTo.value = range ? dateInputValue(range.last.time, utc) : max;
+    }
+    dateButton.addEventListener('click', () => toggleDates(dateForm.hidden));
+    dateForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const from = dateBoundary(dateFrom.value, datesUTC()), to = dateBoundary(dateTo.value, datesUTC(), true);
+      if (from >= to) { dateError.textContent = 'Start date must be on or before end date.'; return; }
+      const first = bars.find((b) => b.time >= from);
+      let i = bars.length - 1; while (i >= 0 && bars[i].time >= to) i--;
+      const last = bars[i];
+      if (!first || !last || first.time > last.time) { dateError.textContent = 'No prices between these dates.'; return; }
+      const a = scale.timeToIndex(first.time, false), b = scale.timeToIndex(last.time, false);
+      if (a == null || b == null) return;
+      scale.setVisibleLogicalRange({ from: a - 0.15, to: b + 0.15 });
+      toggleDates(false); queueRange();
+    });
 
     // ---- time <-> logical index (works across timeframes and beyond the last bar) ----
     function timeToLogical(t) {
@@ -414,7 +506,7 @@
       }
       opts.onPick(hit ? { ...hit, at: { x: ev.point.x, y: ev.point.y } } : null);   // where the tap was: the explanation opens beside it
     });
-    chart.timeScale().subscribeVisibleLogicalRangeChange(() => { if (opts.onPan && !dead) opts.onPan(); });
+    scale.subscribeVisibleLogicalRangeChange(() => { if (opts.onPan && !dead) opts.onPan(); queueRange(); });
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
     root.__drawings = () => drawings.length;
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
@@ -427,7 +519,13 @@
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
     bInd.addEventListener('click', () => { menu.hidden = !menu.hidden; bInd.setAttribute('aria-pressed', String(!menu.hidden)); });
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
-    function sizeMain() { const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0; main.style.height = root.classList.contains('is-full') ? '' : (own || (340 + (np - 1) * 110)) + 'px'; }
+    function sizeMain() {
+      const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0, full = root.classList.contains('is-full');
+      if (full && window.innerWidth >= 900) {
+        if (rangeBar.parentNode !== tools) tools.append(rangeBar);
+      } else if (rangeBar.parentNode !== root) dateForm.before(rangeBar);
+      main.style.height = full ? '' : (own || (340 + (np - 1) * 110)) + 'px';
+    }
     bFull.addEventListener('click', () => toggleFull());
     bClose.addEventListener('click', () => toggleFull(false));
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !dead && root.classList.contains('is-full')) { e.preventDefault(); toggleFull(false); } });   // Esc leaves the full view (Mac)
@@ -461,6 +559,7 @@
 
     // ---- indicators ----
     function applyIndicators() {
+      compareDataShown = null;
       for (const k of Object.keys(S)) { try { chart.removeSeries(S[k]); } catch (e) { /* gone */ } delete S[k]; }
       while (chart.panes().length > 1) chart.removePane(chart.panes().length - 1);
       vol.applyOptions({ visible: !!ind.vol });
@@ -515,31 +614,27 @@
         }
       }
       if (comparison) {
-        const { data, mode, a, b } = comparison;
-        const add = (key, color, title) => {
-          const series = chart.addSeries(LW().LineSeries, { color, title, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'custom', minMove: 0.01, formatter: comparePct } }, pane);
-          series.setData(data.points.map((p) => p[key] == null ? { time: p.time } : { time: p.time, value: p[key] }));
-          return series;
-        };
+        const { mode, a, b } = comparison;
+        const add = (color, title) => chart.addSeries(LW().LineSeries, { color, title, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'custom', minMove: 0.01, formatter: comparePct } }, pane);
         let first;
-        if (mode === 'ratio') first = S.compRatio = add('ratio', '#ef6c00', a + ' / ' + b);
+        if (mode === 'ratio') first = S.compRatio = add('#ef6c00', a + ' / ' + b);
         else {
-          first = S.compA = add('a', '#2962ff', a);
-          S.compB = add('b', '#ef6c00', b);
+          first = S.compA = add('#2962ff', a);
+          S.compB = add('#ef6c00', b);
         }
         first.createPriceLine({ price: 0, color: 'rgba(120,120,120,0.6)', lineStyle: 2, lineWidth: 1, axisLabelVisible: false });
       }
       const panes = chart.panes();
       if (panes.length > 1) { panes[0].setStretchFactor(3); for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1); }
       main.dataset.panes = String(panes.length); sizeMain();
-      redraw();
+      redraw(); queueRange();
     }
 
     return {
       setBars(newBars, f, fit) {
         if (dead) return;
         const n0 = bars.length, vr0 = !fit && n0 ? chart.timeScale().getVisibleLogicalRange() : null, atEnd = !!(vr0 && vr0.to >= n0 - 1.5) && (!f || f.sec === frame.sec);
-        if (f && f.sec !== frame.sec) { bench = []; comparison = null; }
+        if (f && f.sec !== frame.sec) { bench = []; comparison = null; toggleDates(false); }
         bars = newBars; frame = f || frame;
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
         vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
@@ -547,6 +642,7 @@
         applyIndicators(); makeFuture();
         if (fit && bars.length) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - (frame.show || 160)), to: bars.length + 5 });
         else if (atEnd && bars.length !== n0) { const dn = bars.length - n0; chart.timeScale().setVisibleLogicalRange({ from: vr0.from + dn, to: vr0.to + dn }); }   // new candles came in while the last one was on screen: follow them
+        queueRange();
       },
       update(bar, isNew) {
         if (dead || !bar) return;
@@ -555,6 +651,7 @@
         if (atEnd) chart.timeScale().setVisibleLogicalRange({ from: vr0.from + 1, to: vr0.to + 1 });   // a new candle: the view moves one step with it, as on TradingView
         if (isNew) makeFuture();   // a new candle: the empty slots start after it again
         candles.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+        queueRange();
       },
       setZones(L) { zones = L; redraw(); },
       setFair(f) { fair = f && f.bear > 0 && f.bull > 0 ? f : null; redraw(); },
@@ -570,16 +667,14 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
         const same = value && comparison && value.a === comparison.a && value.b === comparison.b && value.mode === comparison.mode;
         comparison = value;
         if (!bars.length) return;
-        const keys = value && (value.mode === 'ratio' ? { compRatio: 'ratio' } : { compA: 'a', compB: 'b' });
-        if (same && Object.keys(keys).every((k) => S[k])) {
-          for (const [k, field] of Object.entries(keys)) S[k].setData(value.data.points.map((p) => p[field] == null ? { time: p.time } : { time: p.time, value: p[field] }));
-        } else applyIndicators();
+        if (!same) applyIndicators();
+        queueRange();
       },
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
-      destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
+      destroy() { dead = true; if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
   }
-  window.SRChart = { create, sma, ema, rsi, comparePrices, quoteBars };
+  window.SRChart = { create, sma, ema, rsi, comparePrices, comparisonWindow, quoteBars };
 })();
