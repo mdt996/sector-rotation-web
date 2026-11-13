@@ -182,5 +182,5 @@
   document.addEventListener('keydown', (e) => { if (e.key !== 'Enter' || !e.target || !e.target.closest) return; const a = e.target.closest('.sr-asset'); if (a) { e.preventDefault(); go(a); } }, true);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 
-  window.SRAbout = { render, text: (id) => TEXT[id] || null, linked: () => (K ? [...K.keys()] : []) };
+  window.SRAbout = { facts: factsOf, render, text: (id) => TEXT[id] || null, linked: () => (K ? [...K.keys()] : []) };
 })();

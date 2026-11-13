@@ -384,7 +384,7 @@
       <p class="hint">In eToro: Settings → Trading → API Key Management → Create key, confirm with the SMS code, then copy both keys. They stay on this device and are sent only to eToro: its data address (public-api.etoro.com) and its live price stream (ws.etoro.com).</p>
     </div>
     <h3>Your holdings</h3>
-    <label class="field"><span>One per line: Revolut ticker, then = and the US ticker it follows (if different), "rough" if it only roughly follows it, "long" for long-term holds, and the amount in euros if you want each holding's share and moves in euros. Example: SEC0 = SMH 500</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
+    <label class="field"><span>One per line: Revolut ticker, "= US ticker" if it follows another, the amount in euros, "paid" and what you paid (for the tax a sale would cost), "long" for long-term holds, "rough" for a loose match. Example: SEC0 = SMH 500 paid 420</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
     <p class="hint">The US ticker must be one of the funds or stocks in the ranking. Leave empty to use the default list shown in grey.</p>
     <div id="alerts-block">
     <h3>Alerts</h3>
@@ -441,5 +441,6 @@
 <script src="guide.js"></script>
 <script src="trade.js"></script>
 <script src="about.js"></script>
+<script src="fold.js"></script>
 </body>
 </html>

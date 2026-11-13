@@ -733,6 +733,23 @@ div.av-pick { max-width: none; }
 /* Settings > Speed on this phone */
 .sp { margin: 16px 0 8px; } .sp summary { font-weight: 700; cursor: pointer; }
 .sp-list { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0 0; } .sp-list dt { font-size: 12px; color: var(--color-fg-muted); margin-top: 8px; } .sp-list dd { margin: 0; font-size: 14px; }
+/* trading: net exposure chips */
+.t-expo { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; margin: 4px 0 6px; font-size: 12.5px; }
+.t-expo-k { color: var(--color-fg-muted); min-width: 62px; }
+.t-expo-v { padding: 1px 7px; border-radius: 10px; background: var(--color-bg-subtle, rgba(127,127,127,0.1)); font-variant-numeric: tabular-nums; }
+.t-expo-v.up { color: var(--color-up, #16a34a); } .t-expo-v.down { color: var(--color-down, #dc2626); }
+/* Today: the morning brief */
+.g-bl { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; font-size: 14px; line-height: 1.35; }
+.g-bl-k { flex: 0 0 96px; color: var(--color-fg-muted); font-size: 12.5px; }
+.g-bl-v b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.g-range td, .g-range th { white-space: nowrap; }
+/* Settings: one status line */
+.sp-status { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 10px; font-size: 12.5px; }
+.sp-st { padding: 2px 8px; border-radius: 10px; background: rgba(22,150,70,0.1); color: var(--color-fg); }
+.sp-st.ok::before { content: '● '; color: #16a34a; } .sp-st.warn { background: rgba(217,119,6,0.12); } .sp-st.warn::before { content: '● '; color: #d97706; }
+/* long explanations: two lines, a tap opens them */
+.fold { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.fold-more { display: block; background: none; border: 0; padding: 0; margin: -2px 0 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--color-accent, #2563eb); cursor: pointer; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

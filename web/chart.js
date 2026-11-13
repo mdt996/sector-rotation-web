@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true }; // a clean chart: two averages, RSI, the nearest levels
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true, rs: true, pos: true, ev: true }; // a clean chart: two averages, RSI, the nearest levels
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -36,7 +36,7 @@
     opts = opts || {};
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
-    let autos = [], marks = [];
+    let autos = [], marks = [], bench = [], posn = null, events = [];   // bench: the S&P 500's candles of the same size; posn: the demo account's trade; events: dates ahead (results)
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
 
@@ -54,7 +54,7 @@
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
-    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps', sig: 'Buy and sell entries with their outcome' };
+    const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps', sig: 'Buy and sell entries with their outcome', rs: 'Strength against the S&P 500', pos: 'Your demo trade: entry, stop, target', ev: 'Next results date' };
     for (const k of Object.keys(IND_LABEL)) {
       const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
@@ -114,7 +114,8 @@
       if (l >= n - 1) { const k = l - (n - 1), i = Math.floor(k), at = (j) => (j <= 0 ? bars[n - 1].time : j <= future.length ? future[j - 1] : future[future.length - 1] + (j - future.length) * frame.sec); return at(i) + (k - i) * (at(i + 1) - at(i)); }
       const i = Math.floor(l), f = l - i; return bars[i].time + f * (bars[i + 1].time - bars[i].time);
     }
-    const xOf = (t) => chart.timeScale().logicalToCoordinate(timeToLogical(t));
+    // the chart library answers 0 for an index between two slots, so place such a point between its two neighbours
+    const xOf = (t) => { const ts = chart.timeScale(), l = timeToLogical(t), i = Math.floor(l), f = l - i, a = ts.logicalToCoordinate(i); if (!f || a == null) return a; const b2 = ts.logicalToCoordinate(i + 1); return b2 == null ? a : a + f * (b2 - a); };
     const yOf = (p) => candles.priceToCoordinate(p);
 
     // ---- overlay drawing: zones, fair value, drawings, measure ----
@@ -199,6 +200,28 @@
           const Wc = W / hr; ask({ text: `${lv.label} ${fmtP(lv.p)}`, short: `${String(lv.label).split(' + ')[0]} ${fmtP(lv.p)}`, tiny: fmtP(lv.p), xs: [[Wc - 8, 'right'], [8, 'left'], [Wc * 0.55, 'center']], y: ly - 8, color: COL[lv.kind] || COL.act, bg: true, narrowShort: true, pri: (lv.kind === 'act' ? 66 : 52) - rank });
         }
         ctx.setLineDash([]);
+      }
+      // the demo account's trade on this asset: its entry, stop and target, with its result so far (the result is eToro's)
+      if (ind.pos && posn && posn.entry > 0) {
+        const Wc = W / hr, up = posn.side > 0, pl = posn.pl, plt = pl == null ? '' : ` · ${pl >= 0 ? '+' : '−'}$${Math.abs(pl).toFixed(2)}`;
+        for (const [p, col, dash, txt, sh, pri] of [[posn.entry, 'rgba(41,98,255,0.95)', [], `Demo ${up ? 'buy' : 'short'} ${fmtP(posn.entry)}${plt}`, `Demo ${fmtP(posn.entry)}${plt}`, 88], [posn.stop, 'rgba(220,60,60,0.9)', [5 * hr, 4 * hr], `Stop ${fmtP(posn.stop)}`, `Stop ${fmtP(posn.stop)}`, 86], [posn.target, 'rgba(22,150,70,0.9)', [5 * hr, 4 * hr], `Target ${fmtP(posn.target)}`, `Target ${fmtP(posn.target)}`, 86]]) {
+          if (!(p > 0)) continue; const y = yOf(p); if (y == null) continue;
+          ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.4 * r); ctx.setLineDash(dash);
+          ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
+          ask({ text: txt, short: sh, tiny: fmtP(p), xs: [[Wc * 0.3, 'center'], [8, 'left'], [Wc - 8, 'right']], y: y - 8, color: col, bg: true, pri });
+        }
+        ctx.setLineDash([]);
+      }
+      // dates ahead (the next results): a dotted upright line in the empty slots after the last candle
+      if (ind.ev && events.length) {
+        for (const e of events) {
+          const x = xOf(e.t); if (x == null || !isFinite(x)) continue;
+          if (x > W / hr - 4) { ask({ text: `${e.label} →`, short: `${e.short || e.label} →`, tiny: `${e.short || e.label} →`, xs: [[W / hr - 8, 'right']], y: 14, color: 'rgba(126,87,194,1)', bg: true, pri: 70 }); continue; }   // further ahead than the screen shows
+          if (x < 0) continue;
+          ctx.strokeStyle = 'rgba(126,87,194,0.85)'; ctx.lineWidth = Math.max(1, r); ctx.setLineDash([3 * hr, 3 * hr]);
+          ctx.beginPath(); ctx.moveTo(Math.round(x * hr) + 0.5, 0); ctx.lineTo(Math.round(x * hr) + 0.5, sc.bitmapSize.height); ctx.stroke(); ctx.setLineDash([]);
+          ask({ text: e.label, short: e.short || e.label, tiny: e.short || e.label, x: x + 4, y: 14, color: 'rgba(126,87,194,1)', bg: true, pri: 70 });
+        }
       }
       if (ind.fair && fair) {
         const y1 = yOf(fair.bull), y2 = yOf(fair.bear), yb = yOf(fair.base);
@@ -423,6 +446,20 @@
         put(S.macd = line('#2962ff', 1.2, pane), mac); put(S.macds = line('#ff6d00', 1.2, pane), sig);
         pane++;
       }
+      // strength against the S&P 500: the asset's price divided by the index's, at the same moments, set to 100 where the first view starts
+      // (above 100 and rising: it does better than the market). Its 50-candle average, dotted, shows the trend of that strength.
+      if (ind.rs && bench.length > 20) {
+        const bt = bench.map((b) => b.time), bc = bench.map((b) => b.close), at = (tt) => { let lo = 0, hi = bt.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (bt[m] <= tt) { k = m; lo = m + 1; } else hi = m - 1; } return k >= 0 ? bc[k] : null; };
+        const raw = c.map((v, i) => { const x = at(t[i]); return x > 0 && v > 0 ? v / x : null; }), i0 = Math.max(0, c.length - (frame.show || 160)), base = raw.slice(i0).find((v) => v != null) || raw.find((v) => v != null);
+        if (base) {
+          const rel = raw.map((v) => (v == null ? null : (100 * v) / base));
+          S.rs = chart.addSeries(LW().LineSeries, { color: '#ef6c00', lineWidth: 1.4, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, title: 'vs S&P 500' }, pane); put(S.rs, rel);
+          S.rsm = line('rgba(120,120,120,0.8)', 1, pane); S.rsm.applyOptions({ lineStyle: 1 }); put(S.rsm, sma(rel.map((v) => (v == null ? 0 : v)), 50).map((v, i) => (rel[i] == null || i < 50 ? null : v)));
+          S.rs.createPriceLine({ price: 100, color: 'rgba(120,120,120,0.5)', lineStyle: 2, lineWidth: 1, axisLabelVisible: false });
+          root.dataset.rs = String(Math.round(rel[rel.length - 1] * 10) / 10);
+          pane++;
+        }
+      } else delete root.dataset.rs;
       const panes = chart.panes();
       if (panes.length > 1) { panes[0].setStretchFactor(3); for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1); }
       main.dataset.panes = String(panes.length); sizeMain();
@@ -456,6 +493,9 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       lw: () => ({ chart, candles }),   // for a chart of something else than an asset (the account's value): its own lines and markers
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
+      setBench(b) { bench = Array.isArray(b) ? b : []; if (bars.length) applyIndicators(); },
+      setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
+      setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };

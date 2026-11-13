@@ -160,6 +160,9 @@
       if (!line) continue;
       const long = /\blong(-term)?\b/i.test(line), rough = /\brough\b/i.test(line);
       line = line.replace(/\blong(-term)?\b|\brough\b/ig, ' ');
+      // what was paid for it, for the tax a sale would cost: "paid 1800" (or "cost 1800")
+      let paid = null;
+      line = line.replace(/\b(?:paid|cost)\s*(?:€\s?)?(\d+(?:[.,]\d+)?)(?:\s?€|\s?eur(?:os?)?)?/i, (m, num) => { paid = parseFloat(num.replace(',', '.')); return ' '; });
       // the amount: a number on its own, with or without a euro sign (tickers such as SEC0 are not numbers)
       let amount = null;
       line = line.replace(/(^|\s)(?:€\s?)?(\d+(?:[.,]\d+)?)(?:\s?€|\s?eur(?:os?)?)?(?=\s|$)/i, (m, pre, num) => { amount = parseFloat(num.replace(',', '.')); return pre + ' '; });
@@ -173,7 +176,7 @@
       out.push({
         ticker, name: d ? d.name : revName, tracks,
         match: rough ? 'rough' : known ? d.match : tracks === ticker ? 'same' : 'close',
-        long_term: long, note: known ? d.note : '', amount: amount > 0 ? amount : null,
+        long_term: long, note: known ? d.note : '', amount: amount > 0 ? amount : null, paid: paid > 0 ? paid : null,
       });
     }
     return out;

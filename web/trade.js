@@ -22,6 +22,54 @@
   // the account's value between two readings of eToro (every 5 s), moved with each price eToro pushes for the open positions: minute by minute extremes kept in memory
   const liveMin = new Map(); let liveA = null, liveOff = null;
 
+  // ---- what eToro says of the open positions' assets, read once every 5 minutes: the day's change with the price it was read at
+  //      (which gives the last close), the sector and the exchange ----
+  const pf = { at: 0, key: '', m: new Map(), busy: false };
+  function posFacts(ids) {
+    const key = [...new Set(ids)].filter((x) => x > 0).sort((a, b) => a - b).join(',');
+    if (!key || pf.busy || !window.SRApp || !SRApp.etoroGet || (key === pf.key && Date.now() - pf.at < 300000)) return;
+    pf.busy = true;
+    SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,dailyPriceChange,currentRate,sector,internalExchangeName,internalAssetClassName&instrumentId=${key}&pageSize=100`, 2)
+      .then((r) => { if (!r || r.status !== 200) return; const j = JSON.parse(r.body);
+        for (const it of j.items || []) { const d = +it.dailyPriceChange, c = +it.currentRate; pf.m.set(+it.instrumentId, { close: c > 0 && isFinite(d) && d > -100 ? c / (1 + d / 100) : null, sec: it.sector || null, ex: it.internalExchangeName || '', cls: it.internalAssetClassName || '' }); }
+        pf.key = key; pf.at = Date.now(); })
+      .catch(() => { /* asked again at the next reading */ }).finally(() => { pf.busy = false; });
+  }
+  // where an asset is listed: its country and currency (indices and currency pairs by their name)
+  const EXC = [[/nasdaq (iceland|tallinn|vilnius|riga)/i, 'Baltics & Iceland', 'EUR'], [/nasdaq|nyse|otc|chicago|cboe|cme|regular trading|texas/i, 'US', 'USD'], [/lse/i, 'UK', 'GBP'], [/fra|xetra/i, 'Germany', 'EUR'], [/paris/i, 'France', 'EUR'],
+    [/madrid/i, 'Spain', 'EUR'], [/italiana/i, 'Italy', 'EUR'], [/six/i, 'Switzerland', 'CHF'], [/tyo|tokyo/i, 'Japan', 'JPY'], [/oslo/i, 'Norway', 'NOK'], [/stockholm/i, 'Sweden', 'SEK'], [/copenhagen/i, 'Denmark', 'DKK'], [/helsinki/i, 'Finland', 'EUR'],
+    [/toronto|tsx/i, 'Canada', 'CAD'], [/hong kong/i, 'Hong Kong', 'HKD'], [/lisbon/i, 'Portugal', 'EUR'], [/brussels/i, 'Belgium', 'EUR'], [/amsterdam/i, 'Netherlands', 'EUR'], [/sydney/i, 'Australia', 'AUD'], [/vienna/i, 'Austria', 'EUR'], [/dublin/i, 'Ireland', 'EUR'],
+    [/tadawul/i, 'Saudi Arabia', 'SAR'], [/dubai|abu dhabi/i, 'UAE', 'AED'], [/warsaw/i, 'Poland', 'PLN'], [/prague/i, 'Czechia', 'CZK'], [/budapest/i, 'Hungary', 'HUF'], [/shenzen|shanghai/i, 'China', 'CNY'], [/india/i, 'India', 'INR'], [/singapore/i, 'Singapore', 'SGD'], [/korea/i, 'Korea', 'KRW'], [/taiwan/i, 'Taiwan', 'TWD'], [/tel aviv/i, 'Israel', 'ILS']];
+  const IDX = { SPX500: ['US', 'USD'], NSDQ100: ['US', 'USD'], DJ30: ['US', 'USD'], US2000: ['US', 'USD'], GER40: ['Germany', 'EUR'], UK100: ['UK', 'GBP'], FRA40: ['France', 'EUR'], JPN225: ['Japan', 'JPY'], AUS200: ['Australia', 'AUD'], HKG50: ['Hong Kong', 'HKD'], EUSTX50: ['Euro area', 'EUR'], ESP35: ['Spain', 'EUR'], ITA40: ['Italy', 'EUR'], CHINA50: ['China', 'CNY'] };
+  function placeOf(p) {   // [country, [[currency, sign], ...]]
+    const f = pf.m.get(p.id) || {}, sym = String(p.sym || '').toUpperCase().replace(/\..*$/, '');
+    if (p.cls === 'Forex' || /^FX$/i.test(f.ex) || /currenc/i.test(f.cls)) return /^[A-Z]{6}$/.test(sym) ? ['Currencies', [[sym.slice(0, 3), 1], [sym.slice(3), -1]]] : ['Currencies', [['USD', 1]]];
+    if (IDX[sym]) return [IDX[sym][0], [[IDX[sym][1], 1]]];
+    if (/crypto|digital/i.test(p.cls + ' ' + f.ex + ' ' + f.cls)) return ['Crypto', [['USD', 1]]];
+    if (/commod/i.test(p.cls + ' ' + f.ex + ' ' + f.cls)) return ['World', [['USD', 1]]];
+    for (const [re, c, cur] of EXC) if (re.test(f.ex || '')) return [c, [[cur, 1]]];
+    const suf = /\.([A-Z]+)$/.exec(String(p.sym || '').toUpperCase()), BY = { L: ['UK', 'GBP'], DE: ['Germany', 'EUR'], PA: ['France', 'EUR'], MI: ['Italy', 'EUR'], MC: ['Spain', 'EUR'], AS: ['Netherlands', 'EUR'], SW: ['Switzerland', 'CHF'], ZU: ['Switzerland', 'CHF'], T: ['Japan', 'JPY'], HK: ['Hong Kong', 'HKD'], OL: ['Norway', 'NOK'], ST: ['Sweden', 'SEK'], CO: ['Denmark', 'DKK'] };
+    if (suf && BY[suf[1]]) return [BY[suf[1]][0], [[BY[suf[1]][1], 1]]];
+    return ['US', [['USD', 1]]];
+  }
+  // how much the open positions move together: daily moves of the last 60 sessions, from the charts already on the phone (no read)
+  const cor = { key: '', at: 0, pairs: [], n: 0, busy: false };
+  function corrSoon(pos) {
+    const key = pos.map((p) => p.id + ':' + p.side).sort().join(',');
+    if (cor.busy || pos.length < 2 || !window.SRLive || !SRLive.kept || (key === cor.key && Date.now() - cor.at < 600000)) return;
+    cor.busy = true;
+    Promise.all(pos.map((p) => SRLive.kept(p.id, 'OneDay').catch(() => null))).then((ks) => {
+      const ret = ks.map((k) => { const m = new Map(); if (!k || !k.rows) return m; const r = k.rows.slice(-61); for (let i = 1; i < r.length; i++) if (r[i - 1].close > 0 && r[i].close > 0) m.set(new Date(r[i].t).toISOString().slice(0, 10), r[i].close / r[i - 1].close - 1); return m; });
+      const pairs = []; let n = 0;
+      for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++) {
+        if (pos[i].id === pos[j].id) continue; const a = [], b = []; for (const [d, x] of ret[i]) if (ret[j].has(d)) { a.push(x); b.push(ret[j].get(d)); } if (a.length < 30) continue; n++;
+        const ma = a.reduce((x, y) => x + y, 0) / a.length, mb = b.reduce((x, y) => x + y, 0) / b.length; let sab = 0, saa = 0, sbb = 0; for (let k = 0; k < a.length; k++) { sab += (a[k] - ma) * (b[k] - mb); saa += (a[k] - ma) ** 2; sbb += (b[k] - mb) ** 2; }
+        const r = saa > 0 && sbb > 0 ? sab / Math.sqrt(saa * sbb) : 0; pairs.push({ a: pos[i].sym, b: pos[j].sym, r, s: r * pos[i].side * pos[j].side, risk: pos[i].risk + pos[j].risk });
+      }
+      Object.assign(cor, { key, at: Date.now(), pairs: pairs.sort((x, y) => y.s - x.s), n });
+    }).finally(() => { cor.busy = false; });
+  }
+
   // ---- one reading of everything, worked into the figures every part of the tab uses ----
   function calc() {
     const P = S().practice() || {}, L = S().demo(), live = !!(L.p && !(L.err && Date.now() - L.at > 25000)), D = live ? L.p : null;
@@ -37,6 +85,10 @@
         out.positions.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), cls: clsOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side, lev: +o.leverage || 1, entry: +o.openRate, now, stop, target, soft: !!(t && t.softStop), etoroStop: +o.stopLossRate || 0,
           amount: +o.amount || 0, expo, pl: +u.pnL || 0, plPct: (+o.amount || 0) > 0 ? 100 * (+u.pnL || 0) / +o.amount : 0, move: 100 * side * (now / +o.openRate - 1), r: t && t.riskMoney > 0 ? (+u.pnL || 0) / t.riskMoney : null, risk, opened: Date.parse(o.openDateTime), due: t ? Date.parse(t.due) : null, fees: (+o.totalExternalFees || 0) + (+o.totalFees || 0), score: t ? t.score : null });
       }
+      posFacts(out.positions.map((p) => p.id)); const mid = new Date(); mid.setHours(0, 0, 0, 0);
+      for (const p of out.positions) { const f = pf.m.get(p.id), row = rows.get(p.id);
+        p.day = p.opened >= mid.getTime() ? p.pl : f && f.close > 0 && p.now > 0 ? p.side * p.expo * (p.now - f.close) / p.now : null;   // since the last close, or since it opened today
+        p.sec = (f && f.sec) || (p.t && p.t.sec) || (row && row.sec) || null; p.msNow = row && row.ms != null ? row.ms : null; p.buyNow = row ? !!row.buy : null; }
       for (const o of D.ordersForOpen || []) { const t = known(o); out.waiting.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side: o.isBuy ? 1 : -1, amount: +o.amount || 0, frozen: +o.frozenAmount || +o.amount || 0, stop: t ? t.stop : 0, target: t ? t.target : 0, placed: Date.parse(o.openDateTime) || (t ? Date.parse(t.placed) : NaN) }); }
     }
     for (const h of (L.hist || [])) {
@@ -51,7 +103,11 @@
     out.cash = D ? +D.credit || 0 : P.account ? P.account.cash : 0; out.frozen = sum(out.waiting, (w) => w.frozen); out.margin = sum(pos, (p) => p.amount); out.run = D ? +D.unrealizedPnL || sum(pos, (p) => p.pl) : 0;
     out.value = D ? out.cash + out.margin + out.run : P.account ? +P.account.equity : 0;
     out.long = sum(pos.filter((p) => p.side > 0), (p) => p.expo); out.short = sum(pos.filter((p) => p.side < 0), (p) => p.expo); out.gross = out.long + out.short; out.net = out.long - out.short;
-    out.riskOpen = sum(pos, (p) => p.risk); out.feesOpen = sum(pos, (p) => p.fees);
+    out.riskOpen = sum(pos, (p) => p.risk); out.feesOpen = sum(pos, (p) => p.fees); out.dayOpen = pos.some((p) => p.day != null) ? sum(pos, (p) => p.day || 0) : null;
+    // exposure: net (long minus short), in dollars, by sector, by country and by currency
+    out.expo = { sec: new Map(), cty: new Map(), cur: new Map() }; const addE = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
+    for (const p of pos) { const [cty, curs] = placeOf(p), v = p.side * p.expo; addE(out.expo.sec, p.sec || ({ Forex: 'Currencies', Indices: 'Indices', Commodity: 'Commodities' }[p.cls] || p.cls || 'Other'), v); addE(out.expo.cty, cty, v); for (const [c, sg] of curs) addE(out.expo.cur, c, v * sg); }
+    corrSoon(pos);
     const wins = cl.filter((c) => c.net > 0), loss = cl.filter((c) => c.net <= 0), gp = sum(wins, (c) => c.net), gl = -sum(loss, (c) => c.net), rs = cl.filter((c) => c.r != null);
     out.stats = { n: cl.length, wins: wins.length, winPct: cl.length ? 100 * wins.length / cl.length : null, realized: gp - gl, gp, gl, pf: gl > 0 ? gp / gl : wins.length ? Infinity : null, avgWin: wins.length ? gp / wins.length : null, avgLoss: loss.length ? -gl / loss.length : null,
       expR: rs.length ? sum(rs, (c) => c.r) / rs.length : null, best: cl.length ? cl.reduce((a, b) => (b.net > a.net ? b : a)) : null, worst: cl.length ? cl.reduce((a, b) => (b.net < a.net ? b : a)) : null, hold: cl.filter((c) => c.at > c.opened).length ? sum(cl.filter((c) => c.at > c.opened), (c) => c.at - c.opened) / cl.filter((c) => c.at > c.opened).length : null, fees: sum(cl, (c) => c.fees) + out.feesOpen,
@@ -320,15 +376,26 @@
     tile(g, 'Money set aside', usd(M.margin), `${M.gross > 0 && M.margin > 0 ? (M.gross / M.margin).toFixed(1) + '× leverage on average' : 'no position'}`);
     tile(g, 'Free cash', usd(M.cash - M.frozen), M.frozen ? `${usd(M.frozen)} held for waiting orders` : '');
     tile(g, 'Sharpe ratio', f.sharpe != null ? f.sharpe.toFixed(2) : '–', f.sharpe != null ? `from ${f.days} days` : `needs 20 days of history (${f.days} so far)`);
+    // exposure by sector, country and currency (net: long minus short), and the positions that move together
+    if (M.positions.length && M.value > 0) {
+      head(root, 'Exposure, net');
+      const ex = (m, k) => { const L = [...m.entries()].filter(([, v]) => Math.abs(v) >= M.value * 0.005).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])); if (!L.length) return; const d = root.appendChild(el('div', 't-expo')); d.appendChild(el('span', 't-expo-k', k));
+        for (const [n, v] of L.slice(0, 5)) d.appendChild(el('span', 't-expo-v ' + (v >= 0 ? 'up' : 'down'), `${n} ${v >= 0 ? '+' : '−'}${Math.round(100 * Math.abs(v) / M.value)}%`)); if (L.length > 5) d.appendChild(el('span', 't-expo-v', `+${L.length - 5} more`)); };
+      ex(M.expo.sec, 'Sector'); ex(M.expo.cty, 'Country'); ex(M.expo.cur, 'Currency');
+      const tog = cor.pairs.filter((x) => x.s > 0.7).slice(0, 3), off = cor.pairs.filter((x) => x.s < -0.7).slice(0, 2);
+      for (const x of tog) root.appendChild(el('div', 'g-line g-warn', `${x.a} and ${x.b} move together (${x.r.toFixed(2)}): in effect one bet, ${usd(x.risk)} at risk.`));
+      for (const x of off) root.appendChild(el('div', 'g-hint', `${x.a} and ${x.b} offset each other (${x.r.toFixed(2)}).`));
+      if (cor.n && !tog.length) root.appendChild(el('div', 'g-hint', 'No two positions move closely together (60 days).'));
+    }
     // by rule and by kind of asset
     const group = (key, names) => { const G = {}; for (const p of M.positions) { const o = G[key(p)] = G[key(p)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.open++; o.run += p.pl; o.expo += p.expo; } for (const c of M.closed) { const o = G[key(c)] = G[key(c)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.n++; o.won += c.net > 0 ? 1 : 0; o.net += c.net; if (c.r != null) { o.r += c.r; o.rn++; } }
       const tb = root.appendChild(el('div', 't-table')); const hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['', 'Open', 'Running', 'Closed', 'Gain %', 'Result', 'Per trade']) hd.appendChild(el('span', '', h));
       for (const [k, o] of Object.entries(G).sort((a, b) => (b[1].net + b[1].run) - (a[1].net + a[1].run))) { const r = tb.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', (names && names[k]) || k)); r.appendChild(el('span', '', String(o.open))); r.appendChild(el('span', sign(o.run), o.open ? usd2(o.run) : '–')); r.appendChild(el('span', '', String(o.n))); r.appendChild(el('span', '', o.n ? Math.round(100 * o.won / o.n) + '%' : '–')); r.appendChild(el('span', sign(o.net), o.n ? usd2(o.net) : '–')); r.appendChild(el('span', '', o.rn ? `${o.r / o.rn >= 0 ? '+' : '−'}${Math.abs(o.r / o.rn).toFixed(2)} R` : '–')); }
       if (!Object.keys(G).length) tb.appendChild(el('div', 'g-hint', 'Nothing yet.')); };
     head(root, 'By rule'); group((x) => x.arm, ARM); head(root, 'By kind of asset'); group((x) => x.cls);
-    if ([...M.positions, ...M.closed].some((x) => x.t && x.t.fast && x.t.now)) { head(root, 'Fast trades: what the signal did while the trade was on'); group((x) => (!(x.t && x.t.fast) ? 'Other trades' : x.t.faded ? 'Signal faded or reversed' : 'Signal held')); root.appendChild(el('div', 'g-hint', 'The program reads the score of each open fast trade again every hour and records it. It closes nothing on it: on ten weeks of eToro\'s candles that would not have helped. These two lines will show whether the real trades agree.')); }
+    if ([...M.positions, ...M.closed].some((x) => x.t && x.t.fast && x.t.now)) { head(root, 'Fast trades: what the signal did while the trade was on'); group((x) => (!(x.t && x.t.fast) ? 'Other trades' : x.t.faded ? 'Signal faded or reversed' : 'Signal held')); root.appendChild(el('div', 'g-hint', 'The signal of each fast trade is read again every hour; nothing is closed on it (on ten weeks of candles that did not help). These lines test that on real trades.')); }
     for (const [k, v] of Object.entries(M.P.paused || {})) root.appendChild(el('div', 'g-line g-warn', `Paused by the program: ${ARM[k] || k} since ${v.since} (${v.why}).`));
-    root.appendChild(el('div', 'g-hint', 'Figures are eToro\'s own, read every 5 seconds. Orders are placed by the program on your VM, never from this app. Virtual money: a test of the signals, not advice.'));
+    root.appendChild(el('div', 'g-hint', 'eToro\'s own figures, read every 5 seconds. Orders come only from the program on your VM. Virtual money, not advice.'));
     return true;
   }
 
@@ -349,13 +416,14 @@
         const tr = b.appendChild(el('div', 't-track')); const fill = tr.appendChild(el('i', 't-fill ' + sign(p.pl))); const a = at(p.entry), c = at(p.now); fill.style.left = Math.min(a, c) + '%'; fill.style.width = Math.abs(c - a) + '%';
         const e = tr.appendChild(el('i', 't-entry')); e.style.left = a + '%'; const n = tr.appendChild(el('i', 't-now ' + sign(p.pl))); n.style.left = c + '%';
         const ends = b.appendChild(el('div', 't-ends')); ends.appendChild(el('span', flip ? 'up' : 'down', `${flip ? 'target' : 'stop'} ${px(lo)}`)); ends.appendChild(el('span', '', `now ${px(p.now)}`)); ends.appendChild(el('span', flip ? 'down' : 'up', `${flip ? 'stop' : 'target'} ${px(hi)}`)); }
-      const toStop = p.stop > 0 ? Math.abs(p.now / p.stop - 1) * 100 : null, toTp = p.target > 0 ? Math.abs(p.target / p.now - 1) * 100 : null;
-      b.appendChild(el('div', 't-l2', `Entry ${px(p.entry)} · size ${usd(p.expo)}${p.lev > 1 ? ` (${usd(p.amount)} set aside)` : ''} · stop ${toStop != null ? toStop.toFixed(1) + '% away' : 'not set'} · target ${toTp != null ? toTp.toFixed(1) + '% away' : 'not set'}`));
-      b.appendChild(el('div', 't-l2', `${p.opened > 0 ? `Opened ${when(p.opened)} (${span(Date.now() - p.opened)} ago)` : 'Open'}${p.due ? ` · time limit in ${span(Math.max(0, p.due - Date.now()))}` : ''}${p.risk > 0 ? ` · ${usd(p.risk)} lost from here if stopped` : ''}${p.score != null ? ` · score ${Math.round(p.score * 1000) / 10}` : ''}`));
-      if (p.t && p.t.best != null && p.t.worst != null) b.appendChild(el('div', 't-l2', `So far: best ${rtxt(p.t.best)}, worst ${rtxt(p.t.worst)} (R = the money this trade risks)`));
-      if (p.t && p.t.now) { const n = p.t.now, w = n.state !== 'holds'; b.appendChild(el('div', 't-l2' + (w ? ' g-warn' : ''), `Signal at ${clock(Date.parse(n.at))}: ${n.state === 'holds' ? 'still holds' : n.state === 'gone' ? 'gone (the score is back to neutral)' : 'reversed (the score now points the other way)'} · score ${Math.round(n.score * 1000) / 10}${w ? ' · left to its stop, target and time limit' : ''}`)); }
-      if (p.soft) b.appendChild(el('div', 't-l2 g-warn', `eToro takes no stop this close on this asset (its own is at ${px(p.etoroStop)}): the program watches ${px(p.stop)} itself every 5 minutes.`));
-      if (!p.t) b.appendChild(el('div', 't-l2', 'Not opened by the program.'));
+      const sc = (x) => (Math.round(x * 1000) / 10).toFixed(1), bar = ((window.SRTA && window.SRTA.model && window.SRTA.model()) || {}).buy;
+      b.appendChild(el('div', 't-l2', [p.day != null ? `Today ${usd2(p.day)}` : null, `entry ${px(p.entry)}`, `${usd(p.expo)}${p.lev > 1 ? ` (${usd(p.amount)} set aside)` : ''}`, p.opened > 0 ? `${span(Date.now() - p.opened)} old` : null, p.due ? `ends in ${span(Math.max(0, p.due - Date.now()))}` : null].filter(Boolean).join(' · ')));
+      // why this trade: the signal it was opened on, against the same signal now
+      if (p.t && p.score != null) { const n = p.t.now, nowS = n ? n.score : p.msNow, faded = n ? n.state !== 'holds' : p.side > 0 && p.buyNow === false;
+        b.appendChild(el('div', 't-l2' + (faded ? ' g-warn' : ''), `Why: score ${sc(p.score)} at entry${nowS != null ? ` → ${sc(nowS)} now` : ''}${p.side > 0 && bar ? ` (buy from ${sc(bar)})` : p.side < 0 && !p.t.fast ? ' (lowest among big US shares)' : ''}${n ? ` · ${n.state === 'holds' ? 'holds' : n.state === 'gone' ? 'faded' : 'reversed'}` : faded ? ' · faded' : ''}`)); }
+      const ex2 = [p.risk > 0 ? `If stopped ${usd(-p.risk)}` : null, p.t && p.t.best != null ? `best ${rtxt(p.t.best)}` : null, p.t && p.t.worst != null ? `worst ${rtxt(p.t.worst)}` : null].filter(Boolean);
+      if (ex2.length) b.appendChild(el('div', 't-l2', ex2.join(' · ')));
+      if (p.soft) b.appendChild(el('div', 't-l2 g-warn', `Stop watched by the program at ${px(p.stop)} (eToro's own: ${px(p.etoroStop)}).`));
     }
     head(root, `Orders waiting for the market (${M.waiting.length})`);
     if (!M.waiting.length) root.appendChild(el('div', 'g-hint', 'None.'));
@@ -569,4 +637,12 @@
     S().demoWatch(() => { let any = false; for (const k in roots) { const [r, f] = roots[k]; if (r.isConnected && !r.closest('[hidden]')) { any = true; if (!document.body.classList.contains('sheet-open')) f(r); } } if (!any) watching = false; return any; });
   });
   live('trade', overview); live('tradepos', positions); live('tradehist', history); live('tradereview', review); live('tradeprog', progress);
+  // for the morning brief on Today: the demo account in a few figures (worked out at most every 10 seconds)
+  let briefMemo = null;
+  window.SRTrade = { brief() {
+    if (briefMemo && Date.now() - briefMemo.at < 10000) return briefMemo.b;
+    let b = null; try { const M = calc(), day0 = Date.now() - 864e5, log = (M.P.log || []).filter((l) => Date.parse(l.at) > day0);
+      b = { live: M.live, value: M.value, day: M.perf.day, dayBase: M.perf.dayBase, n: M.positions.length, ids: M.positions.map((p) => [p.id, p.sym]),
+        opened: log.reduce((a, l) => a + (l.opened || []).length, 0), closed: M.closed.filter((c) => c.at > day0), lastRun: M.P.made ? Date.parse(M.P.made) : null }; } catch (e) { b = null; }
+    briefMemo = { at: Date.now(), b }; return b; } };
 })();

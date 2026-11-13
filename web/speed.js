@@ -36,8 +36,22 @@
     for (const [k, v] of summary()) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; dl.append(dt, dd); }
     box.appendChild(dl);
   }
+  // one line at the top of Settings: is everything the app depends on up to date?
+  let meta = null, metaAsked = false;
+  function status(p) {
+    const S2 = window.SRScreen, parts = [], ago = (t) => { const m = (Date.now() - t) / 60e3; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+    const add = (k, v, ok) => parts.push([k, v, ok]);
+    try { const P = S2 && S2.practice ? S2.practice() : null; if (P && P.made) add('VM', ago(Date.parse(P.made)), !(S2.vmSilent && S2.vmSilent())); else add('VM', 'no record yet', false); } catch (e) { /* not ready */ }
+    try { const m = S2 && S2.scanMade ? S2.scanMade() : null; if (m) { const t = Date.parse(String(m).slice(0, 10) + 'T12:00:00Z'); add('Scan', new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), Date.now() - t < 4 * 864e5); } } catch (e) { /* not ready */ }
+    try { const D = S2 && S2.demo ? S2.demo() : null; if (D && D.at) add('Account', ago(D.at), !D.err && Date.now() - D.at < 120000); else if (D) add('Account', D.err ? 'not read' : 'not read yet', false); } catch (e) { /* not ready */ }
+    if (!metaAsked && window.SRSync && window.SRSync.getFile) { metaAsked = true; window.SRSync.getFile('about/meta.json').then((j) => { meta = j; }).catch(() => { metaAsked = false; }); }
+    if (meta && meta.looked) add('Descriptions', `${meta.described.toLocaleString('en-US')} of ${meta.looked.toLocaleString('en-US')} shares`, Date.now() - Date.parse(meta.made) < 40 * 864e5);
+    p.replaceChildren(); for (const [k, v, ok] of parts) { const s = p.appendChild(document.createElement('span')); s.className = 'sp-st ' + (ok ? 'ok' : 'warn'); s.textContent = `${k} ${v}`; }
+  }
   function mount() {
     const body = document.querySelector('#settings .sheet-body'); if (!body || document.getElementById('speed')) return;
+    const st = document.createElement('p'); st.id = 'sys-status'; st.className = 'sp-status'; body.insertBefore(st, body.firstChild);
+    setInterval(() => { if (!document.hidden && body.offsetParent !== null) status(st); }, 5000); status(st);
     const d = document.createElement('details'); d.id = 'speed'; d.className = 'sp';
     const s = document.createElement('summary'); s.textContent = 'Speed on this phone'; d.appendChild(s);
     const box = document.createElement('div'); d.appendChild(box); body.appendChild(d);

@@ -54,10 +54,11 @@
   // ---- holdings with live values ----
   function holdings() {
     const P = dash.data('portfolio'), H = dash.data('holdings');
-    const rows = P.status === 'ok' && P.data.length ? P.data : H.status === 'ok' ? H.data : [];
+    const rows = P.status === 'ok' && P.data.length ? P.data : H.status === 'ok' ? H.data : [], HD = H.status === 'ok' ? H.data : [];
     return rows.map((h) => {
       const L = SR.liveFolio ? SR.liveFolio(h) : null;
-      return { ...h, value: L && L.value != null ? L.value : h.amount || 0, chg: L ? L.chg : null, live: !!(L && L.value != null), symbol: L ? L.symbol : h.tracks };
+      const own = HD.find((x) => x.ticker === h.ticker);
+      return { ...h, paid: h.paid != null ? h.paid : own ? own.paid : null, value: L && L.value != null ? L.value : h.amount || 0, chg: L ? L.chg : null, live: !!(L && L.value != null), symbol: L ? L.symbol : h.tracks };
     });
   }
   function openHolding(h) {
@@ -68,6 +69,25 @@
   function openTicker(t, H) {
     const h = (H || []).find((x) => x.ticker === t); if (h) return openHolding(h);
     const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === t); if (SR.open) SR.open(r ? r.us : t);
+  }
+  // ---- costs: each fund's own yearly fee (TER, taken inside its price) and the French tax (31.4%) a sale would cost ----
+  const TAX = 0.314, TER_MORE = { SEC0: 0.0035, EXI2: 0.0051, IS0E: 0.0055 };
+  const terOf = (t) => { if (TER_MORE[t] != null) return TER_MORE[t]; const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === t); return r && r.ter != null ? r.ter : null; };   // null: a share, no fund fee
+  const gainOf = (h) => (h.paid > 0 && h.value > 0 ? h.value - h.paid : null);
+  const taxOf = (h, sold) => { const g = gainOf(h); return g == null ? null : g > 0 ? TAX * g * Math.min(1, (sold == null ? h.value : sold) / h.value) : 0; };
+  // ---- what a plan could become: every 5- and 10-year stretch of the 2000–2026 test, with money added each month ----
+  const ocMemo = new Map();
+  function outcomes(key, start, add) {
+    const C = (window.SR_STUDY || {}).curve || [], R = study(key), mk = `${key}|${Math.round(start)}|${add}`;
+    if (ocMemo.has(mk)) return ocMemo.get(mk); if (C.length < 600 || !R || !(R.cagr > -1)) return null;
+    const k = Math.pow((1 + (R.cagr_tax != null ? R.cagr_tax : R.cagr)) / (1 + R.cagr), 1 / 52), res = {};   // the test's costs and tax, spread evenly over the weeks
+    for (const yrs of [5, 10]) {
+      const W = yrs * 52, out = [];
+      for (let i = 0; i + W < C.length; i++) { let v = start; for (let j = i + 1; j <= i + W; j++) { v *= (C[j][key] / C[j - 1][key]) * k; if (C[j].date.slice(5, 7) !== C[j - 1].date.slice(5, 7)) v += add; } out.push(v); }
+      out.sort((a, b) => a - b); const q = (x) => out[Math.floor(x * (out.length - 1))];
+      res[yrs] = { bad: q(0.1), mid: q(0.5), good: q(0.9), put: start + add * yrs * 12, n: out.length };
+    }
+    ocMemo.set(mk, res); return res;
   }
   function totals(H) {
     const T = SR.liveTotals ? SR.liveTotals() : null;
@@ -276,8 +296,8 @@
         if (mine && spy) kv(s, 'Evidence', `Your plan in the 2000–2026 test: ${pct(mine.cagr_tax)} a year after tax, worst drop ${pct(mine.max_dd, 0)}. S&P 500: ${pct(spy.cagr_tax)}, ${pct(spy.max_dd, 0)}.`);
       }
       if (!cash) {
-        const f = fee(o);
-        kv(s, 'Cost', `Fee about €${f2(f)} (0.25%, minimum €1, after your free orders)${o.eur < 200 ? `: ${d3.format('.1%')(f / o.eur)} of this small order` : ''}.${o.side === 'sell' ? ' A gain is taxed at 31.4%; a loss costs no tax.' : ''}`);
+        const f = fee(o), h = o.side === 'sell' ? (H || []).find((x) => x.ticker === o.t) : null, tx = h ? taxOf(h, o.eur) : null, yr = mine && mine.cagr_tax > 0 ? mine.cagr_tax : null, all = f + (tx || 0);
+        kv(s, 'Cost', `Fee about €${f2(f)}${tx != null ? ` + tax about ${eur(tx)}` : ''} = ${d3.format('.1%')(all / o.eur)} of the order${yr && o.side === 'sell' ? `, about ${Math.max(1, Math.round(all / (o.eur * yr / 12)))} month${Math.round(all / (o.eur * yr / 12)) > 1 ? 's' : ''} of the plan's average gain` : ''}.${o.side === 'sell' && tx == null ? ' Add what you paid in Settings to see the tax.' : ''}`);
         const row = s.appendChild(el('div', 'g-btns'));
         if (o.kind === 'setup' && o.side === 'sell' && !o.line) row.appendChild(btn(`Keep ${o.t} instead`, 'primary', () => { const q = plan(), k = keepSet(q, H); k.add(o.t); q.keep = [...k]; closeSheet(); savePlan(q); toast(`${o.t} kept. Orders updated.`); }));
         row.appendChild(btn('Open chart', '', () => { closeSheet(); openTicker(o.t, H); }));
@@ -301,6 +321,34 @@
   }
 
   // ---- Today, card 1: the answer ----
+  // ---- the morning brief: what changed since yesterday, five short lines at most ----
+  const ev = { at: 0, key: '', m: new Map(), busy: false };   // the next results date of what you hold and of the demo's trades (one read every 6 hours)
+  function eventsSoon(ids) {
+    const key = [...new Set(ids)].filter((x) => x > 0).sort((a, b) => a - b).join(',');
+    if (!key || ev.busy || !SRApp.etoroGet || (key === ev.key && Date.now() - ev.at < 6 * 36e5)) return;
+    ev.busy = true;
+    SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,nextEarningDate&instrumentId=${key}&pageSize=100`, 2)
+      .then((r) => { if (!r || r.status !== 200) return; for (const it of JSON.parse(r.body).items || []) ev.m.set(+it.instrumentId, it.nextEarningDate || null); ev.key = key; ev.at = Date.now(); SRApp.renderDraw('today'); })
+      .catch(() => { /* asked again later */ }).finally(() => { ev.busy = false; });
+  }
+  function briefCard(box, H, st) {
+    const lines = [], live = H.filter((h) => h.value > 0 && h.chg != null && h.ticker !== 'CASH'), sgn = (x) => (x >= 0 ? 'up' : 'down');
+    const mv = live.slice().sort((a, b) => Math.abs(b.chg) - Math.abs(a.chg)).filter((h) => Math.abs(h.chg) >= 0.005).slice(0, 3);
+    if (mv.length) lines.push(['Moved most', mv.map((h) => [`${h.ticker} ${pct(h.chg)}`, sgn(h.chg)])]);
+    const D = window.SRTrade ? window.SRTrade.brief() : null;
+    if (D && D.live && D.day != null && D.dayBase > 0) lines.push(['Demo', [[`${D.day >= 0 ? '+' : '−'}$${d3.format(',.0f')(Math.abs(D.day))} (${pct(D.day / D.dayBase, 2)}) today`, sgn(D.day)], [`${D.n} open`, '']]]);
+    if (D && (D.opened || D.closed.length)) { const net = d3.sum(D.closed, (c) => c.net); lines.push(['Program, 24 h', [[`${D.opened} opened`, ''], [`${D.closed.length} closed${D.closed.length ? ` (${net >= 0 ? '+' : '−'}$${d3.format(',.0f')(Math.abs(net))})` : ''}`, D.closed.length ? sgn(net) : '']]]); }
+    // (how far the plan's own trigger is stays in the plan card just below: not repeated here)
+    // results within a week: your holdings (through the asset the app follows) and the demo's open trades
+    const ids = new Map(); for (const h of H.filter((x) => x.value > 0 && x.ticker !== 'CASH')) { const l = window.SRLive && SRLive.liveOf ? SRLive.liveOf(h) : null; if (l && l.id) ids.set(l.id, h.ticker); }
+    for (const [id, sym] of (D && D.ids) || []) if (!ids.has(id)) ids.set(id, sym);
+    eventsSoon([...ids.keys()]);
+    const wk = []; for (const [id, sym] of ids) { const d = ev.m.get(id), t = d ? Date.parse(String(d).slice(0, 10) + 'T12:00:00Z') : NaN; if (t > Date.now() - 864e5 && t < Date.now() + 7 * 864e5) wk.push([t, sym]); }
+    if (wk.length) lines.push(['Results', wk.sort((a, b) => a[0] - b[0]).map(([t, sym]) => [`${sym} ${d3.utcFormat('%a %-d')(new Date(t))}`, ''])]);
+    if (!lines.length) return;
+    const c = card(box, 'brief', 'Since yesterday');
+    for (const [k, parts] of lines) { const r = c.appendChild(el('div', 'g-bl')); r.appendChild(el('span', 'g-bl-k', k)); const v = r.appendChild(el('span', 'g-bl-v')); parts.forEach(([t, cl], i) => { if (i) v.appendChild(el('span', 'g-muted', ' · ')); v.appendChild(el('b', cl, t)); }); }
+  }
   function verdictCard(box, H, st) {
     if (!st.P) {
       const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'No plan chosen'));
@@ -347,7 +395,7 @@
       b.appendChild(el('span', 'g-wrow-t', `${r.strong ? 'Strong buy' : 'Buy'} signal, score ${Math.round(r.ms * 100)} · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
       if (st) b.appendChild(el('b', 'g-wrow-g', p0((r.strong && st.strong ? st.strong : st.buy).win)));
     }
-    if (T.length) c.appendChild(el('div', 'g-hint', `The highest buy scores of the screener. The percentage is how often signals like this worked on cases the model had never seen; buying on any day worked ${st ? p0(st.buy.base) : '54%'}. Tap for the chart, the stop and the target.`));
+    if (T.length) c.appendChild(el('div', 'g-hint', `How often such signals worked on cases the model had never seen (any day: ${st ? p0(st.buy.base) : '54%'}). Tap for the chart.`));
     const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
     const l = c.appendChild(el('button', 'g-link', 'Open the screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
     const l2 = c.appendChild(el('button', 'g-link g-link2', 'Analyse any asset')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
@@ -359,7 +407,7 @@
   function practiceCard(box) {
     if (!window.SRScreen || !window.SRScreen.loadPractice) return;
     window.SRScreen.loadPractice();
-    const c = card(box, 'practice', 'Practice portfolio (eToro demo)'), body = c.appendChild(el('div'));
+    const c = card(box, 'practice', 'Demo account (eToro)'), body = c.appendChild(el('div'));
     const usd = (x) => (x < 0 ? '−$' : '$') + Math.round(Math.abs(x)).toLocaleString('en-US'), usd2 = (x) => (x < 0 ? '−$' : '+$') + Math.abs(x).toFixed(2), px = (x) => (x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3) : x.toFixed(4));
     const hhmm = (t, s) => new Date(t).toLocaleTimeString('en-GB', s ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' });
     const paint = () => {
@@ -371,51 +419,26 @@
       if (!D && !P.made) { if (L.err) { body.textContent = ''; body.appendChild(el('div', 'g-line g-muted', L.err === 'no keys' ? 'Add your eToro keys in Settings to see the demo account here.' : `eToro did not give the demo account (answer ${L.err}).`)); } return true; }
       body.textContent = '';
       { const q = window.SRScreen.vmSilent(); if (q) body.appendChild(el('div', 'g-line g-warn', `No sign of the VM for ${q >= 120 ? Math.round(q / 60) + ' hours' : q + ' minutes'}: no new order and no close at a time limit until it is back. Stops and targets on eToro still work.`)); }
-      { const go = body.appendChild(el('button', 't-go', 'Open the Trading tab: positions, history, statistics, review →')); go.type = 'button'; go.addEventListener('click', () => { const b = document.querySelector('#tabbar [data-tab="trading"]'); if (b) b.click(); }); }
       const row = (o, t, text, right, cls) => {
         const b = body.appendChild(el('button', 'g-wrow')); b.type = 'button'; const sym = name(o, t);
         b.addEventListener('click', () => window.SRScreen.open({ sym, id: o.instrumentID || o.id, name: t ? t.n : (byId.get(o.instrumentID) || {}).name || sym }));
         b.appendChild(el('span', 'g-pill ' + ((o.isBuy != null ? o.isBuy : o.side > 0) ? 'g-buy' : 'g-sell'), sym)); b.appendChild(el('span', 'g-wrow-t', text)); b.appendChild(el('b', 'g-wrow-g' + (cls ? ' ' + cls : ''), right));
       };
       if (D) {
+        // a short view: the figures that matter and the open trades; everything else is on the Trading tab
         const pos = D.positions || [], wait = D.ordersForOpen || [], inv = pos.reduce((x, o) => x + (+o.amount || 0), 0), run = +D.unrealizedPnL || 0, value = (+D.credit || 0) + inv + run;
-        // ---- the figures, all from eToro's own numbers at this second ----
-        const H0 = (L.hist || []).filter((h) => !P.start || String(h.closeTimestamp) >= P.start), wins = H0.filter((h) => h.netProfit > 0), loss = H0.filter((h) => h.netProfit <= 0);
-        const real = H0.reduce((x, h) => x + (+h.netProfit || 0), 0), fees = H0.reduce((x, h) => x + (+h.fees || 0), 0) + pos.reduce((x, o) => x + (+o.totalExternalFees || 0) + (+o.totalFees || 0), 0);
-        const expo = (o) => Math.abs(+((o.unrealizedPnL || {}).exposureInAccountCurrency) || (+o.amount || 0) * (+o.leverage || 1)), long = pos.filter((o) => o.isBuy).reduce((x, o) => x + expo(o), 0), short = pos.filter((o) => !o.isBuy).reduce((x, o) => x + expo(o), 0);
-        const start = +P.startEquity > 0 ? +P.startEquity : null, base = P.account && P.made ? +P.account.equity : null, pct = (x, of) => (of > 0 ? `${x >= 0 ? '+' : '−'}${Math.abs(100 * x / of).toFixed(2)}%` : '');
+        const H0 = (L.hist || []).filter((h) => !P.start || String(h.closeTimestamp) >= P.start), wins = H0.filter((h) => h.netProfit > 0), real = H0.reduce((x, h) => x + (+h.netProfit || 0), 0);
+        const start = +P.startEquity > 0 ? +P.startEquity : null, pct = (x, of) => (of > 0 ? `${x >= 0 ? '+' : '−'}${Math.abs(100 * x / of).toFixed(2)}%` : ''), B = window.SRTrade ? window.SRTrade.brief() : null;
         const grid = body.appendChild(el('div', 'g-stats')), tile = (k, v, sub, cls) => { const d = grid.appendChild(el('div', 'g-stat')); d.appendChild(el('span', 'g-stat-k', k)); d.appendChild(el('b', 'g-stat-v' + (cls ? ' ' + cls : ''), v)); if (sub) d.appendChild(el('span', 'g-stat-s', sub)); }, sign = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
         tile('Value now', usd(value), start ? `${usd2(value - start)} (${pct(value - start, start)}) since the start` : 'virtual money');
-        if (base) tile(`Since ${hhmm(P.made)}`, usd2(value - base), `${pct(value - base, base)} since the VM's last record`, sign(value - base));
+        if (B && B.day != null && B.dayBase > 0) tile('Today', usd2(B.day), pct(B.day, B.dayBase), sign(B.day));
         tile('Open positions', usd2(run), `${pos.length} open, ${wait.length} waiting`, sign(run));
         tile('Closed trades', usd2(real), H0.length ? `${H0.length} closed, ${wins.length} with a gain (${Math.round(100 * wins.length / H0.length)}%)` : 'none closed yet', sign(real));
-        if (wins.length || loss.length) tile('Average gain / loss', `${wins.length ? usd2(wins.reduce((x, h) => x + h.netProfit, 0) / wins.length) : '–'} / ${loss.length ? usd2(loss.reduce((x, h) => x + h.netProfit, 0) / loss.length) : '–'}`, 'per closed trade, after costs');
-        tile('Costs paid', usd(fees), 'fees booked by eToro so far');
-        tile('In the market', `${Math.round(100 * (long + short) / value)}%`, `long ${usd(long)}, short ${usd(short)}`);
-        tile('Cash', usd((+D.credit || 0) - wait.reduce((x, o) => x + (+o.frozenAmount || +o.amount || 0), 0)), wait.length ? `${usd(wait.reduce((x, o) => x + (+o.frozenAmount || +o.amount || 0), 0))} set aside for waiting orders` : 'free');
-        // by rule: what each kind of trade has done (open result now, closed result so far)
-        const armOf = (o, closed) => { const t = closed ? (P.closed || []).find((q) => q.positionId === o.positionId) || rec.find((q) => q.positionId === o.positionId) : known(o); return t ? t.arm : 'by hand'; };
-        const ARM = { buy: 'Nightly buys', short: 'Nightly shorts', 'fast-buy': 'Fast buys (1-hour)', 'fast-short': 'Fast shorts (1-hour)', 'by hand': 'Opened by hand' }, G = {};
-        for (const o of pos) { const g = G[armOf(o)] = G[armOf(o)] || { open: 0, run: 0, n: 0, won: 0, net: 0 }; g.open++; g.run += +((o.unrealizedPnL || {}).pnL) || 0; }
-        for (const h of H0) { const g = G[armOf(h, true)] = G[armOf(h, true)] || { open: 0, run: 0, n: 0, won: 0, net: 0 }; g.n++; g.won += h.netProfit > 0 ? 1 : 0; g.net += +h.netProfit || 0; }
-        if (Object.keys(G).length > 1 || H0.length) for (const [k, g] of Object.entries(G)) body.appendChild(el('div', 'g-hint', `${ARM[k] || k}: ${g.open} open (${usd2(g.run)}), ${g.n} closed${g.n ? ` (${g.won} with a gain, ${usd2(g.net)})` : ''}`));
-        // the account's value as this device has seen it
-        const C = (L.curve || []).filter((p) => p[1] > 0);
-        if (C.length >= 3 && C[C.length - 1][0] - C[0][0] > 30 * 60e3) {
-          const W = 300, Hh = 44, lo = Math.min(...C.map((p) => p[1])), hi = Math.max(...C.map((p) => p[1])), t0 = C[0][0], t1 = C[C.length - 1][0], sx = (t) => (W * (t - t0) / (t1 - t0 || 1)).toFixed(1), sy = (v) => (Hh - 3 - (Hh - 6) * (v - lo) / (hi - lo || 1)).toFixed(1);
-          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.setAttribute('class', 'g-spark'); svg.setAttribute('preserveAspectRatio', 'none');
-          const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); pl.setAttribute('points', C.map((p) => `${sx(p[0])},${sy(p[1])}`).join(' ')); pl.setAttribute('class', C[C.length - 1][1] >= C[0][1] ? 'up' : 'down'); svg.appendChild(pl); body.appendChild(svg);
-          body.appendChild(el('div', 'g-hint', `Value since ${new Date(t0).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, as seen by this device: low ${usd(lo)}, high ${usd(hi)}.`));
-        }
         for (const o of pos) {
-          const t = known(o), u = o.unrealizedPnL || {}, pl = +u.pnL || 0, sl = +o.stopLossRate > 0 ? px(+o.stopLossRate) : null, tp = +o.takeProfitRate > 0 ? px(+o.takeProfitRate) : null;
-          const toStop = sl && u.closeRate ? Math.abs(+o.stopLossRate / +u.closeRate - 1) * 100 : null, toTp = tp && u.closeRate ? Math.abs(+o.takeProfitRate / +u.closeRate - 1) * 100 : null, lev = +o.leverage > 1 ? ` · x${o.leverage}` : '';
-          row(o, t, `${o.isBuy ? 'Bought' : 'Sold short'} at ${px(+o.openRate)}${u.closeRate ? ` · now ${px(+u.closeRate)}` : ''}${lev} · stop ${sl ? `${sl} (${toStop.toFixed(1)}% away)` : 'not set yet'} · target ${tp ? `${tp} (${toTp.toFixed(1)}% away)` : 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, pl > 0 ? 'up' : pl < 0 ? 'down' : '');
+          const t = known(o), u = o.unrealizedPnL || {}, pl = +u.pnL || 0, now = +u.closeRate, d = (r) => (r > 0 && now > 0 ? `${(Math.abs(r / now - 1) * 100).toFixed(1)}%` : null), lev = +o.leverage > 1 ? ` ×${o.leverage}` : '';
+          row(o, t, `${o.isBuy ? 'Long' : 'Short'}${lev} ${px(+o.openRate)}${now ? ` → now ${px(now)}` : ''} · stop ${d(+o.stopLossRate) || 'not set yet'} · target ${d(+o.takeProfitRate) || 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, sign(pl));
         }
-        for (const o of wait) { const t = known(o); row(o, t, `${o.isBuy ? 'Buy' : 'Short'} order of ${usd(+o.amount)}, waiting for the market to open${t ? ` · planned stop ${px(t.stop)} · target ${px(t.target)}` : ''}`, 'waiting'); }
-        const H = (L.hist || []).slice().sort((x, y) => Date.parse(y.closeTimestamp) - Date.parse(x.closeTimestamp)).filter((h) => !P.start || h.closeTimestamp >= P.start);
-        if (H.length) body.appendChild(el('div', 'g-card-t g-sub2', 'Last closed'));
-        for (const h of H.slice(0, 5)) { const t = (P.closed || []).find((q) => q.positionId === h.positionId), r = byId.get(h.instrumentId); body.appendChild(el('div', 'g-hint', `${t ? t.s : r ? r.sym : '#' + h.instrumentId}: ${h.isBuy === false ? 'short ' : ''}${px(+h.openRate || 0)} → ${px(+h.closeRate)}, ${usd2(+h.netProfit)}${t && t.how ? ` (${t.how})` : ''} · ${new Date(h.closeTimestamp).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`)); }
+        for (const o of wait) { const t = known(o); row(o, t, `${o.isBuy ? 'Buy' : 'Short'} order ${usd(+o.amount)}, waits for its market${t ? ` · planned stop ${px(t.stop)}` : ''}`, 'waiting'); }
         body.appendChild(el('div', 'g-hint g-live', `Live from eToro · ${hhmm(L.at, true)}${L.err ? ' (the last reading failed; trying again)' : ''}`));
       } else {
         const A = P.account || {}, on = rec.filter((t) => t.status === 'open');
@@ -428,15 +451,9 @@
         if (P.mode !== 'live') body.appendChild(el('div', 'g-line g-warn', `The VM is in dry run: it sends no order (${P.why || 'the switch is off'}).`));
         if (age > 30) body.appendChild(el('div', 'g-line g-warn', `The VM has not run for ${Math.round(age)} hours: no new orders are being sent.`));
       }
-      const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1];
-      if (e) {
-        body.appendChild(el('div', 'g-card-t g-sub2', `Review of ${e.date}`));
-        for (const x of (e.health || []).slice(0, 3)) body.appendChild(el('div', 'g-line g-warn', x));
-        for (const x of (e.decisions || []).slice(0, 3)) body.appendChild(el('div', 'g-line', x));
-        for (const x of (e.questions || []).slice(0, 2)) body.appendChild(el('div', 'g-hint', x));
-      }
-      const R = P.rules || {};
-      body.appendChild(el('div', 'g-hint', `Orders are placed by the program on your VM, never from this app. Virtual money on eToro's demo: a test of the signals, not advice.${R.risk ? ` Rules: ${Math.round(R.risk * 10000) / 100}% of the account at risk per trade, stop and target 2 ATR away, 4 weeks at most, no leverage on these holds.` : ''}`));
+      { const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1]; if (e) for (const x of (e.health || []).slice(0, 2)) body.appendChild(el('div', 'g-line g-warn', x)); }   // the review's warnings only; the rest is on Trading
+      body.appendChild(el('div', 'g-hint', 'Orders come only from the program on your VM. Virtual money, not advice.'));
+      { const go = body.appendChild(el('button', 't-go', 'Positions, history and review on Trading →')); go.type = 'button'; go.addEventListener('click', () => { const b = document.querySelector('#tabbar [data-tab="trading"]'); if (b) b.click(); }); }
       return true;
     };
     paint(); window.SRScreen.demoWatch(paint);
@@ -536,6 +553,7 @@
       c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings()));
     }
     if (st.P && st.P.signal && !sig) loadSignal();
+    briefCard(box, H, st);
     verdictCard(box, H, st);
     scoutCard(right);
     practiceCard(right);
@@ -567,6 +585,7 @@
       s.appendChild(el('div', 'g-sheet-lead', `${nameOf(h.ticker, H) || h.name || h.ticker}${h.tracks && h.tracks !== h.ticker ? ` (follows ${h.tracks})` : ''}`));
       kv(s, 'Share', `${p0(h.value / (st.total || 1))} of your portfolio${h.chg != null ? ` · ${pct(h.chg)} today` : ''}`);
       if (st.P) kv(s, 'In the plan', kept ? 'Kept outside the plan: the app never asks you to sell it.' : line ? `Plan line ${line.t}: target ${eur(st.size * line.w)}, you hold ${eur(st.cur[line.t] || 0)}.` : st.T && lineFor(h, allLines(st.p)) ? 'Part of the plan, but its signal is off: Today asks you to sell it.' : `Outside “${st.P.name}”: the set-up on Today would sell it. No deadline.`);
+      { const g = gainOf(h), t = terOf(h.ticker); if (g != null) kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eur(Math.abs(g))} (${pct(g / h.paid)}) · tax ${eur(taxOf(h))} · you keep ${eur(h.value - taxOf(h))}`); if (t > 0) kv(s, 'Fund fee', `${d3.format('.2%')(t)} a year, about ${eur(t * h.value)}`); }
       if (h.overheated) kv(s, 'Flag', 'Overheated (weekly RSI above 70): in the tests, sector funds earned less over the next 3 months. Don\'t add.');
       const row = s.appendChild(el('div', 'g-btns'));
       if (st.P && !line) row.appendChild(btn(kept ? 'Let the plan use it' : `Keep ${h.ticker}`, 'primary', () => { const q = plan(), k = keepSet(q, H); if (kept) k.delete(h.ticker); else k.add(h.ticker); q.keep = [...k]; closeSheet(); savePlan(q); toast(kept ? `${h.ticker} is back in the set-up.` : `${h.ticker} kept.`); }));
@@ -588,6 +607,11 @@
     } else if (!st.P) {
       const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan', 0)));
     }
+    { const funds = H.filter((h) => terOf(h.ticker) > 0), fv = d3.sum(funds, (h) => h.value), terE = d3.sum(funds, (h) => h.value * terOf(h.ticker)), sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null), g = d3.sum(known, gainOf);
+      const c = card(box, 'cost', 'Costs and tax');
+      if (fv > 0) c.appendChild(el('div', 'g-line', `Fund fees: ${eur(terE)} a year (${d3.format('.2%')(terE / fv)}), inside their prices.`));
+      if (known.length) c.appendChild(el('div', 'g-line', `If sold today: ${g > 0 ? `${eur(TAX * g)} tax on ${eur(g)} of gains` : 'no tax'}${known.length < sold.length ? ` (${known.length} of ${sold.length} holdings)` : ''}.`));
+      else c.appendChild(el('div', 'g-hint', 'Add "paid" and the price you paid to a holding in Settings to see its tax.')); }
     const list = right.appendChild(el('div', 'g-list'));
     const max = d3.max(H, (h) => h.value) || 1;
     for (const h of H) {
@@ -610,6 +634,7 @@
         else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Outside'));
       }
       tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
+      if (gainOf(h) != null) tags.appendChild(el('span', 'g-muted', `· ${eur(h.value - taxOf(h))} after tax`));
     }
     if (!H.length) list.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));
     const row = box.appendChild(el('div', 'g-btns'));
@@ -640,6 +665,14 @@
     for (const id of ['smh', 'core', 'spx']) opt(id, PLANS[id].name, PLANS[id].line, PLANS[id].study);
     opt(null, 'No plan', 'Just track my holdings and the market.', null);
     box.appendChild(el('p', 'g-muted g-sub', 'Past results, not a promise. The reliable difference between them is the size of the drops, not the return.'));
+    { const key = (PLANS[p.id] || PLANS.spx).study, start = st.P && st.size > 0 ? st.size : totals(H.filter((h) => h.value > 0)).total || 0, add = [0, 200, 500, 1000].includes(p.monthly) ? p.monthly : 0;
+      const oc = card(right, 'range', `What it could become · ${(PLANS[p.id] || PLANS.spx).name}`), ch = oc.appendChild(el('div', 'g-chips'));
+      for (const a of [0, 200, 500, 1000]) { const b = ch.appendChild(el('button', 'g-chip g-toggle' + (a === add ? ' is-on' : ''), a ? `+${eur(a)}/month` : 'Nothing added')); b.type = 'button'; b.setAttribute('aria-pressed', String(a === add)); b.addEventListener('click', () => { const q = plan(); q.monthly = a; savePlan(q); }); }
+      const O = start > 0 || add > 0 ? outcomes(key, start, add) : null;
+      if (O) { const t = oc.appendChild(el('table', 'g-table g-range')); t.innerHTML = '<thead><tr><th></th><th class="num">Bad</th><th class="num">Typical</th><th class="num">Good</th><th class="num">Put in</th></tr></thead>'; const tb = t.appendChild(el('tbody'));
+        for (const y of [5, 10]) { const r = tb.appendChild(el('tr')), o = O[y]; r.appendChild(el('td', '', `${y} years`)).style.fontWeight = '600'; for (const v of [o.bad, o.mid, o.good, o.put]) r.appendChild(el('td', 'num', eur(v))); }
+        oc.appendChild(el('div', 'g-hint', 'Every 5- and 10-year stretch of 2000–2026, after costs and tax. Bad: 1 in 10 did worse. Overlapping stretches, so the real worst can be lower.')); }
+      else oc.appendChild(el('div', 'g-hint', 'Add amounts to your holdings in Settings, or money each month.')); }
     if (!st.P) return;
     const PT = planTickers(p), keep = keepSet(p, H), own = H.filter((h) => h.value > 0 && !PT.has(h.ticker));
     if (own.length) {

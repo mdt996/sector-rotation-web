@@ -325,7 +325,12 @@
     miniEl.addEventListener('click', () => { try { verdictEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { verdictEl.scrollIntoView(); } });   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
-    const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;   // what the asset is, and eToro's facts about it (about.js)
+    const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;
+    setTimeout(() => { if (dead) return; posSoon(); const tPos = setInterval(() => { if (dead) clearInterval(tPos); else posSoon(); }, 10000); }, 600);
+    if (window.SRAbout && window.SRAbout.facts) window.SRAbout.facts(inst.id).then((f) => {   // the next results date, in the empty days after the last candle
+      if (dead || !f || !f.nextearningdate) return; const d = String(f.nextearningdate).slice(0, 10), t = Date.parse(d + 'T13:30:00Z') / 1000; if (!(t * 1000 > Date.now() - 864e5)) return;
+      const lbl = new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); ch.setEvents([{ t, label: `Results ${lbl}`, short: `Results ${lbl}` }]);
+    }).catch(() => {});   // what the asset is, and eToro's facts about it (about.js)
     if (window.SRAbout && window.SRAbout.render) { try { window.SRAbout.render(aboutBox, inst); } catch (e) { aboutBox.hidden = true; } }
     const stats = side.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
@@ -384,6 +389,30 @@
       if (nodata || drawErr || (box.classList.contains('is-loading') && SRApp.etoroState && SRApp.etoroState().wait > 0)) return;   // not frozen while the crosshair stays on the chart after a touch; eToro's limit message stays while the chart waits
       sub.textContent = q ? `Live${streaming() ? ', streaming' : ''} · ${new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${streaming() ? '' : ` · prices every ${views.size ? 3 : 10} s (${streamWhy()})`}${Date.now() - q.at > 120000 ? ` · this price is ${Math.round((Date.now() - q.at) / 60000)} min old: ${PRD.err && PRD.errAt > PRD.ok ? 'the last read failed (' + PRD.err + ')' : PRD.ok ? `eToro's last answer ${Math.round((Date.now() - PRD.ok) / 1000)} s ago has no newer price (market closed?)` : 'no read has worked yet'}` : ''}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
       sub.className = 'av-sub' + (q ? ' is-live' : '');
+    }
+    // the S&P 500's candles of the same size, for the strength line (kept 5 minutes per size; not for the index itself and its fund)
+    const benchKept = new Map();
+    function benchSoon() {
+      if (inst.id === 27 || inst.id === 3000 || !window.SRLive) return;
+      const k = frame.iv, c = benchKept.get(k);
+      if (c && Date.now() - c.at < 300000) { if (c.bars) ch.setBench(c.bars); return; }
+      if (c && c.busy) return; benchKept.set(k, { busy: true, at: 0, bars: c && c.bars });
+      // daily: SPY's history the app already holds (no request); other sizes: the index (it trades nearly round the clock), else SPY,
+      // asked as what the screen waits for
+      const spy = S().SPY;
+      if (frame.iv === 'OneDay' && spy && spy.status === 'ok' && spy.data && spy.data.length > 50) { const b = spy.data.map((r) => ({ time: Date.parse(r.date + 'T00:00:00Z') / 1000, open: r.open, high: r.high, low: r.low, close: r.close })); benchKept.set(k, { at: Date.now(), bars: b }); ch.setBench(b); return; }
+      const [b1, b2] = /Week/.test(frame.iv) ? [3000, 27] : [27, 3000];
+      candles(b1, frame.iv, frame.n, 2).catch(() => candles(b2, frame.iv, frame.n, 2)).then((r) => { if (dead) return; const b = toBars(r); benchKept.set(k, { at: Date.now(), bars: b }); if (frame.iv === k) ch.setBench(b); })
+        .catch(() => benchKept.set(k, { at: Date.now() - 240000, bars: c && c.bars }));   // asked again a minute later
+    }
+    // the demo account's trade on this asset, read from the account every 10 s (entry, stop, target, eToro's result)
+    function posSoon() {
+      try {
+        const D = window.SRScreen && window.SRScreen.demo ? window.SRScreen.demo().p : null, L = (D && D.positions || []).filter((x) => +x.instrumentID === +inst.id);
+        if (!L.length) { ch.setPosition(null); return; }
+        const u = L.reduce((a, x) => a + (+x.units || 0), 0), e = L.reduce((a, x) => a + (+x.units || 0) * (+x.openRate || 0), 0) / (u || 1), x0 = L[0];
+        ch.setPosition({ side: x0.isBuy ? 1 : -1, entry: e, stop: +x0.stopLossRate || null, target: +x0.takeProfitRate || null, pl: L.reduce((a, x) => a + (+(x.unrealizedPnL && x.unrealizedPnL.pnL) || 0), 0), n: L.length });
+      } catch (err) { /* no account read yet */ }
     }
     function toBars(rows) {
       const byT = new Map(), ok = (x) => typeof x === 'number' && isFinite(x) && x > 0;
@@ -535,7 +564,7 @@
     function paint(fit) {
       if (dead) return;
       for (const b of frames.children) b.setAttribute('aria-selected', String(b.textContent === frame.k));
-      ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf()); ch.setLevels(srLevels());
+      ch.setBars(bars, frame, fit); ch.setZones(L); ch.setFair(fairOf()); ch.setLevels(srLevels()); benchSoon();
       geo = null;
       try {
       if (window.SRTA && window.SRTA.geometry && ch.setAuto) {
@@ -914,6 +943,6 @@
       } catch (e) { /* asked again at the next round */ }
     }
   }
-  window.SRLive = { preload, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  window.SRLive = { preload, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();

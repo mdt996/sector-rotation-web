@@ -193,7 +193,7 @@
     else if (window.SRLive.openAsset) window.SRLive.openAsset({ id: r.id, symbol: r.sym, name: r.name, exchange: '' });
   };
   const big = (x) => '$' + (x >= 1e12 ? (x / 1e12).toFixed(x >= 1e13 ? 0 : 1) + 'T' : x >= 1e9 ? (x / 1e9).toFixed(x >= 1e11 ? 0 : 1) + 'B' : Math.max(1, Math.round(x / 1e6)) + 'M');
-  const p1 = (x) => (x * 100).toFixed(1) + '%', sc100 = (x) => Math.round(x * 100);
+  const p1 = (x) => (x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%', sc100 = (x) => Math.round(x * 100);
   // filters and sorting, kept on the device
   const FK = 'sr.scf', F0 = { sort: 'rank', cls: '', sec: '', size: '', sales: '', rsi: '', sig: '' }, F = { ...F0 };
   try { const j = JSON.parse(localStorage.getItem(FK) || '{}'); for (const k of Object.keys(F0)) if (typeof j[k] === 'string') F[k] = j[k]; } catch (e) { /* defaults */ }
@@ -218,7 +218,7 @@
   const SORTS = { rank: ['our ranking (buy score)', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
     day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
     rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)] };
-  const oddsText = (r) => { const st = MST()['1D']; if (!st) return ''; const b = r.strong && st.strong ? st.strong : st.buy; return `Signals like this worked ${p1(b.win)} of ${b.n.toLocaleString('en-US')} cases the model had never seen; any day, ${p1(b.base)}.`; };
+  const oddsText = (r) => { const st = MST()['1D']; if (!st) return ''; const b = r.strong && st.strong ? st.strong : st.buy; return `Worked ${p0(b.win)} in the test (any day ${p0(b.base)})`; };
   function howBox() {
     const S = MST(), md = MDL(), d = el('details', 'sc-how'); d.open = howOpen; d.addEventListener('toggle', () => { howOpen = d.open; });
     d.appendChild(el('summary', '', 'How the ranking works'));
@@ -251,7 +251,7 @@
     const y = b.appendChild(el('span', 'sc-y'));
     if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));
     y.appendChild(el('span', 'sc-t', `${r.buy || r.ms == null ? '' : 'score ' + sc100(r.ms) + ' · '}RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}`));
-    if (r.buy) b.appendChild(el('span', 'sc-rec', oddsText(r) + (r.stop && r.target ? ` Stop ${fmt(r.stop)} · target ${fmt(r.target)}.` : '')));
+    if (r.buy) b.appendChild(el('span', 'sc-rec', oddsText(r) + (r.stop && r.target ? ` · stop ${fmt(r.stop)} · target ${fmt(r.target)}` : '')));
     return b;
   }
   dash.draw('screener', (outer) => {
@@ -352,5 +352,5 @@
   // 20 s after the start (what the screen needs first goes first), then every 30 minutes: the likely next pages are loaded ahead
   const ahead = () => { try { const ids = [...((prac && prac.open) || []).map((t) => +t.id), ...top(6).map((r) => +r.id)]; if (window.SRLive && SRLive.preload) SRLive.preload(ids); } catch (e) { /* not ready */ } };
   setTimeout(ahead, 20000); setInterval(ahead, 30 * 60e3);
-  window.SRScreen = { prepare, known, dayMove, packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
