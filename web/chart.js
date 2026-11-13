@@ -418,6 +418,7 @@
       for (const k of Object.keys(S)) { try { chart.removeSeries(S[k]); } catch (e) { /* gone */ } delete S[k]; }
       while (chart.panes().length > 1) chart.removePane(chart.panes().length - 1);
       vol.applyOptions({ visible: !!ind.vol });
+      delete root.dataset.rs;
       if (!bars.length) { redraw(); return; }
       const c = bars.map((b) => b.close), t = bars.map((b) => b.time);
       const put = (s, vals) => s.setData(vals.map((v, i) => (v == null ? { time: t[i] } : { time: t[i], value: v })));
@@ -449,17 +450,24 @@
       // strength against the S&P 500: the asset's price divided by the index's, at the same moments, set to 100 where the first view starts
       // (above 100 and rising: it does better than the market). Its 50-candle average, dotted, shows the trend of that strength.
       if (ind.rs && bench.length > 20) {
-        const bt = bench.map((b) => b.time), bc = bench.map((b) => b.close), at = (tt) => { let lo = 0, hi = bt.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (bt[m] <= tt) { k = m; lo = m + 1; } else hi = m - 1; } return k >= 0 ? bc[k] : null; };
+        const bucket = (time) => Math.floor(time / frame.sec);
+        const closes = new Map(bench.map((b) => [bucket(b.time), b.close]));
+        const at = (time) => closes.get(bucket(time));
         const raw = c.map((v, i) => { const x = at(t[i]); return x > 0 && v > 0 ? v / x : null; }), i0 = Math.max(0, c.length - (frame.show || 160)), base = raw.slice(i0).find((v) => v != null) || raw.find((v) => v != null);
         if (base) {
           const rel = raw.map((v) => (v == null ? null : (100 * v) / base));
           S.rs = chart.addSeries(LW().LineSeries, { color: '#ef6c00', lineWidth: 1.4, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, title: 'vs S&P 500' }, pane); put(S.rs, rel);
-          S.rsm = line('rgba(120,120,120,0.8)', 1, pane); S.rsm.applyOptions({ lineStyle: 1 }); put(S.rsm, sma(rel.map((v) => (v == null ? 0 : v)), 50).map((v, i) => (rel[i] == null || i < 50 ? null : v)));
+          // Market holidays leave gaps. Average the last 50 matched candles without filling those gaps.
+          const avg = sma(rel.filter((v) => v != null), 50);
+          let matched = 0;
+          S.rsm = line('rgba(120,120,120,0.8)', 1, pane); S.rsm.applyOptions({ lineStyle: 1 });
+          put(S.rsm, rel.map((v) => v == null ? null : avg[matched++]));
           S.rs.createPriceLine({ price: 100, color: 'rgba(120,120,120,0.5)', lineStyle: 2, lineWidth: 1, axisLabelVisible: false });
-          root.dataset.rs = String(Math.round(rel[rel.length - 1] * 10) / 10);
+          const last = rel.reduce((value, point) => point ?? value, null);
+          root.dataset.rs = String(Math.round(last * 10) / 10);
           pane++;
         }
-      } else delete root.dataset.rs;
+      }
       const panes = chart.panes();
       if (panes.length > 1) { panes[0].setStretchFactor(3); for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1); }
       main.dataset.panes = String(panes.length); sizeMain();
@@ -470,6 +478,7 @@
       setBars(newBars, f, fit) {
         if (dead) return;
         const n0 = bars.length, vr0 = !fit && n0 ? chart.timeScale().getVisibleLogicalRange() : null, atEnd = !!(vr0 && vr0.to >= n0 - 1.5) && (!f || f.sec === frame.sec);
+        if (f && f.sec !== frame.sec) bench = [];
         bars = newBars; frame = f || frame;
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
         vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
@@ -493,7 +502,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       lw: () => ({ chart, candles }),   // for a chart of something else than an asset (the account's value): its own lines and markers
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
-      setBench(b) { bench = Array.isArray(b) ? b : []; if (bars.length) applyIndicators(); },
+      setBench(b) { if (b === bench) return; bench = Array.isArray(b) ? b : []; if (bars.length) applyIndicators(); },
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
