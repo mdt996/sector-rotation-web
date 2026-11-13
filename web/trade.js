@@ -411,7 +411,7 @@
     }
     head(root, 'The rules in force');
     if (R.arms) for (const [k, v] of Object.entries(R.arms)) root.appendChild(el('div', 'g-line', `${ARM[k] || k}${(P.paused || {})[k] ? ' (PAUSED)' : ''}: ${v}`));
-    if (R.risk) { const F = R.fast || {}; root.appendChild(el('div', 'g-hint', `Nightly trades: ${(R.risk * 100).toFixed(2)}% of the account at risk each, at most ${(R.maxPosition * 100).toFixed(0)}% per position, ${R.maxNew} new a night, ${R.maxOpen} open, stop and target ${R.stopATR} ATR away, ${R.days} days at most, no leverage, companies of at least $${(R.minCap / 1e9).toFixed(0)} billion.`));
+    if (R.risk) { const F = R.fast || {}; root.appendChild(el('div', 'g-hint', `Nightly trades: ${(R.risk * 100).toFixed(2)}% of the account at risk each, at most ${(R.maxPosition * 100).toFixed(0)}% per position, ${R.maxNew} new a night, ${R.maxOpen} open, stop and target ${R.stopATR} ATR away, ${R.days} days at most, no leverage, companies of at least $${(R.minCap / 1e9).toFixed(0)} billion${R.resultsDays ? `, no new share when its results are due within ${R.resultsDays} trading days` : ''}.`));
       if (F.risk) root.appendChild(el('div', 'g-hint', `Fast trades: ${(F.risk * 100).toFixed(2)}% at risk each, about ${(F.margin * 100).toFixed(0)}% set aside (so with leverage), at most ${F.maxOpen} open and ${F.maxNew} new per hour, ${F.hours} hours at most, nothing new around the nightly rollover, flat for the weekend.`));
       root.appendChild(el('div', 'g-hint', `A rule with ${R.pauseAfter} closed trades and an average under ${R.pauseBelow} R is paused by the program itself. Rules version ${R.version}.`)); }
     head(root, 'System');
@@ -532,6 +532,20 @@
     else { const d = judge(tw.map((x) => x.r - x.real.r)), a = judge(tw.map((x) => x.real.r)), b = judge(tw.map((x) => x.r)), w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Same entries', 'Pairs', 'Gain %', 'Per trade']) h2.appendChild(el('span', '', h));
       for (const [nm, j, arr] of [['As traded (with the target)', a, tw.map((x) => x.real.r)], ['Twin without a target', b, tw.map((x) => x.r)]]) { const r = w.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', nm)); r.appendChild(el('span', '', String(j.n))); r.appendChild(el('span', '', Math.round(100 * arr.filter((x) => x > 0).length / arr.length) + '%')); r.appendChild(el('span', sign(j.mean), rtxt(j.mean))); }
       root.appendChild(el('div', 'g-line', `Difference, pair by pair: ${rtxt(d.mean)} per trade for the twin${d.m != null ? `, give or take ${d.m.toFixed(2)}` : ''}. ${d.n < NEED ? `Too early: ${d.n} of ${NEED} pairs.` : d.mean - d.m > 0 ? 'Without the target has done better, beyond chance.' : d.mean + d.m < 0 ? 'The target has done better, beyond chance.' : 'No proof either way yet.'} ${twOpen} twin${twOpen === 1 ? '' : 's'} still running.`)); }
+    // the twins' two other exits (from 13 November): a stop moved to the entry once a trade is ahead by its risk, and a trailing stop
+    {
+      const vb = (P.shadow || []).filter((x) => x.real && x.real.r != null && x.be && x.be.status === 'closed' && x.tr && x.tr.status === 'closed'), vOpen = (P.shadow || []).filter((x) => x.be && x.be.status === 'open').length;
+      head(root, 'Other exits, tried on paper');
+      if (!vb.length) root.appendChild(el('div', 'g-hint', `From 13 November each twin also follows two other exits, still without a target: its stop moved to the entry once the trade has been ahead by its risk, and a stop that trails one risk behind the best price. ${vOpen} running now. When the trade and its twins have ended they are compared here with the trade as it was made. No order is sent for them.`));
+      else {
+        const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Exit', 'Trades', 'Gain %', 'Per trade']) h2.appendChild(el('span', '', h));
+        for (const [nm, arr] of [['As traded (with the target)', vb.map((x) => x.real.r)], ['Stop at the entry after +1 risk', vb.map((x) => x.be.r)], ['Trailing stop, one risk behind', vb.map((x) => x.tr.r)]]) {
+          const j = judge(arr), r = w.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', nm)); r.appendChild(el('span', '', String(j.n))); r.appendChild(el('span', '', Math.round(100 * arr.filter((x) => x > 0).length / arr.length) + '%')); r.appendChild(el('span', j.mean > 0 ? 'up' : j.mean < 0 ? 'down' : '', rtxt(j.mean)));
+        }
+        const dB = judge(vb.map((x) => x.be.r - x.real.r)), dT = judge(vb.map((x) => x.tr.r - x.real.r)), say = (d) => (d.n < NEED ? 'too early' : d.mean - d.m > 0 ? 'better, beyond chance' : d.mean + d.m < 0 ? 'worse, beyond chance' : 'no proof either way');
+        root.appendChild(el('div', 'g-line', `Against the trade as made, pair by pair: stop at the entry ${rtxt(dB.mean)} per trade (${say(dB)}), trailing stop ${rtxt(dT.mean)} (${say(dT)}). ${vb.length} of ${NEED} pairs needed. ${vOpen} still running.`));
+      }
+    }
     head(root, 'How far trades went before they ended');
     const ex = mine.filter((c) => c.t.best != null && c.t.worst != null), wn = ex.filter((c) => c.r > 0), ls = ex.filter((c) => c.r <= 0), avg = (a, f) => (a.length ? a.reduce((x, c) => x + f(c), 0) / a.length : null);
     if (!ex.length) root.appendChild(el('div', 'g-hint', 'From today each trade keeps its best and its worst point, in units of its risk. With the first closed trades this shows whether losers had been ahead and whether winners had to survive a fall first.'));
