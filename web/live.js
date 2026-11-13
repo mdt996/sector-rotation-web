@@ -324,6 +324,8 @@
     miniEl.addEventListener('click', () => { try { verdictEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { verdictEl.scrollIntoView(); } });   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
+    const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;   // what the asset is, and eToro's facts about it (about.js)
+    if (window.SRAbout && window.SRAbout.render) { try { window.SRAbout.render(aboutBox, inst); } catch (e) { aboutBox.hidden = true; } }
     const stats = side.appendChild(el('dl', 'av-stats'));
     const stat = (k, c) => { const d = stats.appendChild(el('div', c || '')); d.appendChild(el('dt', '', k)); return d.appendChild(el('dd', '', '—')); };
     const sPrev = stat('Previous close'), sDay = stat('Today'), sYear = stat('52 weeks'), s1y = stat('1 year');
@@ -720,7 +722,7 @@
   function peekOff() { if (!peek) return false; peek = false; $('search-results').hidden = true; $('search-detail').hidden = false; want('search', []); return true; }
   let direct = false; // an asset opened from Today, Portfolio or Markets: Back closes the sheet
   function back() { if (peekOff()) { $('search-q').value = ''; return true; } for (const v of views) if (v.back()) return true; for (const f of backs) { try { if (f()) return true; } catch (e) { /* the next one */ } } if (sheet().hidden) return false; if (!$('search-detail').hidden) { if (direct) { direct = false; close(); } else closeDetail(); } else close(); return true; }
-  function openAsset(inst) { direct = true; sheet().hidden = false; document.body.classList.add('sheet-open'); openDetail(inst); }
+  function openAsset(inst) { direct = true; sheet().hidden = false; document.body.classList.add('sheet-open'); openDetail(inst); try { sheet().scrollTop = 0; $('search-detail').scrollTop = 0; } catch (e) { /* not scrollable */ } }   // the page opens at its top: the name, the price and the chart
   function openDetail(r) {
     peek = false;
     const recent = lsGet('sr.recent', []).filter((x) => x.id !== r.id);
@@ -891,6 +893,6 @@
   }
   const onTick = (fn) => { ticks.add(fn); return () => ticks.delete(fn); };
   const backs = new Set(), onBack = (fn) => { backs.add(fn); return () => backs.delete(fn); };   // other charts' full view and drawing mode (the account's value)   // a screen that follows the streamed prices itself (the account's value)
-  window.SRLive = { onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
+  window.SRLive = { marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, want, openAsset, liveOf };
   init();
 })();

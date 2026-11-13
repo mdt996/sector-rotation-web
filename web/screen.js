@@ -247,10 +247,14 @@
     const rec = wide ? wide.record || {} : {}, U = wide && wide.universe ? wide.universe : null;
     box.appendChild(el('p', 'g-muted g-sub', `${ALL.length} assets analysed with the same rules. ` + (wide ? `${wide.scanned} come from the scan of ${String(wide.made).slice(0, 10)}: the largest of every sector and asset class first${U && U.next > U.limit ? `, ${U.next - U.limit} more each night` : ''}. Ideas graded so far: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wide scan has not been read yet.')));
     // the day's change as coloured tiles: the world first, then the eleven US sectors and the industries the app follows (the same funds as the ranking)
+    // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
+    const UN = new Map(universe().map((u) => [u.sym, u]));
     const tile = (map, r, short) => {
       const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
-      t.appendChild(el('b', '', r.sym)); t.appendChild(el('span', '', r.A ? pct(r.chg) : '…')); if (short) t.appendChild(el('small', '', short));
-      if (r.A) t.style.background = `color-mix(in srgb, var(--color-${r.chg >= 0 ? 'ok' : 'bad'}) ${Math.min(55, Math.round(Math.abs(r.chg) * 1800))}%, var(--color-panel))`;
+      const u = UN.get(r.sym), d = SRApp._store[r.sym], m = dayMove((u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null), r.id);
+      t.appendChild(el('b', '', r.sym)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.title = `${r.name || r.sym}: ${m.day}'s change. Its market has not traded yet today.`; t.classList.add('is-last'); }
+      if (short) t.appendChild(el('small', '', short));
+      if (m) t.style.background = `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;
     };
     const map = box.appendChild(el('div', 'sc-map'));
     for (const r of R.filter((x) => x.group === 'World')) tile(map, r);
@@ -296,5 +300,28 @@
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
   let wasMac = isMac(); window.addEventListener('resize', () => { if (isMac() !== wasMac) { wasMac = isMac(); for (const n of ['screener', 'today', 'pfolio', 'plan']) SRApp.renderDraw(n); } });
-  window.SRScreen = { packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  // a tile's change: today's against the last close; before the asset's market has traded today (no candle of today, eToro says it is closed
+  // or the price is still the last close), the last session's change and that day's name
+  const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function dayMove(R, id) {
+    if (!R || R.length < 2) return null;
+    const n = R.length, last = R[n - 1], today = new Date().toISOString().slice(0, 10), q = window.SRLive && SRLive.quotes ? SRLive.quotes.get(id) : null, px = q && q.price > 0 ? q.price : last.close;
+    const open = window.SRLive && SRLive.marketOpen ? SRLive.marketOpen(id) : undefined;
+    if (!(last.close > 0) || !(R[n - 2].close > 0)) return null;
+    if (last.date >= today) return { chg: px / R[n - 2].close - 1, day: '' };
+    if (open === true || (open !== false && Math.abs(px / last.close - 1) >= 0.0005)) return { chg: px / last.close - 1, day: '' };
+    return { chg: last.close / R[n - 2].close - 1, day: WD[new Date(last.date + 'T12:00:00Z').getUTCDay()] };
+  }
+  // the assets the app itself knows by their ticker (for the names that open their page wherever they are written): its funds, the world
+  // board, your holdings (a Revolut ticker opens its US twin), the account's trades and today's scouted ideas
+  function known() {
+    const m = new Map(), add = (s, id, name) => { if (s && id > 0 && !m.has(s)) m.set(s, { id, name: name || '' }); };
+    for (const [s, id, name] of BOARD) add(s, id, name);
+    try { for (const u of universe()) add(u.sym, u.id, u.group === 'Yours' && /^your /.test(u.name) ? '' : u.name); } catch (e) { /* not ready yet */ }
+    const H = dash.data('holdings'); for (const h of (H.status === 'ok' ? H.data : [])) if (h.ticker && h.tracks && h.ticker !== h.tracks) add(h.ticker, SRApp.idOf(h.tracks), `Your ${h.ticker}, shown through its US twin ${h.tracks}`);
+    for (const t of [...((prac && prac.open) || []), ...((prac && prac.closed) || [])]) add(t.s, t.id, t.n);
+    try { for (const r of top(6)) add(r.sym, r.id, r.name); } catch (e) { /* no scan yet */ }
+    return m;
+  }
+  window.SRScreen = { known, dayMove, packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
