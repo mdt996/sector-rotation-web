@@ -321,7 +321,7 @@
     const T = totals(H), h = box.appendChild(el('div', 'g-hero'));
     h.appendChild(el('div', 'g-hero-k', 'Your portfolio'));
     h.appendChild(el('div', 'g-hero-v', eur(T.total)));
-    const c = h.appendChild(el('div', 'g-hero-chg ' + (T.today > 0 ? 'up' : T.today < 0 ? 'down' : ''), T.today == null ? 'Live values once eToro answers' : `${eur(T.today, true)}  ${pct(T.todayPct, 2)} today`));
+    const c = h.appendChild(el('div', 'g-hero-chg ' + (T.today > 0 ? 'up' : T.today < 0 ? 'down' : ''), T.today == null ? 'Waiting for live prices' : `${eur(T.today, true)}  ${pct(T.todayPct, 2)} today`));
     c.title = 'Live, from eToro';
     return h;
   }
@@ -367,12 +367,12 @@
   function verdictCard(box, H, st) {
     if (!st.P) {
       const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'No plan chosen'));
-      c.appendChild(el('div', 'g-line g-muted', 'Pick a plan and this screen tells you each day whether to act, on what, and why.'));
+      c.appendChild(el('div', 'g-line g-muted', 'Choose a plan to see its daily signals.'));
       c.appendChild(btn('Choose a plan', 'primary', () => go('plan', 0))); return;
     }
     if (st.inn == null) { const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'Checking the semis signal…')); if (sig && sig.error) c.appendChild(el('div', 'g-line g-muted', sig.error)); return; }
     const acts = [...st.orders.filter((o) => o.kind === 'signal' || o.kind === 'reset'), ...swingOrders(H, st)];
-    const real = acts.filter((o) => o.t !== 'CASH'), setup = st.orders.some((o) => o.kind === 'setup' && o.t !== 'CASH');
+    const real = acts.filter((o) => o.t !== 'CASH');
     const c = card(box, 'verd ' + (real.length ? 'is-act' : 'is-ok'));
     const h = c.appendChild(el('div', 'g-verd-h')); h.appendChild(el('span', 'g-verd-dot'));
     h.appendChild(el('span', '', real.length ? `Act now · ${real.length} order${real.length > 1 ? 's' : ''}` : 'Nothing to do today'));
@@ -381,10 +381,9 @@
       for (const o of real) orderRow(list, o, st, H);
       const toCash = acts.find((o) => o.t === 'CASH' && o.side === 'buy'), fromCash = acts.find((o) => o.t === 'CASH' && o.side === 'sell');
       c.appendChild(el('div', 'g-hint', (toCash ? `Leave the ${eur(toCash.eur)} in cash until semis are back in trend. ` : fromCash ? `Paid with the ${eur(fromCash.eur)} waiting in cash. ` : '')
-        + `Place ${real.length > 1 ? 'them' : 'it'} on Revolut while the market is open${real.length > 1 ? ', sells first' : ''}. Then send Claude a screenshot.`));
-    } else {
-      c.appendChild(el('div', 'g-line', st.swing ? `Semis are out of trend, but a swing trade in SEC0 is on: hold it until SMH closes above ${f2(st.swing.sellAbove)}.`
-        : setup ? 'No signal. The set-up below has no deadline.' : 'You are on plan and no signal fired.'));
+        + `Revolut market hours${real.length > 1 ? ' · sells first' : ''}.`));
+    } else if (st.swing) {
+      c.appendChild(el('div', 'g-line', `A swing trade in SEC0 is on. Hold until SMH closes above ${f2(st.swing.sellAbove)}.`));
     }
     c.appendChild(el('div', 'g-verd-next', nextLine(st)));
   }
@@ -401,8 +400,8 @@
   function scoutCard(box) {
     if (!window.SRScreen || !window.SRTA) return;
     window.SRScreen.load(); window.SRScreen.loadWide();
-    const T = window.SRScreen.top(4), c = card(box, 'scout', 'Scouted today');
-    if (!T.length) c.appendChild(el('div', 'g-line g-muted', `No buy signal today among the ${window.SRScreen.count()} assets watched.`));
+    const T = window.SRScreen.top(4), n = window.SRScreen.count();
+    const c = SRApp.disclosure(box, 'today-scout', 'Scouted today', T.length ? 'Top buy signals' : n ? 'No buy signals' : 'Scan unavailable');
     const st = ((window.SR_TASTATS || {}).model || {})['1D'];
     for (const r of T) {
       const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button'; b.addEventListener('click', () => window.SRScreen.open(r));
@@ -412,8 +411,8 @@
     }
     if (T.length) c.appendChild(el('div', 'g-hint', `How often such signals worked on cases the model had never seen (any day: ${st ? p0(st.buy.base) : '54%'}). Tap for the chart.`));
     const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
-    const l = c.appendChild(el('button', 'g-link', 'Open the screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
-    const l2 = c.appendChild(el('button', 'g-link g-link2', 'Analyse any asset')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
+    const l = c.appendChild(el('button', 'g-link', 'Open screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
+    const l2 = c.appendChild(el('button', 'g-link g-link2', 'Search assets')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
   }
 
   // ---- Today: the practice portfolio on the eToro demo account (virtual money) ----
@@ -565,16 +564,16 @@
     hero(box, H);
     if (c0.source !== 'yahoo' && !(c0.apiKey && c0.userKey)) {
       const c = card(box, 'warn', 'Connect eToro for live prices');
-      c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings()));
+      c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings('data')));
     }
     if (st.P && st.P.signal && !sig) loadSignal();
-    briefCard(box, H, st);
     verdictCard(box, H, st);
-    scoutCard(right);
-    practiceCard(right);
+    briefCard(box, H, st);
+    watchCard(box, H, st);
     setupCard(box, H, st);
-    watchCard(right, H, st);
+    practiceCard(right);
     moneyCard(box, H, st);
+    scoutCard(right);
   });
 
   // ---- Portfolio: now against the plan, then every holding (tap for why) ----
@@ -615,29 +614,30 @@
     outer.classList.toggle('g-two', two);
     hero(box, H);
     if (st.T && st.size > 0) {
-      const c = card(box, 'mix', 'Now against your plan');
+      const c = card(box, 'mix', 'Allocation vs plan');
       bucketBars(c, all, st);
       const v0 = mixVol(partsNow(all)), v1 = mixVol(partsPlan(all, st)), vs = mixVol([{ sym: 'SPY', eur: 1 }]);
-      if (v0 && vs) c.appendChild(el('div', 'g-line g-vol', `Swings over the last 12 months: ${p0(v0)} a year now${v1 ? `, ${p0(v1)} on plan` : ''}. S&P 500: ${p0(vs)}.`));
+      if (v0 && vs) c.appendChild(el('div', 'g-line g-vol', `Volatility (past year): ${p0(v0)} now${v1 ? ` · ${p0(v1)} on plan` : ''} · ${p0(vs)} for the S&P 500.`));
     } else if (!st.P) {
       const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan', 0)));
     }
-    { const funds = H.filter((h) => terOf(h.ticker) > 0), fv = d3.sum(funds, (h) => h.value), terE = d3.sum(funds, (h) => h.value * terOf(h.ticker)), sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null), g = d3.sum(known, gainOf);
-      const c = card(box, 'cost', 'Costs and tax');
+    const toolbar = right.appendChild(el('div', 'g-holdings-head'));
+    toolbar.appendChild(el('h2', '', 'Holdings'));
+    toolbar.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
+    const costs = () => { const funds = H.filter((h) => terOf(h.ticker) > 0), fv = d3.sum(funds, (h) => h.value), terE = d3.sum(funds, (h) => h.value * terOf(h.ticker)), sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null), g = d3.sum(known, gainOf);
+      const c = SRApp.disclosure(box, 'portfolio-costs', 'Costs and tax');
       if (fv > 0) c.appendChild(el('div', 'g-line', `Fund fees: ${eur(terE)} a year (${d3.format('.2%')(terE / fv)}), inside their prices.`));
       if (known.length) c.appendChild(el('div', 'g-line', `If sold today: ${g > 0 ? `${eur(TAX * g)} tax on ${eur(g)} of gains` : 'no tax'}${known.length < sold.length ? ` (${known.length} of ${sold.length} holdings)` : ''}.`));
       else if (sold.some((h) => h.paid > 0)) c.appendChild(el('div', 'g-hint', 'Tax needs a live value and an amount paid.'));
-      else c.appendChild(el('div', 'g-hint', 'Add the amount you paid in Settings to see tax.')); }
+      else c.appendChild(el('div', 'g-hint', 'Add what you paid in Settings to see estimated tax.')); };
+    if (two) costs();
     const list = right.appendChild(el('div', 'g-list'));
-    const max = d3.max(H, (h) => h.value) || 1;
     for (const h of H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
       r.addEventListener('click', () => holdingSheet(h, st, all));
       const a = r.appendChild(el('div', 'g-row-a'));
       a.appendChild(el('b', '', h.ticker));
       a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : '')));
-      const b = r.appendChild(el('div', 'g-row-b'));
-      const bar = b.appendChild(el('span', 'g-row-bar')); bar.style.width = (h.value / max) * 100 + '%';
       const v = r.appendChild(el('div', 'g-row-v'));
       v.appendChild(el('b', '', eur(h.value)));
       v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.0005 ? 'up' : h.chg <= -0.0005 ? 'down' : ''), h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg)));
@@ -650,11 +650,9 @@
         else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Outside'));
       }
       tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
-      if (gainOf(h) != null) tags.appendChild(el('span', 'g-muted', `· ${eur(h.value - taxOf(h))} after tax`));
     }
     if (!H.length) list.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));
-    const row = box.appendChild(el('div', 'g-btns'));
-    row.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
+    if (!two) costs();
   });
 
   // ---- Plan: three choices with the same three numbers, then your switches ----
@@ -665,7 +663,7 @@
     const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
     outer.classList.toggle('g-two', two);
     box.appendChild(el('h2', 'g-h2', 'Your plan'));
-    box.appendChild(el('p', 'g-muted g-sub', 'Pick one. Today then says each day whether to act. Numbers: 2000–2026, after 0.35% per order and 31.4% French tax.'));
+    box.appendChild(el('p', 'g-muted g-sub', 'Historical results, 2000–2026, after fees and French tax.'));
     const grid = box.appendChild(el('div', 'g-plans'));
     const opt = (id, name, line, k) => {
       const b = grid.appendChild(el('button', 'g-plan' + (p.id === id ? ' is-on' : ''))); b.type = 'button'; b.setAttribute('aria-pressed', String(p.id === id));
@@ -680,25 +678,32 @@
     };
     for (const id of ['smh', 'core', 'spx']) opt(id, PLANS[id].name, PLANS[id].line, PLANS[id].study);
     opt(null, 'No plan', 'Just track my holdings and the market.', null);
-    box.appendChild(el('p', 'g-muted g-sub', 'Past results, not a promise. The reliable difference between them is the size of the drops, not the return.'));
+    box.appendChild(el('p', 'g-muted g-sub', 'Past results do not predict returns.'));
     { const key = (PLANS[p.id] || PLANS.spx).study, start = st.P ? st.size : st.total, add = [0, 200, 500, 1000].includes(p.monthly) ? p.monthly : 0;
-      const oc = card(right, 'range', `What it could become · ${(PLANS[p.id] || PLANS.spx).name}`), ch = oc.appendChild(el('div', 'g-chips'));
+      const oc = card(right, 'range', '5- and 10-year outcomes'), ch = oc.appendChild(el('div', 'g-chips'));
       for (const a of [0, 200, 500, 1000]) { const b = ch.appendChild(el('button', 'g-chip g-toggle' + (a === add ? ' is-on' : ''), a ? `+${eur(a)}/month` : 'Nothing added')); b.type = 'button'; b.setAttribute('aria-pressed', String(a === add)); b.addEventListener('click', () => { const q = plan(); q.monthly = a; savePlan(q); }); }
+      oc.insertBefore(el('p', 'g-hint g-outcome-plan', (PLANS[p.id] || PLANS.spx).name), ch);
       const O = start > 0 || add > 0 ? outcomes(key, start, add) : null;
-      if (O) { const t = oc.appendChild(el('table', 'g-table g-range')); t.innerHTML = '<thead><tr><th></th><th class="num">Bad</th><th class="num">Typical</th><th class="num">Good</th><th class="num">Put in</th></tr></thead>'; const tb = t.appendChild(el('tbody'));
+      if (O) {
         for (const y of [5, 10]) {
-          const r = tb.appendChild(el('tr')), o = O[y], lo = eur(o.putLow), hi = eur(o.putHigh);
-          r.appendChild(el('td', '', `${y} years`)).style.fontWeight = '600';
-          for (const v of [o.bad, o.mid, o.good]) r.appendChild(el('td', 'num', eur(v)));
-          r.appendChild(el('td', 'num', lo === hi ? lo : `${lo}–${hi}`));
+          const row = oc.appendChild(el('div', 'g-outcome')), o = O[y], lo = eur(o.putLow), hi = eur(o.putHigh);
+          row.appendChild(el('h3', '', `${y} years`));
+          const nums = row.appendChild(el('div', 'g-outcome-values'));
+          for (const [label, v] of [['Low', o.bad], ['Typical', o.mid], ['High', o.good]]) {
+            const cell = nums.appendChild(el('div'));
+            cell.appendChild(el('span', 'g-muted', label)); cell.appendChild(el('b', '', eur(v)));
+          }
+          row.appendChild(el('p', 'g-hint', `Contributed: ${lo === hi ? lo : `${lo}–${hi}`}`));
         }
-        oc.appendChild(el('div', 'g-hint', 'Every 5- and 10-year stretch of 2000–2026, after costs and tax. Bad: 1 in 10 did worse. Overlapping stretches, so the real worst can be lower.')); }
+        const d = SRApp.disclosure(oc, 'plan-outcome-method', 'How this was tested');
+        d.appendChild(el('p', 'g-hint', 'Every 5- and 10-year stretch of 2000–2026, after 0.35% per order and 31.4% French tax. Low: 1 in 10 stretches did worse. The stretches overlap. Actual losses can be worse.'));
+      }
       else oc.appendChild(el('div', 'g-hint', 'Add amounts to your holdings in Settings, or money each month.')); }
     if (!st.P) return;
     const PT = planTickers(p), keep = keepSet(p, H), own = H.filter((h) => h.value > 0 && !PT.has(h.ticker));
     if (own.length) {
       const kc = card(right, 'keepc', 'Keep outside the plan');
-      kc.appendChild(el('div', 'g-line g-muted', 'Tap to keep. What is not kept is what the set-up on Today moves into the plan.'));
+      kc.appendChild(el('div', 'g-line g-muted', 'Select holdings to leave out of the plan setup.'));
       const chips = kc.appendChild(el('div', 'g-chips'));
       for (const h of own) {
         const on = keep.has(h.ticker), b = chips.appendChild(el('button', 'g-chip g-toggle' + (on ? ' is-on' : ''), (on ? '✓ ' : '') + h.ticker)); b.type = 'button';

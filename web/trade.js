@@ -380,15 +380,6 @@
     tile(g, 'Closed trades', usd2(st.realized), st.n ? `${st.n} closed since the start` : 'none closed yet', sign(st.realized));
     tile(g, 'This week', f.week != null ? usd2(f.week) : '–', f.week != null ? 'change in value over 7 days' : 'needs a week of readings', f.week != null ? sign(f.week) : '');
     tile(g, 'Costs paid', usd(st.fees), 'fees booked by eToro');
-    head(root, 'Quality of the trades'); g = root.appendChild(el('div', 'g-stats'));
-    tile(g, 'Trades with a gain', st.winPct != null ? `${Math.round(st.winPct)}%` : '–', st.n ? `${st.wins} of ${st.n}` : 'no closed trade yet');
-    tile(g, 'Profit factor', st.pf == null ? '–' : st.pf === Infinity ? 'no loss yet' : st.pf.toFixed(2), 'gains divided by losses; above 1 earns');
-    tile(g, 'Average gain / loss', `${st.avgWin != null ? usd2(st.avgWin) : '–'} / ${st.avgLoss != null ? usd2(st.avgLoss) : '–'}`, 'per closed trade, after costs');
-    tile(g, 'Result per trade', st.expR != null ? `${st.expR >= 0 ? '+' : '−'}${Math.abs(st.expR).toFixed(2)} R` : '–', 'average, in units of the money risked', st.expR != null ? sign(st.expR) : '');
-    tile(g, 'How they ended', st.n ? `${st.target} target · ${st.stop} stop · ${st.time} time` : '–', st.n ? `${st.n - st.target - st.stop - st.time} otherwise` : '');
-    tile(g, 'Average holding time', st.hold != null ? span(st.hold) : '–', '');
-    tile(g, 'Best trade', st.best ? usd2(st.best.net) : '–', st.best ? st.best.sym : '', st.best ? sign(st.best.net) : '');
-    tile(g, 'Worst trade', st.worst ? usd2(st.worst.net) : '–', st.worst ? st.worst.sym : '', st.worst ? sign(st.worst.net) : '');
     head(root, 'Risk'); g = root.appendChild(el('div', 'g-stats'));
     tile(g, 'Worst fall so far', f.dd < 0 ? pc(f.dd) : '0%', `from a high of ${usd(f.peak || M.value)}`, f.dd < -0.005 ? 'down' : '');
     tile(g, 'If every stop is hit', usd(-M.riskOpen), M.value ? `${(100 * M.riskOpen / M.value).toFixed(2)}% of the account, from here` : '', M.riskOpen > 0 ? 'down' : '');
@@ -416,14 +407,29 @@
         if (cor.total && cor.pairs.length === cor.total && !tog.length) root.appendChild(el('div', 'g-hint', 'No two positions move closely together (60 days).'));
       }
     }
-    // by rule and by kind of asset
+    for (const [k, v] of Object.entries(M.P.paused || {})) root.appendChild(el('div', 'g-line g-warn', `Paused by the program: ${ARM[k] || k} since ${v.since} (${v.why}).`));
+    const quality = SRApp.disclosure(root, 'trading-quality', 'Trade statistics');
+    g = quality.appendChild(el('div', 'g-stats'));
+    tile(g, 'Trades with a gain', st.winPct != null ? `${Math.round(st.winPct)}%` : '–', st.n ? `${st.wins} of ${st.n}` : 'no closed trade yet');
+    tile(g, 'Profit factor', st.pf == null ? '–' : st.pf === Infinity ? 'no loss yet' : st.pf.toFixed(2), 'gains divided by losses; above 1 earns');
+    tile(g, 'Average gain / loss', `${st.avgWin != null ? usd2(st.avgWin) : '–'} / ${st.avgLoss != null ? usd2(st.avgLoss) : '–'}`, 'per closed trade, after costs');
+    tile(g, 'Result per trade', st.expR != null ? `${st.expR >= 0 ? '+' : '−'}${Math.abs(st.expR).toFixed(2)} R` : '–', 'average, in units of the money risked', st.expR != null ? sign(st.expR) : '');
+    tile(g, 'How they ended', st.n ? `${st.target} target · ${st.stop} stop · ${st.time} time` : '–', st.n ? `${st.n - st.target - st.stop - st.time} otherwise` : '');
+    tile(g, 'Average holding time', st.hold != null ? span(st.hold) : '–', '');
+    tile(g, 'Best trade', st.best ? usd2(st.best.net) : '–', st.best ? st.best.sym : '', st.best ? sign(st.best.net) : '');
+    tile(g, 'Worst trade', st.worst ? usd2(st.worst.net) : '–', st.worst ? st.worst.sym : '', st.worst ? sign(st.worst.net) : '');
+    const breakdown = SRApp.disclosure(root, 'trading-breakdown', 'Results by rule and asset class');
     const group = (key, names) => { const G = {}; for (const p of M.positions) { const o = G[key(p)] = G[key(p)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.open++; o.run += p.pl; o.expo += p.expo; } for (const c of M.closed) { const o = G[key(c)] = G[key(c)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.n++; o.won += c.net > 0 ? 1 : 0; o.net += c.net; if (c.r != null) { o.r += c.r; o.rn++; } }
-      const tb = root.appendChild(el('div', 't-table')); const hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['', 'Open', 'Running', 'Closed', 'Gain %', 'Result', 'Per trade']) hd.appendChild(el('span', '', h));
+      const tb = breakdown.appendChild(el('div', 't-table')); const hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['', 'Open', 'Running', 'Closed', 'Gain %', 'Result', 'Per trade']) hd.appendChild(el('span', '', h));
       for (const [k, o] of Object.entries(G).sort((a, b) => (b[1].net + b[1].run) - (a[1].net + a[1].run))) { const r = tb.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', (names && names[k]) || k)); r.appendChild(el('span', '', String(o.open))); r.appendChild(el('span', sign(o.run), o.open ? usd2(o.run) : '–')); r.appendChild(el('span', '', String(o.n))); r.appendChild(el('span', '', o.n ? Math.round(100 * o.won / o.n) + '%' : '–')); r.appendChild(el('span', sign(o.net), o.n ? usd2(o.net) : '–')); r.appendChild(el('span', '', o.rn ? `${o.r / o.rn >= 0 ? '+' : '−'}${Math.abs(o.r / o.rn).toFixed(2)} R` : '–')); }
       if (!Object.keys(G).length) tb.appendChild(el('div', 'g-hint', 'Nothing yet.')); };
-    head(root, 'By rule'); group((x) => x.arm, ARM); head(root, 'By kind of asset'); group((x) => x.cls);
-    if ([...M.positions, ...M.closed].some((x) => x.t && x.t.fast && x.t.now)) { head(root, 'Fast trades: what the signal did while the trade was on'); group((x) => (!(x.t && x.t.fast) ? 'Other trades' : x.t.faded ? 'Signal faded or reversed' : 'Signal held')); root.appendChild(el('div', 'g-hint', 'The signal of each fast trade is read again every hour; nothing is closed on it (on ten weeks of candles that did not help). These lines test that on real trades.')); }
-    for (const [k, v] of Object.entries(M.P.paused || {})) root.appendChild(el('div', 'g-line g-warn', `Paused by the program: ${ARM[k] || k} since ${v.since} (${v.why}).`));
+    head(breakdown, 'By rule'); group((x) => x.arm, ARM);
+    head(breakdown, 'By asset class'); group((x) => x.cls);
+    if ([...M.positions, ...M.closed].some((x) => x.t && x.t.fast && x.t.now)) {
+      head(breakdown, 'Fast trades: did the signal hold?');
+      group((x) => (!(x.t && x.t.fast) ? 'Other trades' : x.t.faded ? 'Signal faded or reversed' : 'Signal held'));
+      breakdown.appendChild(el('div', 'g-hint', 'The program checks fast signals hourly. It does not close a trade when the signal fades.'));
+    }
     root.appendChild(el('div', 'g-hint', 'eToro\'s own figures, read every 5 seconds. Orders come only from the program on your VM. Virtual money, not advice.'));
     return true;
   }

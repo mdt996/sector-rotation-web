@@ -14,8 +14,9 @@
     const S = dash.data('settings'), asof = S.status === 'ok' && S.data[0] ? S.data[0].asof : null;
     const s = $('app-status');
     if (st.loading) s.textContent = 'Refreshing…';
-    else if (st.at) s.textContent = `${st.source === 'yahoo' ? 'Yahoo' : 'eToro'} · closes to ${fmtDay(asof)} · updated ${fmtTime(st.at)}`;
+    else if (st.at) s.textContent = `${st.source === 'yahoo' ? 'Yahoo' : 'eToro'} · closes to ${fmtDay(asof)}`;
     else s.textContent = 'No data yet';
+    s.title = st.at ? `Last refresh: ${fmtTime(st.at)}` : '';
     const b = $('app-banner');
     if (st.error && !st.loading) {
       b.hidden = false;
@@ -120,7 +121,16 @@
     bar.querySelector('button').addEventListener('click', () => bar.remove());
     document.body.appendChild(bar);
   }
-  function openSettings(focus) { fill(); sheet.hidden = false; document.body.classList.add('sheet-open'); if (focus === 'holdings') setTimeout(() => { const t = $('cfg-holdings'); if (t) { t.scrollIntoView({ block: 'center' }); t.focus(); } }, 60); }
+  function openSettings(focus) {
+    fill(); sheet.hidden = false; document.body.classList.add('sheet-open');
+    const body = sheet.querySelector('.settings-body');
+    body.scrollTop = 0;
+    if (focus === 'data') $('settings-data').open = true;
+    if (focus === 'holdings') {
+      $('settings-holdings').open = true;
+      const t = $('cfg-holdings'); t.focus({ preventScroll: true }); t.scrollIntoView({ block: 'center' });
+    }
+  }
   window.appOpenSettings = openSettings;
   function closeSettings() { sheet.hidden = true; document.body.classList.remove('sheet-open'); }
   function save() {
@@ -150,7 +160,7 @@
   $('btn-settings').addEventListener('click', openSettings);
   $('btn-close').addEventListener('click', closeSettings);
   $('btn-save').addEventListener('click', save);
-  $('app-banner-action').addEventListener('click', openSettings);
+  $('app-banner-action').addEventListener('click', () => openSettings('data'));
   document.querySelectorAll('input[name="source"]').forEach((r) => r.addEventListener('change', toggleKeys));
   $('show-user').addEventListener('change', (e) => { $('cfg-user').type = e.target.checked ? 'text' : 'password'; });
   $('cfg-api').addEventListener('input', keyHints);

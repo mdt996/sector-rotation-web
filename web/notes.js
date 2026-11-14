@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 76, "text": "See price changes for the dates on your chart, or choose a start and end date. Comparisons now use all shared history."};
+window.SR_NOTES = {"build": 77, "text": "Today, Portfolio and Trading put key details first. Charts have more room. Find app updates at the top of Settings."};

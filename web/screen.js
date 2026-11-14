@@ -267,10 +267,9 @@
     load(); loadWide();
     const R = rows(), ALL = all();
     box.appendChild(el('h2', 'g-h2', 'Screener'));
-    const sb = box.appendChild(el('button', 'sc-search', 'Search any eToro asset for its full analysis')); sb.type = 'button';
+    const sb = box.appendChild(el('button', 'sc-search', 'Search eToro assets')); sb.type = 'button';
     sb.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
     const rec = wide ? wide.record || {} : {}, U = wide && wide.universe ? wide.universe : null;
-    box.appendChild(el('p', 'g-muted g-sub', `${ALL.length} assets analysed with the same rules. ` + (wide ? `${wide.scanned} come from the scan of ${String(wide.made).slice(0, 10)}: the largest of every sector and asset class first${U && U.next > U.limit ? `, ${U.next - U.limit} more each night` : ''}. Ideas graded so far: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wide scan has not been read yet.')));
     // the day's change as coloured tiles: the world first, then the eleven US sectors and the industries the app follows (the same funds as the ranking)
     // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
     const UN = new Map(universe().map((u) => [u.sym, u]));
@@ -284,11 +283,14 @@
     const map = box.appendChild(el('div', 'sc-map'));
     for (const r of R.filter((x) => x.group === 'World')) tile(map, r);
     const bySym = new Map(R.map((r) => [r.sym, r]));
+    const sectors = SRApp.disclosure(box, 'market-sectors', 'Sectors and industries');
     for (const [head, list] of TILES) {
-      box.appendChild(el('div', 'sc-maph', head)); const m2 = box.appendChild(el('div', 'sc-map sc-map2'));
+      sectors.appendChild(el('div', 'sc-maph', head)); const m2 = sectors.appendChild(el('div', 'sc-map sc-map2'));
       for (const [sym, short, name] of list) tile(m2, bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short);
     }
-    box.appendChild(howBox());
+    const how = box.appendChild(howBox());
+    const scan = wide ? `Scan: ${wide.scanned} assets on ${String(wide.made).slice(0, 10)}. Ideas: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wider scan is unavailable.';
+    how.insertBefore(el('p', '', scan + (U && U.next > U.limit ? ` Adds up to ${U.next - U.limit} assets per night.` : '')), how.children[1]);
     // filters: every choice is one tap; the list below answers at once
     const nOn = Object.keys(F0).filter((k) => k !== 'sort' && F[k]).length;
     const bar = box.appendChild(el('div', 'sc-bar')), fb = el('div', 'sc-filters');

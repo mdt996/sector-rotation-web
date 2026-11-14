@@ -321,8 +321,10 @@
     for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); drawBell(); resetComparisonFrame(); load(true); }); }
     drawBell();
     const verdictEl = wrap.appendChild(el('div', 'av-verdict'));
-    const miniEl = wrap.insertBefore(el('button', 'av-mini'), verdictEl); miniEl.type = 'button'; miniEl.hidden = true;   // on a phone: the signal in one line above the chart; a tap goes to the full card under it
-    miniEl.addEventListener('click', () => { try { verdictEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { verdictEl.scrollIntoView(); } });   // the action on the timeframe shown, with its probability and the record of past entries
+    const miniEl = wrap.insertBefore(el('button', 'av-mini'), verdictEl); miniEl.type = 'button'; miniEl.hidden = true;   // summary above the chart; details below
+    verdictEl.tabIndex = -1;
+    miniEl.setAttribute('aria-label', 'View signal details');
+    miniEl.addEventListener('click', () => { verdictEl.focus({ preventScroll: true }); verdictEl.scrollIntoView({ block: 'nearest' }); });   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
     const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;
@@ -364,9 +366,9 @@
     const fullTitle = el('div', 'ch-title', inst.symbol);
     const onFull = (on) => { const host = page.closest('.sc-detail'); if (host) host.classList.toggle('is-raised', on);   // the Mac screener panel covers the header only for its own full view
       if (on) { ch.slot.replaceChildren(fullTitle, frames, verdictEl); } else { wrap.insertBefore(frames, box); placeVerdict(); } };
-    // on a phone the page opens with the name, the price, the time frames and the whole chart down to its dates on one screen; the signal card goes under the chart
+    // Keep the plot high on both phone and desktop; only its height depends on the phone layout.
     const phone = () => !opts.embed && !page.classList.contains('is-wide') && window.innerWidth < 700 && !!page.closest('.sheet');
-    function placeVerdict() { if (ch.isFull && ch.isFull()) return; miniEl.hidden = !phone() || !miniEl.textContent; if (miniEl.nextSibling !== box) wrap.insertBefore(miniEl, box); if (phone()) { if (box.nextSibling !== verdictEl) wrap.insertBefore(verdictEl, box.nextSibling); } else if (verdictEl.nextSibling !== box) wrap.insertBefore(verdictEl, box); }
+    function placeVerdict() { if (ch.isFull && ch.isFull()) return; if (miniEl.nextSibling !== box) wrap.insertBefore(miniEl, box); if (box.nextSibling !== verdictEl) wrap.insertBefore(verdictEl, box.nextSibling); }
     const phoneH = () => { const m = box.querySelector('.ch-main'), S = page.closest('.sheet'), head = S && S.querySelector('.search-head'); if (!m) return 0;
       const above = m.getBoundingClientRect().top - page.getBoundingClientRect().top, top = head ? head.getBoundingClientRect().bottom : 0;
       return Math.round(Math.max(300, Math.min(760, window.innerHeight - top - above - 14))); };
@@ -503,8 +505,13 @@
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
       if (nodata || drawErr || (box.classList.contains('is-loading') && SRApp.etoroState && SRApp.etoroState().wait > 0)) return;   // not frozen while the crosshair stays on the chart after a touch; eToro's limit message stays while the chart waits
-      sub.textContent = q ? `Live${streaming() ? ', streaming' : ''} · ${new Date(q.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}${streaming() ? '' : ` · prices every ${views.size ? 3 : 10} s (${streamWhy()})`}${Date.now() - q.at > 120000 ? ` · this price is ${Math.round((Date.now() - q.at) / 60000)} min old: ${PRD.err && PRD.errAt > PRD.ok ? 'the last read failed (' + PRD.err + ')' : PRD.ok ? `eToro's last answer ${Math.round((Date.now() - PRD.ok) / 1000)} s ago has no newer price (market closed?)` : 'no read has worked yet'}` : ''}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : hasKeys() ? 'Waiting for a live price…' : 'Add your eToro keys in Settings for live prices.';
-      sub.className = 'av-sub' + (q ? ' is-live' : '');
+      const age = q ? Math.round((Date.now() - q.at) / 60000) : 0, stale = q && Date.now() - q.at > 120000;
+      const missed = PRD.err && PRD.errAt > PRD.ok;
+      const status = stale ? `Last price · ${age} min ago · ${missed ? 'latest read failed (' + PRD.err + ')' : PRD.ok ? 'market may be closed' : 'no successful read yet'}`
+        : q ? `Live · ${streaming() ? 'streaming' : `prices every ${views.size ? 3 : 10} s (${streamWhy()})`}` : hasKeys() ? 'Waiting for a live price…' : 'Add eToro keys in Settings for live prices.';
+      sub.textContent = status;
+      sub.title = q ? `Price time: ${new Date(q.at).toLocaleTimeString()}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : '';
+      sub.className = 'av-sub' + (q && !stale ? ' is-live' : stale ? ' is-stale' : '');
     }
     // the S&P 500's candles of the same size, for the strength line (kept 5 minutes per size; not for the index itself and its fund)
     const benchKept = new Map();
@@ -580,13 +587,14 @@
       c.appendChild(el('div', 'tc-line', `${buy ? 'BUY' : 'SELL'} ${shortDay(tr.t)}` + (en != null ? ` · ${buy ? 'in' : 'at'} ${ap}${fmtP(en)} · stop ${fmtP(stop)} · target ${fmtP(target)}` : '') + (pend ? '' : tr.res === 'open' ? ' · open' : tr.res === 'win' ? ' · worked ' + pc(move) : ' · failed ' + pc(move))));   // the one-line form of the full view
       return c;
     }
-    // the one-line form of the signal card, for the phone: what the card says first, with the score when there is no signal
+    // Signal summary, or the score and threshold when there is no signal.
     function paintMini() {
       const buy = verdictEl.classList.contains('is-buy'), ln = verdictEl.querySelector('.tc-line'), none = verdictEl.querySelector('.tc-none'), foot = verdictEl.querySelector('.tc-foot');
       let txt = buy && ln ? ln.textContent : none ? none.textContent.replace(/\.$/, '') : '';
-      const m = !buy && foot ? /Score (\d+); a buy starts at (\d+)/.exec(foot.textContent) : null; if (m) txt += ` · score ${m[1]}, a buy from ${m[2]}`;
-      miniEl.replaceChildren(el('b', '', frame.k), document.createTextNode(' ' + txt), el('span', 'av-mini-go', '›')); miniEl.className = 'av-mini' + (buy ? ' is-buy' : '');
-      const was = miniEl.hidden; miniEl.hidden = !txt || !phone(); if (was !== miniEl.hidden && chFit) chFit();
+      const m = !buy && foot ? /Score (\d+); a buy starts at (\d+)/.exec(foot.textContent) : null; if (m) txt += ` · score ${m[1]} / buy at ${m[2]}`;
+      miniEl.replaceChildren(el('b', '', frame.k), el('span', 'av-mini-text', txt), el('span', 'av-mini-go', '↓'));
+      miniEl.setAttribute('aria-label', txt + '. View signal details'); miniEl.className = 'av-mini' + (buy ? ' is-buy' : '');
+      const was = miniEl.hidden; miniEl.hidden = !txt; if (was !== miniEl.hidden && chFit) chFit();
     }
     function drawVerdict() { try { drawVerdict0(); } finally { paintMini(); } }
     function drawVerdict0() {

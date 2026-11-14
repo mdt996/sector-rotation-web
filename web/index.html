@@ -371,45 +371,55 @@
 </section>
 <section class="sheet" id="settings" hidden aria-label="Settings">
   <div class="sheet-head"><h2>Settings</h2><button class="app-icon" id="btn-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
-  <div class="sheet-body">
-    <h3>Data</h3>
-    <label class="opt"><input type="radio" name="source" value="etoro"><span><b>eToro</b> with your own API keys: the same data as your Claude dashboard.</span></label>
-    <label class="opt"><input type="radio" name="source" value="yahoo"><span><b>Yahoo Finance</b>, no key needed: an unofficial feed that can be rate-limited.</span></label>
+  <div class="sheet-body settings-body">
+    <section class="settings-updates" aria-labelledby="updates-heading">
+      <div><h3 id="updates-heading">App updates</h3><p class="hint" id="app-version"></p></div>
+      <button id="btn-update" class="btn" type="button">Check for updates</button>
+      <p class="hint" id="update-status" aria-live="polite"></p>
+    </section>
+    <details class="sr-disclosure" id="settings-data"><summary>Market data</summary>
+    <label class="opt"><input type="radio" name="source" value="etoro"><span><b>eToro</b> for live prices</span></label>
+    <label class="opt"><input type="radio" name="source" value="yahoo"><span><b>Yahoo Finance</b> for research history</span></label>
     <div id="keys">
-      <label class="field"><span>Public API key (x-api-key), the shorter one</span><input id="cfg-api" autocomplete="off" autocapitalize="off" spellcheck="false"><small class="key-count" id="api-count"></small></label>
-      <label class="field"><span>User key (x-user-key), the long one</span><input id="cfg-user" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"><small class="key-count" id="user-count"></small></label>
+      <label class="field"><span>Public API key (shorter)</span><input id="cfg-api" autocomplete="off" autocapitalize="off" spellcheck="false"><small class="key-count" id="api-count"></small></label>
+      <label class="field"><span>User key (longer)</span><input id="cfg-user" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"><small class="key-count" id="user-count"></small></label>
       <p class="hint bad keys-swap" id="keys-swap" hidden><span>These look swapped: the User key is the long one.</span><button id="btn-swapkeys" class="btn" type="button">Swap them</button></p>
-      <label class="opt sub"><input type="checkbox" id="show-user"><span>Show the user key</span></label>
+      <label class="opt sub"><input type="checkbox" id="show-user"><span>Show user key</span></label>
       <div class="keys-test"><button id="btn-testkeys" class="btn" type="button">Test keys</button><span class="hint" id="keys-result" aria-live="polite"></span></div>
-      <p class="hint">In eToro: Settings → Trading → API Key Management → Create key, confirm with the SMS code, then copy both keys. They stay on this device and are sent only to eToro: its data address (public-api.etoro.com) and its live price stream (ws.etoro.com).</p>
+      <details class="settings-help"><summary>Where to find your keys</summary>
+        <p class="hint">In eToro, go to Settings → Trading → API Key Management. Create a key and confirm by SMS. Keys stay on this device and are only sent to eToro (public-api.etoro.com and ws.etoro.com).</p>
+      </details>
     </div>
-    <h3>Your holdings</h3>
-    <label class="field"><span>One per line: Revolut ticker, "= US ticker" if it follows another, the amount in euros, "paid" and what you paid (for the tax a sale would cost), "long" for long-term holds, "rough" for a loose match. Example: SEC0 = SMH 500 paid 420</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
-    <p class="hint">The US ticker must be one of the funds or stocks in the ranking. Leave empty to use the default list shown in grey.</p>
-    <div id="alerts-block">
-    <h3>Alerts</h3>
-    <label class="opt"><input type="checkbox" id="cfg-notify"><span>Notify me when something changes (checked about every hour, on completed daily closes)</span></label>
-    <label class="opt sub"><input type="checkbox" id="cfg-holdon"><span>One of my holdings gets a new verdict, e.g. Hold → Rotate out</span></label>
-    <label class="opt sub"><input type="checkbox" id="cfg-alerton"><span>A buy or sell signal on an asset I set an alert for</span></label>
+    </details>
+    <details class="sr-disclosure" id="settings-holdings"><summary>Holdings</summary>
+    <label class="field"><span>One holding per line</span><textarea id="cfg-holdings" rows="6" autocapitalize="characters" spellcheck="false"></textarea></label>
+    <details class="settings-help"><summary>Entry format and example</summary>
+      <p class="hint">Enter the Revolut ticker and amount in euros. Optionally add <code>= US ticker</code> for a match, <code>paid</code> and the cost for estimated tax, <code>long</code> for long-term holdings, or <code>rough</code> for a loose match.</p>
+      <p class="hint">Example: <code>SEC0 = SMH 500 paid 420</code>. The US ticker must be in the ranking. Leave blank to use the default list.</p>
+    </details>
+    </details>
+    <details class="sr-disclosure" id="alerts-block"><summary>Alerts</summary>
+    <label class="opt"><input type="checkbox" id="cfg-notify"><span>Enable alerts · about hourly, using completed daily closes</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-holdon"><span>A holding gets a new verdict</span></label>
+    <label class="opt sub"><input type="checkbox" id="cfg-alerton"><span>A signal on an asset I follow</span></label>
     <p class="hint sub" id="cfg-alertlist"></p>
     <label class="opt sub"><input type="checkbox" id="cfg-regime"><span>The market regime changes</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-go"><span>The rotation rule's Friday picks change</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-phase"><span>An ETF changes phase, e.g. Leading → Weakening</span></label>
     <label class="opt sub"><input type="checkbox" id="cfg-watchon"><span>An exit or entry level fires for my watchlist</span></label>
     <label class="field sub"><span>Watchlist (US tickers)</span><input id="cfg-watch" autocapitalize="characters" spellcheck="false"></label>
-    <div class="row"><button id="notify-perm" class="btn" type="button">Allow notifications</button><button id="notify-test" class="btn" type="button">Send a test notification</button></div>
+    <div class="row"><button id="notify-perm" class="btn" type="button">Allow notifications</button><button id="notify-test" class="btn" type="button">Test notification</button></div>
     <p class="hint" id="bg-status"></p>
     <p class="hint">Samsung can delay background checks to save battery. For on-time alerts: Settings → Apps → Sector Rotation → Battery → Unrestricted.</p>
-    </div>
-    <h3>Sync</h3>
-    <label class="field"><span>GitHub key for your private repository sector-rotation-sync</span><input id="cfg-sync" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-    <p class="hint" id="sync-status"></p>
-    <p class="hint">Your holdings, watchlist and alert choices stay the same on your phone and your Mac. Your eToro keys stay on each device.</p>
-    <h3>About</h3>
-    <p class="hint">The same calculations as your Claude dashboard, running on the phone. <a href="https://claude.ai/artifact/CRz7cdnRQwsBc6vpZLqPLJ">Open the dashboard in Claude</a>. A timing aid, not investment advice.</p>
-    <p class="hint" id="app-version"></p>
-    <div class="row"><button id="btn-update" class="btn" type="button">Check for updates</button></div>
-    <p class="hint" id="update-status" aria-live="polite"></p>
+    </details>
+    <details class="sr-disclosure"><summary>Sync</summary>
+      <label class="field"><span>GitHub key for sector-rotation-sync</span><input id="cfg-sync" type="password" autocomplete="off" spellcheck="false"></label>
+      <p class="hint" id="sync-status"></p>
+      <p class="hint">Syncs holdings, watchlists and alert settings. eToro keys stay on each device.</p>
+    </details>
+    <details class="sr-disclosure"><summary>About</summary>
+      <p class="hint">Market analysis, not investment advice. <a href="https://claude.ai/artifact/CRz7cdnRQwsBc6vpZLqPLJ">Open the Claude dashboard</a>.</p>
+    </details>
   </div>
   <div class="sheet-foot"><button id="btn-save" class="btn primary" type="button">Save and refresh</button></div>
 </section>

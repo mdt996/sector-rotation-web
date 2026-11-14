@@ -557,5 +557,21 @@
   }
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
-  window.SRApp = { etoroLog: () => EQ.log.slice(), DATASETS, state, config, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, alertCheck, alertText, hasAlert, toggleAlert, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
+  // Draws replace some sections every few seconds; keep disclosure state by section.
+  const openSections = new Map();
+  function disclosure(box, id, label, description) {
+    const d = document.createElement('details'), h = document.createElement('summary');
+    d.className = 'sr-disclosure'; d.dataset.section = id;
+    h.appendChild(document.createTextNode(label));
+    if (description) { const note = document.createElement('small'); note.textContent = description; h.appendChild(note); }
+    d.appendChild(h); d.open = openSections.get(id) === true;
+    h.addEventListener('click', (event) => {
+      event.preventDefault();
+      d.open = !d.open;
+      openSections.set(id, d.open);
+    });
+    return box.appendChild(d);
+  }
+
+  window.SRApp = { etoroLog: () => EQ.log.slice(), DATASETS, state, config, disclosure, swing, swingOf, trendOf, saveConfig, refresh, boot, isStale, render, renderDraw, summarize, diff, alertCheck, alertText, hasAlert, toggleAlert, parseYahoo, parseHoldings, setHoldings, testKeys, reasonOf, cleanKey, etoroGet, etoroState, etoroBoost, idOf, request, applyConfig, onChange: (fn) => listeners.push(fn), _store: store };
 })();

@@ -50,10 +50,10 @@
   }
   function mount() {
     const body = document.querySelector('#settings .sheet-body'); if (!body || document.getElementById('speed')) return;
-    const st = document.createElement('p'); st.id = 'sys-status'; st.className = 'sp-status'; body.insertBefore(st, body.firstChild);
+    const st = document.createElement('p'); st.id = 'sys-status'; st.className = 'sp-status'; (body.querySelector('.settings-updates') || body.firstElementChild).after(st);
     setInterval(() => { if (!document.hidden && body.offsetParent !== null) status(st); }, 5000); status(st);
-    const d = document.createElement('details'); d.id = 'speed'; d.className = 'sp';
-    const s = document.createElement('summary'); s.textContent = 'Speed on this phone'; d.appendChild(s);
+    const d = document.createElement('details'); d.id = 'speed'; d.className = 'sr-disclosure sp';
+    const s = document.createElement('summary'); s.textContent = 'Performance'; d.appendChild(s);
     const box = document.createElement('div'); d.appendChild(box); body.appendChild(d);
     let t = 0; d.addEventListener('toggle', () => { clearInterval(t); if (d.open) { draw(box); t = setInterval(() => draw(box), 2000); } });
   }
