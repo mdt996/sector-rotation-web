@@ -123,7 +123,7 @@
     {
       const all = [], seen = new Set();
       let err = null;
-      for (let page = 1; page <= 20; page++) {
+      for (let page = 1; page <= 60; page++) {   // thousands of trades with copy trading: up to 12,000
         const r = await SRApp.etoroGet(`/api/v1/trading/info/trade/history?minDate=${y}-01-01&page=${page}&pageSize=200`, 2);   // what the open screen waits for
         if (r.status !== 200) { err = r.reason === 'no keys' ? 'no keys' : String(r.status || 'no connection'); break; }
         let j; try { j = JSON.parse(r.body); } catch (e) { err = 'unreadable'; break; }
@@ -219,6 +219,8 @@
       b.appendChild(el('div', 'x-big', eur(S.comb.tax)));
       kv(b, 'Shares, funds, CFDs', `${gainTxt(S.R.Y.sec + E.sec)} → ${eur(S.comb.secTax)}`);
       kv(b, 'Crypto', `${cryptoTxt(S.R.Y.cryptoSales + E.by.crypto.sales, S.R.Y.crypto + E.by.crypto.eur)}${S.comb.cryptoTax ? ` → ${eur(S.comb.cryptoTax)}` : ''}`);
+      const net = S.R.Y.sec + E.sec - S.R.carry;
+      if (net < 0) kv(b, 'Loss to carry forward', `${eur(-net)}: no tax on shares, funds and CFDs this year, and this loss can be set against such gains in the next 10 years`);
       b.appendChild(el('div', 'g-hint', 'Gains and losses of both brokers net out on the return; the €305 crypto allowance is for all platforms together.'));
     }
     const names = c.names || {};

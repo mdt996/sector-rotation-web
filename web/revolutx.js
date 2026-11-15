@@ -152,17 +152,25 @@
     }
     return out;
   }
+  // Revolut X answers one window at a time (a week from start_date when no end_date is given), so the reading walks back from
+  // now in windows of 30 days with both dates, every page of each, as Revolut's own tool does (nothing before 7 May 2024)
   async function readRewards(r, since) {
     const out = [];
-    let cursor = '';
-    for (let page = 0; page < 40; page++) {
-      const q = query(Object.assign({ limit: 100, start_date: since, types: 'reward' }, cursor ? { cursor } : {}));
-      const res = await SRApp.request('GET', BASE + TX + '?' + q, await signedHeaders(r, String(Date.now()), TX, q));
-      if (res.status !== 200) return null;
-      const j = JSON.parse(res.body);
-      out.push(...parseRewards(j));
-      cursor = j && j.metadata && j.metadata.next_cursor;
-      if (!cursor) break;
+    since = Math.max(since, Date.parse('2024-05-07T00:00:00Z'));
+    let end = Date.now();
+    for (let w = 0; w < 16 && end > since; w++) {
+      const start = Math.max(since, end - 30 * DAY);
+      let cursor = '';
+      for (let page = 0; page < 20; page++) {
+        const q = query(Object.assign({ end_date: end, limit: 100, start_date: start, types: 'reward' }, cursor ? { cursor } : {}));
+        const res = await SRApp.request('GET', BASE + TX + '?' + q, await signedHeaders(r, String(Date.now()), TX, q));
+        if (res.status !== 200) return null;
+        const j = JSON.parse(res.body);
+        out.push(...parseRewards(j));
+        cursor = j && j.metadata && j.metadata.next_cursor;
+        if (!cursor) break;
+      }
+      end = start - 1;
     }
     const seen = new Set();
     return out.filter((x) => { const k = x.c + x.t + x.q; if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => b.t - a.t);
@@ -181,7 +189,7 @@
     for (const [c, m] of Object.entries(fresh)) for (const [d, q] of Object.entries(m)) { days[c] = days[c] || {}; days[c][d] = d === from ? Math.max(days[c][d] || 0, q) : q; }   // the first day may be partly outside the reading
     const recent = rewards.filter((x) => Date.now() - x.t <= 30 * DAY);
     const changed = !was.at || wr.length !== recent.length || (recent[0] && (!wr[0] || wr[0].t !== recent[0].t)) || moved(was.staked, staked) || JSON.stringify(was.days || {}) !== JSON.stringify(days);
-    cfg.staking = { at: Date.now(), by: device(), staked, rewards: recent, days, full: !!(was.full || full) };
+    cfg.staking = { at: Date.now(), by: device(), staked, rewards: recent, days, v: full ? 2 : was.v || 0 };
     return changed;
   }
   // per coin: staked, the last reward, the last 7 and 30 days, what it pays a day and the yearly rate at that pace (on today's
@@ -194,7 +202,7 @@
     const now = Date.now(), fresh = px && now - px.at < 10 * 60e3 ? px.eur : {};
     const price = (c) => (fresh[c] ? fresh[c].p : priceOf ? priceOf(c) : null);
     const coins = {};
-    for (const c of new Set([...Object.keys(staked), ...rewards.map((x) => x.c)])) {
+    for (const c of new Set([...Object.keys(staked), ...rewards.map((x) => x.c), ...Object.keys(s.days || {})])) {   // coins staked before count in what was earned
       const L = rewards.filter((x) => x.c === c), L7 = L.filter((x) => now - x.t <= 7 * DAY), p = price(c), st = staked[c] || 0;
       const oldest = L.length ? L[L.length - 1].t : null, gap = L.length > 1 ? (L[0].t - oldest) / (L.length - 1) : DAY;
       const days = oldest && now - oldest < 7 * DAY ? Math.min(7, Math.max(1, (now - oldest + gap) / DAY)) : 7;   // staked less than a week ago: since its first reward
@@ -203,7 +211,7 @@
       coins[c] = { c, staked: st, last: L[0] || null, d7, d30, n30: L.length, perDay, rate: st > 0 && perDay > 0 ? (perDay * 365) / st : null, all, since: dk[0] || (oldest ? dayOf(oldest) : null), allEur: p ? all * p : null,
         price: p, stakedEur: p ? st * p : null, perDayEur: p ? perDay * p : null, d7Eur: p ? d7 * p : null, d30Eur: p ? d30 * p : null, lastEur: p && L[0] ? L[0].q * p : null };
     }
-    const all = Object.values(coins), sum = (k) => (all.every((x) => x[k] != null) ? all.reduce((a, x) => a + x[k], 0) : null);
+    const all = Object.values(coins), sum = (k) => { const v = all.map((x) => x[k]).filter((x) => x != null); return v.length ? v.reduce((a, x) => a + x, 0) : null; };   // a coin with no price yet is left out of the euro totals
     const stakedEur = sum('stakedEur'), perDayEur = sum('perDayEur');
     const last = rewards[0] || null;
     const firsts = all.map((x) => x.since).filter(Boolean).sort();
@@ -235,7 +243,7 @@
       for (const b of bal) { const sym = String(b.currency || '').toUpperCase(), q = parseFloat(b.staked); if (sym && q > 0) staked[sym] = q; }
       // the staking rewards: every 30 minutes, and when you ask (an older app may not let this through: the sync brings them then)
       let rewards = null;
-      const full = !(SRApp.config().staking || {}).full, since = Date.now() - (full ? 365 : 30) * DAY;   // the first reading goes back a year, then 30 days
+      const full = (SRApp.config().staking || {}).v !== 2, since = Date.now() - (full ? 365 : 30) * DAY;   // the first reading goes back a year (every window), then 30 days
       if (manual || Date.now() - lastRw > RW_EVERY) { lastRw = Date.now(); try { rewards = await readRewards(r, since); } catch (e) { rewards = null; } }
       // Revolut X's own euro prices first; eToro's for a coin Revolut X gives none for
       try { if (await readTickers(r)) lastPx = Date.now(); } catch (e) { /* eToro's below */ }
