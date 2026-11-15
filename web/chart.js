@@ -12,7 +12,7 @@
   const css = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
   const FIB_COLORS = ['#787b86', '#f23645', '#ff9800', '#4caf50', '#089981', '#00bcd4', '#787b86'];
-  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true, rs: true, pos: true, ev: true }; // a clean chart: two averages, RSI, the nearest levels
+  const IND_DEFAULT = { ma20: false, ma50: true, ma200: true, bb: false, rsi: true, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true, rs: true, pos: true, ev: true, mine: false }; // a clean chart: two averages, RSI, the nearest levels
   const ICON = {
     cursor: '<path d="M5 3l14 8-6 1.5L10 19z"/>',
     measure: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
@@ -24,6 +24,7 @@
     clear: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
     compare: '<path d="M3 18l6-6 4 3 8-9M3 15l5 2 6-8 7 4"/>',
     full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    mine: '<circle cx="12" cy="12" r="8.5"/><path d="M9.5 16.5v-9h3a2.6 2.6 0 0 1 0 5.2h-3M12.6 12.7l2.6 3.8"/>',
   };
   const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 
@@ -93,7 +94,7 @@
     opts = opts || {};
     const fmtP = opts.priceFormat || ((x) => String(x));
     const key = 'sr.draw.' + (opts.id || 'x');
-    let autos = [], marks = [], bench = [], posn = null, events = [];   // bench: the S&P 500's candles of the same size; posn: the demo account's trade; events: dates ahead (results)
+    let autos = [], marks = [], bench = [], posn = null, events = [], mine = [], mineDrawn = 0;   // mine: your own trades on Revolut   // bench: the S&P 500's candles of the same size; posn: the demo account's trade; events: dates ahead (results)
     let comparison = null;
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
@@ -106,6 +107,10 @@
     tools.appendChild(el('span', 'ch-sep'));
     const bCompare = opts.onCompare ? btn('compare', 'Compare assets') : null;
     if (bCompare) { bCompare.addEventListener('click', opts.onCompare); bCompare.setAttribute('aria-expanded', 'false'); }
+    // your own buys and sells on Revolut, on the chart or not with one tap (shown only when you traded this asset)
+    const bMine = btn('mine', 'My trades on Revolut'); bMine.hidden = true; bMine.classList.add('ch-mine');
+    bMine.setAttribute('aria-pressed', String(!!ind.mine));
+    bMine.addEventListener('click', () => { ind.mine = !ind.mine; lsSet('sr.ind3', ind); bMine.setAttribute('aria-pressed', String(ind.mine)); hint.textContent = ind.mine ? 'Your trades on Revolut: B bought, S sold.' : ''; redraw(); });
 
     const bInd = btn('ind', 'Indicators'), bUndo = btn('undo', 'Undo last drawing'), bClear = btn('clear', 'Clear drawings'), bFull = btn('full', 'Fullscreen');
     const bClose = el('button', 'ch-close'); bClose.append(el('span', '', '✕'), el('span', 'ch-close-w', ' Close')); bClose.type = 'button'; bClose.setAttribute('aria-label', 'Close the full view'); tools.insertBefore(bClose, tools.firstChild);   // the way back from the full view, always first in the bar
@@ -392,6 +397,22 @@
           ask({ text: 'gap', x: x1 + 4, y: Math.min(y1, y2) - 8, color: '#8a8f98', pri: 15 });
         }
       }
+      mineDrawn = 0;
+      if (ind.mine && mine.length && bars.length) {   // your own trades on Revolut: a round B (bought) or S (sold) on the candle you traded in,
+        const CB = '#2962ff', CS = '#f57c00';          // at your price when the chart is that very asset, at the candle's edge when it is the one your fund or coin follows
+        const at = (t) => { let lo = 0, hi = bars.length - 1; if (t < bars[0].time) return null; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (bars[m].time <= t) lo = m; else hi = m - 1; } return bars[lo]; };
+        for (const m of mine) {
+          const bar = at(m.t); if (!bar || (bar === bars[bars.length - 1] && m.t - bar.time > 2 * (frame.sec || 86400))) continue;
+          const x = xOf(bar.time); if (x == null) continue;
+          const d = m.side === 'B' ? 1 : -1; let y = m.onChart && m.p > 0 ? yOf(m.p) : null;
+          if (y == null) { const yb = yOf(d > 0 ? bar.low : bar.high); if (yb == null) continue; y = yb + d * 13; }
+          const col = d > 0 ? CB : CS, rr = 6.5;
+          ctx.beginPath(); ctx.arc(x * hr, y * r, rr * r, 0, 7); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = dark() ? '#16181e' : '#fff'; ctx.lineWidth = Math.max(1, 1.2 * r); ctx.stroke();
+          ctx.fillStyle = '#fff'; ctx.font = `600 ${Math.round(8.5 * r)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(m.side, x * hr, y * r + 0.5 * r);
+          ask({ text: m.label, short: m.short, x, align: 'center', y: y + d * 15, color: col, pri: 66 });
+          mineDrawn++;
+        }
+      }
       if (ind.sig && marks.length) {   // entries of the signals, each with its exit: green = buy, red = sell; the exit dot is green when it worked, red when it failed
         const G = '#1f9d55', R = '#d64545', sp = chart.timeScale().options().barSpacing || 6, lastT = bars.length ? bars[bars.length - 1].time : 0;
         marks.forEach((m, k) => {
@@ -511,6 +532,7 @@
     root.__drawings = () => drawings.length;
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
     root.__tick = tickText;   // for the tests
+    root.__mine = () => mineDrawn;   // for the tests: how many of your trades are drawn
     root.__view = () => { const v = chart.timeScale().getVisibleLogicalRange(); return { n: bars.length, from: v ? v.from : null, to: v ? v.to : null }; };   // for the tests: is the newest candle on screen
     root.__future = (ahead) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - 30, to: n + (ahead || 40) }); return new Promise((res) => setTimeout(() => res({ slots: future.length, lastBar: bars[n - 1].time, timeRight: chart.timeScale().coordinateToTime(main.clientWidth - 70), sec: frame.sec }), 300)); };   // for the tests: what the axis shows to the right of the last candle
     root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
@@ -518,6 +540,10 @@
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
     bInd.addEventListener('click', () => { menu.hidden = !menu.hidden; bInd.setAttribute('aria-pressed', String(!menu.hidden)); });
+    // the indicators list closes with a tap anywhere outside it (or Escape), as menus do
+    const outside = (e) => { if (menu.hidden || menu.contains(e.target) || bInd.contains(e.target)) return; menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); };
+    const escape = (e) => { if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); e.stopPropagation(); } };
+    document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', escape, true);
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
     function sizeMain() {
       const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0, full = root.classList.contains('is-full');
@@ -660,6 +686,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       lw: () => ({ chart, candles }),   // for a chart of something else than an asset (the account's value): its own lines and markers
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
+      setMine(x) { mine = Array.isArray(x) ? x : []; bMine.hidden = !mine.length; root.dataset.mine = String(mine.length); redraw(); },
       setBench(b) { if (b === bench) return; bench = Array.isArray(b) ? b : []; if (bars.length) applyIndicators(); },
       compareSlot, compareButton: bCompare,
       setComparison(value) {
@@ -673,7 +700,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
       back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
-      destroy() { dead = true; if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
+      destroy() { dead = true; document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true); if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
   }
   window.SRChart = { create, sma, ema, rsi, comparePrices, comparisonWindow, quoteBars };

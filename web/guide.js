@@ -8,6 +8,8 @@
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (label, cls, fn) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; };
   const eur = (x, sign) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(',.0f')(Math.abs(x)); return (s === '0' ? '' : sign && x > 0 ? '+' : x < 0 ? '−' : '') + '€' + s; };
+  // to the cent: the portfolio's values, as Revolut shows them
+  const eurc = (x, sign) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(',.2f')(Math.abs(x)); return (s === '0.00' ? '' : sign && x > 0 ? '+' : x < 0 ? '−' : '') + '€' + s; };
   const pct = (x, d = 1) => { if (x == null || !isFinite(x)) return '—'; const s = d3.format(`.${d}%`)(Math.abs(x)); return (/^0\.0*%$/.test(s) ? '' : x > 0 ? '+' : '−') + s; };
   const p0 = (x) => (x > 0 && x < 0.005 ? '<1%' : d3.format('.0%')(x)), f0 = (v) => d3.format(',.0f')(v), f2 = (v) => d3.format(',.2f')(v);
   const day = (t) => d3.utcFormat(new Date(t).getUTCFullYear() === new Date().getUTCFullYear() ? '%a %-d %b' : '%-d %b %Y')(new Date(t));
@@ -320,8 +322,8 @@
   function hero(box, H) {
     const T = totals(H), h = box.appendChild(el('div', 'g-hero'));
     h.appendChild(el('div', 'g-hero-k', 'Your portfolio'));
-    h.appendChild(el('div', 'g-hero-v', eur(T.total)));
-    const c = h.appendChild(el('div', 'g-hero-chg ' + (T.today > 0 ? 'up' : T.today < 0 ? 'down' : ''), T.today == null ? 'Waiting for live prices' : `${eur(T.today, true)}  ${pct(T.todayPct, 2)} today`));
+    h.appendChild(el('div', 'g-hero-v', eurc(T.total)));
+    const c = h.appendChild(el('div', 'g-hero-chg ' + (T.today > 0 ? 'up' : T.today < 0 ? 'down' : ''), T.today == null ? 'Waiting for live prices' : `${eurc(T.today, true)}  ${pct(T.todayPct, 2)} today`));
     c.title = 'Live, from eToro';
     return h;
   }
@@ -595,7 +597,7 @@
   }
   function holdingSheet(h, st, H) {
     const line = st.T ? lineFor(h, st.T) : null, kept = st.keep.has(h.ticker);
-    sheet(`${h.ticker} · ${eur(h.value)}`, (s) => {
+    sheet(`${h.ticker} · ${eurc(h.value)}`, (s) => {
       s.appendChild(el('div', 'g-sheet-lead', `${nameOf(h.ticker, H) || h.name || h.ticker}${h.tracks && h.tracks !== h.ticker ? ` (follows ${h.tracks})` : ''}`));
       kv(s, 'Share', `${p0(h.value / (st.total || 1))} of your portfolio${h.chg != null ? ` · ${pct(h.chg)} today` : ''}`);
       if (st.P) kv(s, 'In the plan', kept ? 'Kept outside the plan: the app never asks you to sell it.' : line ? `Plan line ${line.t}: target ${eur(st.size * line.w)}, you hold ${eur(st.cur[line.t] || 0)}.` : st.T && lineFor(h, allLines(st.p)) ? 'Part of the plan, but its signal is off: Today asks you to sell it.' : `Outside “${st.P.name}”: the set-up on Today would sell it. No deadline.`);
@@ -644,8 +646,8 @@
       const sum = d3.sum(g.H, (h) => h.value), withChg = g.H.filter((h) => h.chg != null), was = d3.sum(withChg, (h) => h.value / (1 + h.chg)), now = d3.sum(withChg, (h) => h.value), d = now - was;
       const head = list.appendChild(el('div', 'g-group-h'));
       const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); const all$ = d3.sum(H, (h) => h.value); l.appendChild(el('span', 'g-muted', all$ ? ` ${p0(sum / all$)}` : ''));
-      const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eur(sum)));
-      v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? `${eur(d, true)} ${pct(was ? d / was : 0)}` : 'not live'));
+      const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eurc(sum)));
+      v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? `${eurc(d, true)} ${pct(was ? d / was : 0, 2)}` : 'not live'));
     }
     for (const h of g.H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
@@ -655,8 +657,8 @@
       a.appendChild(el('b', '', h.ticker));
       a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : '')));
       const v = r.appendChild(el('div', 'g-row-v'));
-      v.appendChild(el('b', '', eur(h.value)));
-      v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.0005 ? 'up' : h.chg <= -0.0005 ? 'down' : ''), h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg)));
+      v.appendChild(el('b', '', eurc(h.value)));
+      v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
       const tags = r.appendChild(el('div', 'g-row-tags'));
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
       if (st.P) {

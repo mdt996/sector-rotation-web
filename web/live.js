@@ -391,6 +391,7 @@
     const taBox = side.appendChild(el('div', 'av-ta'));
     const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;
     setTimeout(() => { if (dead) return; posSoon(); const tPos = setInterval(() => { if (dead) clearInterval(tPos); else posSoon(); }, 10000); }, 600);
+    setTimeout(() => { if (dead) return; try { ch.setMine(myTrades(inst)); } catch (err) { if (window.console) console.warn('my trades', err); } }, 0);   // once the chart exists
     if (window.SRAbout && window.SRAbout.facts) window.SRAbout.facts(inst.id).then((f) => {   // the next results date, in the empty days after the last candle
       if (dead || !f || !f.nextearningdate) return; const d = String(f.nextearningdate).slice(0, 10), t = Date.parse(d + 'T13:30:00Z') / 1000; if (!(t * 1000 > Date.now() - 864e5)) return;
       const lbl = new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); ch.setEvents([{ t, label: `Results ${lbl}`, short: `Results ${lbl}` }]);
@@ -413,7 +414,12 @@
     let pickBox = null;
     function showPick(hit) {
       const main = box.querySelector('.ch-main'); if (!main) return;
-      if (!pickBox) { pickBox = el('div', 'av-pick av-pop'); pickBox.hidden = true; }
+      if (!pickBox) {
+        pickBox = el('div', 'av-pick av-pop'); pickBox.hidden = true;
+        // a tap outside the note (and outside the chart, whose taps choose another level) closes it
+        const off = (e) => { if (!pickBox || pickBox.hidden || !pickBox.isConnected) { if (pickBox && !pickBox.isConnected) document.removeEventListener('pointerdown', off, true); return; } if (pickBox.contains(e.target) || (e.target.closest && e.target.closest('.ch-main'))) return; pickBox.hidden = true; };
+        document.addEventListener('pointerdown', off, true);
+      }
       if (pickBox.parentNode !== main) main.appendChild(pickBox);
       if (ch && ch.note) ch.note('');
       pickBox.hidden = !hit; if (!hit) return;
@@ -1046,6 +1052,29 @@
     if (own && h.tracks === h.ticker) return { id: own, symbol: h.ticker, proxy: false };
     const tr = idOfAny(h.tracks);
     return tr ? { id: tr, symbol: h.tracks, proxy: true } : null;
+  }
+  // your own trades on Revolut (Invest and Revolut X, kept in your synced settings): those of an asset, or of the Revolut fund or coin it
+  // stands for (SEC0 on the SMH chart, ASOL on SOL's). At your own price when the chart is that very asset (a euro price turned into
+  // dollars with that day's EUR/USD close), else at the candle's edge.
+  function myTrades(inst) {
+    const T = (SRApp.config().trades) || [], sym = String(inst.symbol || '').toUpperCase();
+    if (!T.length || !sym) return [];
+    const H = (S().holdings && S().holdings.data) || [], R = window.SR_REVOLUT || [];
+    const D = window.SR_HOLDINGS || [];   // the default list too, for a fund sold since (its trades still show)
+    const chartOf = (x) => { if (TWINS[x]) return TWINS[x][1]; const h = H.find((y) => y.ticker === x) || D.find((y) => y.ticker === x); const l = h ? liveOf(h) : null; if (l) return l.symbol; const rv = R.find((y) => y.revolut_ticker === x); return rv ? rv.us : x; };
+    const fx = S().EURUSD && S().EURUSD.status === 'ok' ? S().EURUSD.data : [];
+    const usdPerEur = (day) => { let v = null; for (const r of fx) { if (r.date > day) break; v = r.close; } return v; };
+    const num = (x) => (x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3).replace(/0$/, '') : String(+x.toPrecision(4)));
+    const out = [];
+    for (const t of T) {
+      const s = String(t.s || '').toUpperCase(); if (s !== sym && String(chartOf(s)).toUpperCase() !== sym) continue;
+      const time = Math.floor(Date.parse(t.d) / 1000); if (!isFinite(time)) continue;
+      let p = null;
+      if (s === sym) { if (t.c === 'USD') p = t.p; else if (t.c === 'EUR') { const k = usdPerEur(String(t.d).slice(0, 10)); if (k > 0) p = t.p * k; } }
+      const cur = t.c === 'EUR' ? '€' : '$', where = t.src === 'revx' ? 'Revolut X' : t.cfd ? 'Revolut CFD' : 'Revolut';
+      out.push({ t: time, side: t.side === 'S' ? 'S' : 'B', p, onChart: p > 0, label: `${t.side === 'S' ? 'Sold' : 'Bought'} ${num(+t.q)} ${s} at ${num(+t.p)} ${cur} · ${where} · ${String(t.d).slice(0, 10)}`, short: `${t.side === 'S' ? 'S' : 'B'} ${num(+t.p)}${cur}` });
+    }
+    return out.sort((a, b) => a.t - b.t);
   }
   function holdingsLive() {
     const H = (S().holdings && S().holdings.data) || [];

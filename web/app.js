@@ -173,6 +173,11 @@
     if (window.SRSync) window.SRSync.afterSave(prevToken);
   }
 
+  // Escape (on the Mac) does what the phone's back button does: closes the topmost sheet, menu or view
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (window.appBack && window.appBack()) e.preventDefault();
+  });
   $('btn-refresh').addEventListener('click', () => SRApp.refresh());
   $('btn-settings').addEventListener('click', openSettings);
   $('btn-close').addEventListener('click', closeSettings);
@@ -275,6 +280,7 @@
   showTab(TABS[saved] ? saved : 'today');
 
   window.appBack = () => {
+    const gs = document.querySelector('.g-sheet-back .g-sheet-x'); if (gs) { gs.click(); return true; }   // an open sheet (a holding, the why) first
     if (!sheet.hidden) { closeSettings(); return true; }
     if (window.SRLive && window.SRLive.back()) return true;
     if (cameFrom) { const [t, i] = cameFrom; cameFrom = null; showTab(t, i); return true; }
