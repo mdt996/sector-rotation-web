@@ -354,16 +354,18 @@
       if (!rows || rows.length < 2) { qPts = null; qHead.textContent = ''; qBox.replaceChildren(el('div', 'av-qnote', 'No prices from eToro for this period.')); return; }
       const end = rows[rows.length - 1].t; let from = r.ytd ? Date.UTC(new Date().getUTCFullYear(), 0, 1) : end - r.span;
       if (r.day) for (let i = rows.length - 1; i > 0 && rows[i].t > from; i--) if (rows[i].t - rows[i - 1].t > 3 * 36e5) { from = rows[i].t; break; }   // a market that closes at night: its last session only
-      let pts = rows.filter((x) => x.t >= from && x.close > 0).map((x) => ({ t: x.t, v: x.close })); if (pts.length < 2) pts = rows.slice(-2).map((x) => ({ t: x.t, v: x.close }));
+      // the line follows the closes; each point also keeps its candle's real high and low, for the highest and lowest prices of the period
+      const pt = (x) => ({ t: x.t, v: x.close, h: Math.max(x.close, x.high > 0 ? x.high : x.close), l: Math.min(x.close, x.low > 0 ? x.low : x.close) });
+      let pts = rows.filter((x) => x.t >= from && x.close > 0).map(pt); if (pts.length < 2) pts = rows.slice(-2).map(pt);
       qPts = { k: r.k, pts }; qDraw();
     }
     function qDraw() {
       if (!qPts || mode !== 'quick' || dead) return; qAt = Date.now();
       const q = live(), pts = qPts.pts.slice(), r = qr, intraday = /Minutes|Hour/.test(r.iv);
-      if (q && q.price > 0 && Date.now() > pts[pts.length - 1].t) pts.push({ t: Date.now(), v: q.price });   // ends on the live price
+      if (q && q.price > 0 && Date.now() > pts[pts.length - 1].t) pts.push({ t: Date.now(), v: q.price, h: q.price, l: q.price });   // ends on the live price
       const W = Math.max(220, qBox.clientWidth || 340), H = 200, padT = 24, padB = 24, n = pts.length;
       const base = r.day && prev > 0 ? prev : pts[0].v, lastV = pts[n - 1].v, up = lastV >= base, col = up ? '#089981' : '#d64545';
-      let lo = Infinity, hi = -Infinity, iLo = 0, iHi = 0; pts.forEach((p, i) => { if (p.v < lo) { lo = p.v; iLo = i; } if (p.v > hi) { hi = p.v; iHi = i; } });
+      let lo = Infinity, hi = -Infinity, iLo = 0, iHi = 0; pts.forEach((p, i) => { const l = p.l != null ? p.l : p.v, h = p.h != null ? p.h : p.v; if (l < lo) { lo = l; iLo = i; } if (h > hi) { hi = h; iHi = i; } });   // the real extremes (candle highs and lows), not the highest and lowest close
       const x = (i) => (n > 1 ? (i / (n - 1)) * (W - 2) + 1 : W / 2), y = (v) => (hi === lo ? H / 2 : padT + (hi - v) / (hi - lo) * (H - padT - padB));   // closed hours take no room, as on eToro
       const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(''), gid = 'qg-' + who;
       const when = (t) => new Date(t).toLocaleString('en-GB', intraday ? { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short', year: 'numeric' });
