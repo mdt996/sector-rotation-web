@@ -119,7 +119,8 @@ body.sheet-open .tabbar { display: none; }
 :root { --av-up: #1a7f37; --av-down: #d1242f; }
 @media (prefers-color-scheme: dark) { :root { --av-up: #3fb950; --av-down: #f85149; } }
 .up { color: var(--av-up); } .down { color: var(--av-down); }
-.av { display: grid; gap: 6px; }
+.av { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }   /* one column never wider than the screen: a long line (a weekly signal) is cut with … instead of widening the page */
+.av > * { min-width: 0; max-width: 100%; }
 .av-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .av-sym { font-size: 15px; font-weight: 600; letter-spacing: .01em; }
 .av-name { font-size: 13px; color: var(--color-fg-muted); }
@@ -737,7 +738,7 @@ div.av-pick { max-width: none; }
 .av-mini { display: flex; align-items: center; gap: 6px; width: 100%; font: inherit; font-size: 13.5px; color: var(--color-fg); text-align: left; background: var(--color-panel, #fff); border: 1px solid var(--color-border-line); border-radius: 10px; padding: 7px 11px; margin: 0 0 6px; cursor: pointer; }
 .av-mini[hidden] { display: none; }
 .av-mini b { flex: none; font-size: 12px; color: var(--color-fg-muted); }
-.av-mini-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-mini-text { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }   /* two lines at most, so the target stays visible */
 .av-mini-go { margin-left: auto; flex: none; color: var(--color-fg-muted); font-size: 16px; }
 .av-mini.is-buy { border-color: var(--av-up, #089981); background: rgba(8, 153, 129, 0.08); font-weight: 600; }
 
