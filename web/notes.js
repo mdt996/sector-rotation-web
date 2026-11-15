@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 95, "text": "On the iPhone the app now fits the rounded screen: the top bar clears the camera island and the tab bar sits above the home bar."};
+window.SR_NOTES = {"build": 96, "text": "Portfolio: the Revolut X part now shows your staking: what it pays a day and a month, the yearly rate, and each coin's last reward (tap a coin for details)."};

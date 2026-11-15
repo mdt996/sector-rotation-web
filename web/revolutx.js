@@ -1,13 +1,15 @@
 // Revolut X (crypto): your coin quantities, read with a read-only key and valued at live eToro prices.
 // The key is made on this device (Ed25519): its secret half never leaves the device and is never synced.
-// Only GET /api/1.0/balances and /api/1.0/tickers are asked for; the apps let nothing else through to Revolut X.
+// Only GET /api/1.0/balances, /api/1.0/tickers and the staking rewards (GET /api/1.0/transactions?types=reward) are asked for;
+// the apps let nothing else through to Revolut X.
 // Your Revolut X coins are valued at Revolut X's own euro prices (decided by Matteo on 15 Nov 2026), so the app shows what
 // Revolut X shows; every other price in the app stays eToro's.
 (function () {
   'use strict';
-  const BASE = 'https://revx.revolut.com', PATH = '/api/1.0/balances', TICKERS = '/api/1.0/tickers';
+  const BASE = 'https://revx.revolut.com', PATH = '/api/1.0/balances', TICKERS = '/api/1.0/tickers', TX = '/api/1.0/transactions';
   const CASH = new Set(['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'RON', 'CZK', 'HUF', 'SEK', 'NOK', 'DKK', 'BGN', 'USDC', 'USDT', 'EURC', 'DAI']);
   const EVERY = 60 * 1000, PX_EVERY = 10 * 1000;   // quantities every minute (staking rewards), prices every 10 seconds
+  const RW_EVERY = 30 * 60 * 1000, DAY = 864e5;    // the list of staking rewards every 30 minutes (Revolut X pays about once a day)
   const $ = (id) => document.getElementById(id);
   const b64 = (buf) => { let s = ''; for (const x of new Uint8Array(buf)) s += String.fromCharCode(x); return btoa(s); };
   const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -15,7 +17,7 @@
   const R = () => Object.assign({ apiKey: '', priv: '', pub: '', coins: null, at: 0, msg: '' }, SRApp.config().revx || {});
   function saveR(patch) { const c = SRApp.config(); c.revx = Object.assign(R(), patch); SRApp.saveConfig(c); return c.revx; }
   const appInfo = () => { try { return JSON.parse((window.Native && window.Native.appInfo()) || '{}'); } catch (e) { return {}; } };
-  let busy = false, lastTry = 0, lastPx = 0, pxBusy = false;
+  let busy = false, lastTry = 0, lastPx = 0, pxBusy = false, lastRw = 0;
 
   async function makeKey() {
     const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
@@ -26,10 +28,10 @@
     return saveR({ priv, pub, apiKey: '', coins: null, at: 0, msg: '' });   // a new key needs a new API key in Revolut X
   }
 
-  // Revolut X's signature: Ed25519 over timestamp + method + path (+ query + body, none here), in base64
-  async function signedHeaders(r, ts, path) {
+  // Revolut X's signature: Ed25519 over timestamp + method + path + query (without the "?"; no body here), in base64
+  async function signedHeaders(r, ts, path, query) {
     const key = await crypto.subtle.importKey('pkcs8', unb64(r.priv), { name: 'Ed25519' }, false, ['sign']);
-    const sig = await crypto.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(ts + 'GET' + (path || PATH)));
+    const sig = await crypto.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(ts + 'GET' + (path || PATH) + (query || '')));
     return { 'X-Revx-API-Key': r.apiKey, 'X-Revx-Timestamp': ts, 'X-Revx-Signature': b64(sig), Accept: 'application/json' };
   }
 
@@ -138,6 +140,66 @@
     return out;
   }
 
+  // ---- staking: Revolut X pays a reward on staked coins about every day (every 2 to 3 days for SOL, every 5 for ADA) ----
+  // The last 30 days of rewards, every page. Query keys in alphabetical order, as signed.
+  const query = (o) => Object.keys(o).sort().map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(o[k])}`).join('&');
+  function parseRewards(j) {
+    const out = [];
+    for (const t of (j && j.data) || []) {
+      if (t.type !== 'reward' || (t.status && t.status !== 'completed')) continue;
+      const d = t.destination || {}, c = String(d.currency || '').toUpperCase(), q = parseFloat(d.amount), at = +t.created_date || +t.processed_date;
+      if (c && q > 0 && at > 0) out.push({ c, q, t: at });
+    }
+    return out;
+  }
+  async function readRewards(r) {
+    const since = Date.now() - 30 * DAY, out = [];
+    let cursor = '';
+    for (let page = 0; page < 8; page++) {
+      const q = query(Object.assign({ limit: 100, start_date: since, types: 'reward' }, cursor ? { cursor } : {}));
+      const res = await SRApp.request('GET', BASE + TX + '?' + q, await signedHeaders(r, String(Date.now()), TX, q));
+      if (res.status !== 200) return null;
+      const j = JSON.parse(res.body);
+      out.push(...parseRewards(j));
+      cursor = j && j.metadata && j.metadata.next_cursor;
+      if (!cursor) break;
+    }
+    const seen = new Set();
+    return out.filter((x) => { const k = x.c + x.t + x.q; if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => b.t - a.t);
+  }
+  const device = () => ({ mac: 'the Mac', web: 'the iPhone' }[appInfo().platform] || 'the phone');
+  // the rewards and staked amounts go with the sync, so a device that cannot read them (an older phone app) shows them too
+  function keepStaking(cfg, staked, rewards) {
+    const was = cfg.staking || {}, wr = Array.isArray(was.rewards) ? was.rewards : [];
+    const moved = (a, b) => { const k = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]); for (const c of k) { const x = (a || {})[c] || 0, y = (b || {})[c] || 0; if (Math.abs(x - y) > 1e-9 && Math.abs(x / (y || 1) - 1) > 0.001) return true; } return false; };
+    const changed = !was.at || wr.length !== rewards.length || (rewards[0] && (!wr[0] || wr[0].t !== rewards[0].t)) || moved(was.staked, staked);
+    cfg.staking = { at: Date.now(), by: device(), staked, rewards };
+    return changed;
+  }
+  // per coin: staked, the last reward, the last 7 and 30 days, what it pays a day and the yearly rate at that pace (on today's
+  // staked amount); in euros at Revolut X's prices. Rewards older than 30 days are not read.
+  function staking(priceOf) {
+    const s = SRApp.config().staking || {}, r = R();
+    const staked = r.staked && Object.keys(r.staked).length ? r.staked : s.staked || {};
+    const rewards = Array.isArray(s.rewards) ? s.rewards : [];
+    if (!Object.keys(staked).length && !rewards.length) return null;
+    const now = Date.now(), fresh = px && now - px.at < 10 * 60e3 ? px.eur : {};
+    const price = (c) => (fresh[c] ? fresh[c].p : priceOf ? priceOf(c) : null);
+    const coins = {};
+    for (const c of new Set([...Object.keys(staked), ...rewards.map((x) => x.c)])) {
+      const L = rewards.filter((x) => x.c === c), L7 = L.filter((x) => now - x.t <= 7 * DAY), p = price(c), st = staked[c] || 0;
+      const oldest = L.length ? L[L.length - 1].t : null, gap = L.length > 1 ? (L[0].t - oldest) / (L.length - 1) : DAY;
+      const days = oldest && now - oldest < 7 * DAY ? Math.min(7, Math.max(1, (now - oldest + gap) / DAY)) : 7;   // staked less than a week ago: since its first reward
+      const d7 = L7.reduce((a, x) => a + x.q, 0), d30 = L.reduce((a, x) => a + x.q, 0), perDay = L7.length ? d7 / days : 0;
+      coins[c] = { c, staked: st, last: L[0] || null, d7, d30, n30: L.length, perDay, rate: st > 0 && perDay > 0 ? (perDay * 365) / st : null,
+        price: p, stakedEur: p ? st * p : null, perDayEur: p ? perDay * p : null, d7Eur: p ? d7 * p : null, d30Eur: p ? d30 * p : null, lastEur: p && L[0] ? L[0].q * p : null };
+    }
+    const all = Object.values(coins), sum = (k) => (all.every((x) => x[k] != null) ? all.reduce((a, x) => a + x[k], 0) : null);
+    const stakedEur = sum('stakedEur'), perDayEur = sum('perDayEur');
+    const last = rewards[0] || null;
+    return { coins, stakedEur, perDayEur, d30Eur: sum('d30Eur'), rate: stakedEur > 0 && perDayEur > 0 ? (perDayEur * 365) / stakedEur : null, last, at: s.at || 0, by: s.by || '' };
+  }
+
   // after a change, the lines left as they were keep their anchor price (the amounts were typed at that price)
   function rebase(cfg, text, touched) {
     const b = cfg.holdingsBase && cfg.holdingsBase.text === cfg.holdings ? cfg.holdingsBase : null;
@@ -159,6 +221,11 @@
       const bal = JSON.parse(res.body);
       if (!Array.isArray(bal)) { saveR({ msg: 'Revolut X sent an unexpected answer.' }); return show('Revolut X sent an unexpected answer.', true); }
       const syms = bal.filter((b) => parseFloat(b.total) > 0).map((b) => String(b.currency || '').toUpperCase()).filter((s) => s && !CASH.has(s));
+      const staked = {};
+      for (const b of bal) { const sym = String(b.currency || '').toUpperCase(), q = parseFloat(b.staked); if (sym && q > 0) staked[sym] = q; }
+      // the staking rewards: every 30 minutes, and when you ask (an older app may not let this through: the sync brings them then)
+      let rewards = null;
+      if (manual || Date.now() - lastRw > RW_EVERY) { lastRw = Date.now(); try { rewards = await readRewards(r); } catch (e) { rewards = null; } }
       // Revolut X's own euro prices first; eToro's for a coin Revolut X gives none for
       try { if (await readTickers(r)) lastPx = Date.now(); } catch (e) { /* eToro's below */ }
       let eur = {};
@@ -172,6 +239,7 @@
       if (!String(cfg.holdings || '').trim()) { const m = 'Type your holdings in Holdings first: the coins are added to them.'; saveR({ msg: m }); return show(m, true); }
       const m = merge(cfg.holdings, bal, eur, r.coins);
       const n = Object.keys(m.coins).length, at = Date.now();
+      const stakeChanged = rewards ? keepStaking(cfg, staked, rewards) : false;
       let msg = `Read at ${hhmm(at)}: ${n} coin${n === 1 ? '' : 's'}${m.changed ? ', holdings updated' : ', no change'}.`;
       if (m.noPrice.length) msg += ` No price for ${m.noPrice.join(', ')}: kept as typed.`;
       if (m.changed) {
@@ -182,8 +250,12 @@
         if (window.SRSync) window.SRSync.pushSoon();
         SRApp.applyConfig();
         if ($('cfg-holdings') && !$('settings').hidden) $('cfg-holdings').value = m.text;
+      } else if (rewards) {
+        SRApp.saveConfig(cfg);
+        if (stakeChanged && window.SRSync) window.SRSync.pushSoon();
       }
-      saveR({ coins: m.lineQty, qty: m.coins, at, msg });
+      saveR({ coins: m.lineQty, qty: m.coins, staked, at, msg });
+      if (rewards && window.SR && window.SR.liveNow) { try { window.SR.liveNow(); } catch (e) { /* the next tick */ } }
       show(msg);
     } catch (e) {
       const msg = 'Revolut X: ' + (e && e.message ? e.message : 'failed') + '.';
@@ -246,7 +318,7 @@
       readTickers(r).catch(() => false).then(() => { pxBusy = false; });
     }
   };
-  window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, values, parseTickers, PATH, BASE };
+  window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, values, parseTickers, parseRewards, staking, keepStaking, query, PATH, BASE, TX };
   wire();
   setTimeout(tick, 4000);
   setInterval(tick, PX_EVERY);

@@ -595,11 +595,36 @@
     const seen = new Map(); for (const [k, w] of [...now, ...tgt]) seen.set(k, Math.max(seen.get(k) || 0, w));
     for (const [k, w] of seen) if (w > 0.004) { const s = lg.appendChild(el('span')); const i = s.appendChild(el('i', 'g-dot')); i.style.background = COLOR[k] || '#94a3b8'; s.appendChild(document.createTextNode(' ' + (k === 'OUT' ? 'Outside the plan' : k === 'KEPT' ? 'Kept' : k === 'CASH' ? 'Cash' : k))); }
   }
+  // ---- staking on Revolut X (rewards about every day): coin amounts, euros at Revolut X's prices, the pace of the last 7 days ----
+  const fq = (q) => (q == null || !isFinite(q) ? '—' : q >= 100 ? d3.format(',.2f')(q) : q >= 1 ? d3.format(',.4~f')(q) : q.toLocaleString('en-US', { maximumSignificantDigits: 3 }));
+  const eurs = (x) => (x != null && x > 0 && x < 0.005 ? '<€0.01' : eurc(x));
+  const rateOf = (x) => (x == null || !isFinite(x) ? '' : d3.format('.1%')(x));
+  const whenOf = (t) => {
+    const d = new Date(t), now = new Date(), day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), k = Math.round((day(now) - day(d)) / 864e5);
+    const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return k === 0 ? 'today ' + hm : k === 1 ? 'yesterday ' + hm : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+  function stakeInfo(H) {
+    if (!(window.SRRevx && window.SRRevx.staking)) return null;
+    const q = (SRApp.config().revx || {}).qty || {};
+    try { return window.SRRevx.staking((c) => { const h = (H || []).find((x) => x.ticker === c && x.tracks === c); return h && q[c] > 0 && h.value > 0 ? h.value / q[c] : null; }); } catch (e) { return null; }
+  }
+  function stakeLines(s, h, S) {
+    const x = S && h.tracks === h.ticker ? S.coins[h.ticker] : null;
+    if (!x) return;
+    const qty = ((SRApp.config().revx || {}).qty || {})[h.ticker], c = h.ticker;
+    kv(s, 'Staking', `${fq(x.staked)} ${c} staked${qty > 0 && x.staked > 0 ? (x.staked >= qty * 0.999 ? ' (all of it)' : ` of ${fq(qty)}`) : ''}${x.rate ? ` · about ${rateOf(x.rate)} a year at the last 7 days' pace` : ''}`);
+    kv(s, 'It pays', x.perDay > 0 ? `about ${fq(x.perDay)} ${c} a day (${eurs(x.perDayEur)}), ${eurs(x.perDayEur * 30)} a month` : 'No reward in the last 30 days yet: a new stake starts earning after a few days.');
+    if (x.last) kv(s, 'Last reward', `+${fq(x.last.q)} ${c} (${eurs(x.lastEur)}), ${whenOf(x.last.t)}`);
+    if (x.n30) kv(s, 'Last 30 days', `+${fq(x.d30)} ${c} (${eurs(x.d30Eur)}) in ${x.n30} payment${x.n30 === 1 ? '' : 's'}`);
+    if (S.at) s.appendChild(el('div', 'g-hint', `Rewards read by ${S.by || 'a device'} ${whenOf(S.at)}. The yearly rate is the pace of the last 7 days on today's staked amount, before compounding.`));
+  }
   function holdingSheet(h, st, H) {
     const line = st.T ? lineFor(h, st.T) : null, kept = st.keep.has(h.ticker);
     sheet(`${h.ticker} · ${eurc(h.value)}`, (s) => {
       s.appendChild(el('div', 'g-sheet-lead', `${nameOf(h.ticker, H) || h.name || h.ticker}${h.tracks && h.tracks !== h.ticker ? ` (follows ${h.tracks})` : ''}`));
       kv(s, 'Share', `${p0(h.value / (st.total || 1))} of your portfolio${h.chg != null ? ` · ${pct(h.chg)} today` : ''}`);
+      stakeLines(s, h, stakeInfo(H));
       if (st.P) kv(s, 'In the plan', kept ? 'Kept outside the plan: the app never asks you to sell it.' : line ? `Plan line ${line.t}: target ${eur(st.size * line.w)}, you hold ${eur(st.cur[line.t] || 0)}.` : st.T && lineFor(h, allLines(st.p)) ? 'Part of the plan, but its signal is off: Today asks you to sell it.' : `Outside “${st.P.name}”: the set-up on Today would sell it. No deadline.`);
       { const g = gainOf(h), t = terOf(h.ticker); if (g != null) kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eur(Math.abs(g))} (${pct(g / h.paid)}) · tax ${eur(taxOf(h))} · you keep ${eur(h.value - taxOf(h))}`); if (t > 0) kv(s, 'Fund fee', `${d3.format('.2%')(t)} a year, about ${eur(t * h.value)}`); }
       if (h.overheated) kv(s, 'Flag', 'Overheated (weekly RSI above 70): in the tests, sector funds earned less over the next 3 months. Don\'t add.');
@@ -639,6 +664,7 @@
     const acc = (h) => named ? h.account || 'Other' : coin(h) ? 'Revolut X' : 'Investments';
     const order = named ? [...new Set(all.map(acc))] : ['Investments', 'Revolut X'];
     const groups = order.map((a) => ({ name: a, H: H.filter((h) => acc(h) === a) })).filter((g) => g.H.length);
+    const S0 = stakeInfo(H);
     if (groups.length === 1 && !named) groups[0].name = '';
     for (const g of groups) {
     const list = right.appendChild(el('div', 'g-list'));
@@ -648,6 +674,12 @@
       const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); const all$ = d3.sum(H, (h) => h.value); l.appendChild(el('span', 'g-muted', all$ ? ` ${p0(sum / all$)}` : ''));
       const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eurc(sum)));
       v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? `${eurc(d, true)} ${pct(was ? d / was : 0, 2)}` : 'not live'));
+      // the coins' staking, under their group's total: what it pays a day and a month, the yearly rate, the last reward
+      const S = g.H.some((h) => S0 && S0.coins[h.ticker] && h.tracks === h.ticker) ? S0 : null;
+      if (S && S.perDayEur > 0) {
+        const n = list.appendChild(el('div', 'g-group-note'));
+        n.textContent = `Staking pays about ${eurs(S.perDayEur)} a day (${eurs(S.perDayEur * 30)} a month)${S.rate ? `, about ${rateOf(S.rate)} a year` : ''}${S.last ? ` · last reward ${whenOf(S.last.t)} (${S.last.c})` : ''}`;
+      } else if (S) list.appendChild(el('div', 'g-group-note', 'Staked on Revolut X: the rewards show here once a device has read them.'));
     }
     for (const h of g.H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
@@ -667,6 +699,7 @@
         else if (st.T && lineFor(h, allLines(st.p))) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Signal: sell'));
         else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Outside'));
       }
+      { const x = S0 && h.tracks === h.ticker ? S0.coins[h.ticker] : null; if (x && (x.staked > 0 || x.n30)) tags.appendChild(el('span', 'g-chip g-chip-stake', x.rate ? `Staking ${rateOf(x.rate)}` : 'Staked')); }
       tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
     }
     }

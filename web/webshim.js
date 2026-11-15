@@ -12,6 +12,7 @@
     /^https:\/\/public-api\.etoro\.com\/api\/v1\//,
     /^https:\/\/query[12]\.finance\.yahoo\.com\//,
     /^https:\/\/revx\.revolut\.com\/api\/1\.0\/(balances|tickers)$/,
+    /^https:\/\/revx\.revolut\.com\/api\/1\.0\/transactions\?[^#]*$/,   // the staking rewards
   ];
   const BLOCKED = 'blocked: the app only fetches data from eToro and Yahoo Finance, reads your Revolut X balances, and syncs with your private repository';
   const ls = {

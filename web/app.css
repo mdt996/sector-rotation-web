@@ -349,6 +349,8 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .g-group-h b { font-size: 16px; }
 .g-group-v { display: flex; flex-direction: column; align-items: flex-end; }
 .g-group-v .g-row-c { font-size: 13px; }
+.g-group-note { margin: -2px 12px 8px; font-size: 13px; color: var(--color-fg-muted); }
+.g-chip-stake { color: var(--color-ok); border-color: color-mix(in srgb, var(--color-ok) 40%, transparent); }
 .g-holdings-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .g-holdings-head h2 { margin: 0; font-size: 18px; }
 .g-holdings-head .btn { min-height: 44px; }

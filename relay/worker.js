@@ -2,7 +2,7 @@
 // 1. It serves the app's screens from the public repository mdt996/sector-rotation-web, always the newest build. Each
 //    file is checked against the build's list of SHA-256 sums before it is served, like the Android and Mac updaters do.
 // 2. It relays the few requests a web page can't make itself, because those sites don't answer web pages: eToro's API,
-//    Yahoo Finance charts, and the Revolut X balances and prices. GET only, to those addresses only.
+//    Yahoo Finance charts, and the Revolut X balances, prices and staking rewards. GET only, to those addresses only.
 // It keeps nothing: no keys, no holdings, no prices. The keys travel inside each request from the phone, as in the apps,
 // and are never logged. The settings sync goes from the phone straight to GitHub, not through here.
 const RAW = 'https://raw.githubusercontent.com/mdt996/sector-rotation-web/main/';
@@ -10,6 +10,7 @@ const RELAYED = [
   /^https:\/\/public-api\.etoro\.com\/api\/v1\//,
   /^https:\/\/query[12]\.finance\.yahoo\.com\//,
   /^https:\/\/revx\.revolut\.com\/api\/1\.0\/(balances|tickers)$/,
+  /^https:\/\/revx\.revolut\.com\/api\/1\.0\/transactions\?[^#]*$/,   // the staking rewards (GET, read only)
 ];
 const PASS = ['accept', 'user-agent', 'x-api-key', 'x-user-key', 'x-request-id', 'x-revx-api-key', 'x-revx-timestamp', 'x-revx-signature'];
 const TYPES = { js: 'application/javascript; charset=utf-8', css: 'text/css; charset=utf-8', html: 'text/html; charset=utf-8', json: 'application/json', png: 'image/png', svg: 'image/svg+xml', txt: 'text/plain; charset=utf-8' };
