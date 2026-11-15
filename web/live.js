@@ -1093,6 +1093,8 @@
     SR.liveRows = out;
   }
   SR.liveFolio = (h) => (SR.liveRows && SR.liveRows[h.ticker]) || null;
+  // new prices from elsewhere (Revolut X's): the portfolio values and screens at once, not at the next eToro tick
+  SR.liveNow = () => { computeLive(); SRApp.renderDraw('folio'); SRApp.renderDraw('foliototal'); if (document.querySelector('#pfolio') && !document.querySelector('#pfolio').closest('[hidden]')) SRApp.renderDraw('pfolio'); };
   SR.zoneFolio = (h) => {
     const l = liveOf(h); if (!l) return null;
     const q = quotes.get(l.id), rows = storedRows(l.id);

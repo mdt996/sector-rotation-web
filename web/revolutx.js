@@ -7,7 +7,7 @@
   'use strict';
   const BASE = 'https://revx.revolut.com', PATH = '/api/1.0/balances', TICKERS = '/api/1.0/tickers';
   const CASH = new Set(['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'RON', 'CZK', 'HUF', 'SEK', 'NOK', 'DKK', 'BGN', 'USDC', 'USDT', 'EURC', 'DAI']);
-  const EVERY = 15 * 60 * 1000;
+  const EVERY = 60 * 1000, PX_EVERY = 10 * 1000;   // quantities every minute (staking rewards), prices every 10 seconds
   const $ = (id) => document.getElementById(id);
   const b64 = (buf) => { let s = ''; for (const x of new Uint8Array(buf)) s += String.fromCharCode(x); return btoa(s); };
   const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -75,7 +75,7 @@
       seen.add(sym);
       if (!(q > 0)) { touched.add(sym); continue; }                       // no longer on Revolut X: sold
       if (!(eur[sym] > 0)) { out.push(line); noPrice.push(sym); continue; } // eToro has no price for it: kept as typed
-      if (p != null && Math.abs(q / p - 1) < 1e-9) { out.push(line); continue; } // same quantity: the live price already moves its value
+      if (p != null && Math.abs(q / p - 1) < 0.005) { out.push(line); continue; } // about the same quantity (rewards): the live value follows it
       let paid = h.paid;
       if (paid != null && p > 0) paid = q > p ? paid + (q - p) * eur[sym] : paid * (q / p);
       out.push(fmt(sym, q * eur[sym], paid, h.long_term)); touched.add(sym);
@@ -93,23 +93,29 @@
       if (hi < 0) out.push('Revolut X:', ...extra);
       else { let j = hi + 1; while (j < out.length && !isHead(out[j])) j++; while (j > hi + 1 && !out[j - 1].trim()) j--; out.splice(j, 0, ...extra); }
     }
-    return { text: out.join('\n').trim(), changed: touched.size > 0, touched, coins, noPrice };
+    // the quantities the lines now stand for: the new ones for the lines rewritten, the old ones for the others
+    const lineQty = {};
+    for (const sym of Object.keys(coins)) lineQty[sym] = touched.has(sym) || !prev || prev[sym] == null ? coins[sym] : prev[sym];
+    return { text: out.join('\n').trim(), changed: touched.size > 0, touched, coins, lineQty, noPrice };
   }
 
-  // ---- Revolut X's own euro prices (its tickers: the middle of its best bid and ask), every minute while the app is open ----
+  // ---- Revolut X's own euro prices: the index price of each coin's euro market (its reference price, the one Revolut X values
+  // your coins at; the middle of its order book can be 0.5% off on thin euro markets), every 10 seconds while the app is open ----
   let px = null;   // { at, eur: { SOL: { p, chg } } }
   function parseTickers(j) {
-    const eur = {}, usd = {};
-    for (const t of (j && j.data) || []) {
-      const [b, q] = String(t.symbol || '').toUpperCase().split(/[/-]/), bid = parseFloat(t.bid), ask = parseFloat(t.ask);
-      const mid = parseFloat(t.mid) > 0 ? parseFloat(t.mid) : bid > 0 && ask > 0 ? (bid + ask) / 2 : parseFloat(t.last_price);
-      if (!b || !(mid > 0)) continue;
+    const eur = {}, usd = {}, rows = (j && j.data) || [];
+    const eea = rows.some((t) => t.region === 'EEA');   // France: the EEA markets when both regions are listed
+    for (const t of rows) {
+      if (eea && t.region && t.region !== 'EEA') continue;
+      const [b, q] = String(t.symbol || '').toUpperCase().split(/[/-]/), bid = parseFloat(t.bid), ask = parseFloat(t.ask), ix = parseFloat(t.index_price), mid = parseFloat(t.mid);
+      const p = ix > 0 ? ix : mid > 0 ? mid : bid > 0 && ask > 0 ? (bid + ask) / 2 : parseFloat(t.last_price);
+      if (!b || !(p > 0)) continue;
       const last = parseFloat(t.last_price), ch = parseFloat(t.price_change_24h);
       const chg = last > 0 && isFinite(ch) && last - ch > 0 ? last / (last - ch) - 1 : null;   // the last 24 hours
-      if (q === 'EUR') eur[b] = { p: mid, chg }; else if (q === 'USD') usd[b] = { p: mid, chg };
+      if (q === 'EUR') eur[b] = { p, chg }; else if (q === 'USD') usd[b] = { p, chg };
     }
-    // a coin traded only in dollars: at Revolut X's own dollar-to-euro rate (bitcoin's price in dollars over its price in euros)
-    const rate = eur.BTC && usd.BTC ? usd.BTC.p / eur.BTC.p : null;
+    // a coin with no euro market: its dollar price at Revolut X's dollar-to-euro rate (USDC in euros, else bitcoin's two prices)
+    const rate = eur.USDC ? 1 / eur.USDC.p : eur.BTC && usd.BTC ? usd.BTC.p / eur.BTC.p : null;
     if (rate > 0) for (const [b, v] of Object.entries(usd)) if (!eur[b]) eur[b] = { p: v.p / rate, chg: v.chg };
     return eur;
   }
@@ -119,14 +125,16 @@
     const eur = parseTickers(JSON.parse(res.body));
     if (!Object.keys(eur).length) return false;
     px = { at: Date.now(), eur };
+    if (window.SR && window.SR.liveNow) { try { window.SR.liveNow(); } catch (e) { /* the next tick */ } }
     return true;
   }
   // your coins' values at those prices (quantities from the last read of your balances); nothing when they are older than 10 minutes
   function values() {
     const r = R();
-    if (!px || !r.coins || Date.now() - px.at > 10 * 60e3) return null;
+    const qty = r.qty || r.coins;
+    if (!px || !qty || Date.now() - px.at > 10 * 60e3) return null;
     const out = {};
-    for (const [sym, q] of Object.entries(r.coins)) { const t = px.eur[sym]; if (t && q > 0) out[sym] = { value: q * t.p, chg: t.chg, at: px.at, price: t.p }; }
+    for (const [sym, q] of Object.entries(qty)) { const t = px.eur[sym]; if (t && q > 0) out[sym] = { value: q * t.p, chg: t.chg, at: px.at, price: t.p }; }
     return out;
   }
 
@@ -175,7 +183,7 @@
         SRApp.applyConfig();
         if ($('cfg-holdings') && !$('settings').hidden) $('cfg-holdings').value = m.text;
       }
-      saveR({ coins: m.coins, at, msg });
+      saveR({ coins: m.lineQty, qty: m.coins, at, msg });
       show(msg);
     } catch (e) {
       const msg = 'Revolut X: ' + (e && e.message ? e.message : 'failed') + '.';
@@ -233,7 +241,7 @@
   const tick = () => {
     if (due()) { read(false); return; }
     const r = R();
-    if (r.priv && r.apiKey && r.coins && !document.hidden && !busy && !pxBusy && Date.now() - lastPx > 55e3) {
+    if (r.priv && r.apiKey && (r.qty || r.coins) && !document.hidden && !busy && !pxBusy && Date.now() - lastPx > PX_EVERY - 1500) {
       pxBusy = true; lastPx = Date.now();
       readTickers(r).catch(() => false).then(() => { pxBusy = false; });
     }
@@ -241,7 +249,7 @@
   window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, values, parseTickers, PATH, BASE };
   wire();
   setTimeout(tick, 4000);
-  setInterval(tick, 60 * 1000);
+  setInterval(tick, PX_EVERY);
   const resume = window.appResume;
   window.appResume = () => { if (resume) resume(); tick(); };
   document.addEventListener('visibilitychange', tick);
