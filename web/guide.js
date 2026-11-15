@@ -440,7 +440,7 @@
       };
       if (D) {
         // a short view: the figures that matter and the open trades; everything else is on the Trading tab
-        const pos = D.positions || [], wait = D.ordersForOpen || [], inv = pos.reduce((x, o) => x + (+o.amount || 0), 0), run = +D.unrealizedPnL || 0, value = (+D.credit || 0) + inv + run;
+        const pos = D.positions || [], wait = D.ordersForOpen || [], inv = pos.reduce((x, o) => x + (+o.amount || 0), 0), plOf = (o) => (window.SRLive && window.SRLive.positionPL ? window.SRLive.positionPL(o) : { pl: +(o.unrealizedPnL || {}).pnL || 0, rate: +(o.unrealizedPnL || {}).closeRate }), run = pos.reduce((x, o) => x + plOf(o).pl, 0), value = (+D.credit || 0) + inv + run;
         const H0 = (L.hist || []).filter((h) => !P.start || String(h.closeTimestamp) >= P.start), wins = H0.filter((h) => h.netProfit > 0), real = H0.reduce((x, h) => x + (+h.netProfit || 0), 0);
         const start = +P.startEquity > 0 ? +P.startEquity : null, pct = (x, of) => (of > 0 ? `${x >= 0 ? '+' : '−'}${Math.abs(100 * x / of).toFixed(2)}%` : ''), B = window.SRTrade ? window.SRTrade.brief() : null;
         const grid = body.appendChild(el('div', 'g-stats')), tile = (k, v, sub, cls) => { const d = grid.appendChild(el('div', 'g-stat')); d.appendChild(el('span', 'g-stat-k', k)); d.appendChild(el('b', 'g-stat-v' + (cls ? ' ' + cls : ''), v)); if (sub) d.appendChild(el('span', 'g-stat-s', sub)); }, sign = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : '');
@@ -449,7 +449,7 @@
         tile('Open positions', usd2(run), `${pos.length} open, ${wait.length} waiting`, sign(run));
         tile('Closed trades', usd2(real), H0.length ? `${H0.length} closed, ${wins.length} with a gain (${Math.round(100 * wins.length / H0.length)}%)` : 'none closed yet', sign(real));
         for (const o of pos) {
-          const t = known(o), u = o.unrealizedPnL || {}, pl = +u.pnL || 0, now = +u.closeRate, d = (r) => (r > 0 && now > 0 ? `${(Math.abs(r / now - 1) * 100).toFixed(1)}%` : null), lev = +o.leverage > 1 ? ` ×${o.leverage}` : '';
+          const t = known(o), LP = plOf(o), pl = LP.pl, now = LP.rate, d = (r) => (r > 0 && now > 0 ? `${(Math.abs(r / now - 1) * 100).toFixed(1)}%` : null), lev = +o.leverage > 1 ? ` ×${o.leverage}` : '';
           row(o, t, `${o.isBuy ? 'Long' : 'Short'}${lev} ${px(+o.openRate)}${now ? ` → now ${px(now)}` : ''} · stop ${d(+o.stopLossRate) || 'not set yet'} · target ${d(+o.takeProfitRate) || 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, sign(pl));
         }
         for (const o of wait) { const t = known(o); row(o, t, `${o.isBuy ? 'Buy' : 'Short'} order ${usd(+o.amount)}, waits for its market${t ? ` · planned stop ${px(t.stop)}` : ''}`, 'waiting'); }

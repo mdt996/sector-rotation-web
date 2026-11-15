@@ -52,7 +52,7 @@
       for (const q of j.rates || []) {
         const p = q.bid > 0 && q.ask > 0 ? (q.bid + q.ask) / 2 : q.lastExecution || q.bid || q.ask;
         const conv = q.conversionRateBid > 0 ? q.conversionRateBid : 1;
-        if (p > 0) quotes.set(q.instrumentID, { price: p, usd: p * conv, conv, at: Date.parse(q.date) || Date.now() });
+        if (p > 0) quotes.set(q.instrumentID, { price: p, bid: +q.bid || null, ask: +q.ask || null, usd: p * conv, conv, at: Date.parse(q.date) || Date.now() });
       }
       runTicks(true);
     } catch (e) { /* the next round tries again */ } finally { busy = false; }
@@ -108,7 +108,7 @@
         if (!(id > 0) || !(price > 0)) continue;
         // the rate to dollars: from the message itself, else the one already known; without either, wait for the next read (a price in pounds taken as dollars would value a holding wrongly)
         const old = quotes.get(id), cvm = +c.ConversionRateBid, conv = cvm > 0 ? cvm : old && old.conv > 0 ? old.conv : null; if (conv == null) continue;
-        quotes.set(id, { price, usd: price * conv, conv, at: Date.parse(c.Date) || Date.now() }); got = true;
+        quotes.set(id, { price, bid: bid > 0 ? bid : null, ask: ask > 0 ? ask : null, usd: price * conv, conv, at: Date.parse(c.Date) || Date.now() }); got = true;
       }
       if (got) { STREAM.lastTick = Date.now(); STREAM.state = 'streaming'; paintSoon(); }   // the open asset repaints up to four times a second; the portfolio screens every 5 s, so that a list being read does not move
     };
@@ -1133,6 +1133,19 @@
       } catch (e) { /* asked again at the next round */ }
     }
   }
-  window.SRLive = { preload, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  // ---- the running result of an open demo position from the live price, worked out as eToro does: a buy valued at the bid, a short at
+  //      the ask, in dollars at the conversion rate of the account's own reading (eToro's API gives the same figure at the same prices).
+  //      Without a live bid and ask, or when the account's reading is newer than the price, eToro's own figure ----
+  function positionPL(o) {
+    const u = (o && o.unrealizedPnL) || {}, api = { pl: +u.pnL || 0, rate: +u.closeRate > 0 ? +u.closeRate : null, live: false }, q = o ? quotes.get(o.instrumentID) : null, open = +(o && o.openRate);
+    if (!q || !(q.bid > 0) || !(q.ask > 0) || !(open > 0)) return api;
+    const conv = +u.closeConversionRate > 0 ? +u.closeConversionRate : q.conv > 0 ? q.conv : 1, oc = +o.openConversionRate > 0 ? +o.openConversionRate : conv;
+    const units = +o.units > 0 ? +o.units : +o.amount > 0 ? +o.amount * (+o.leverage || 1) / (open * oc) : 0; if (!(units > 0)) return api;   // eToro always gives the units; the money ÷ the opening price otherwise
+    const ts = Date.parse(u.timestamp), rate = o.isBuy ? q.bid : q.ask;
+    if ((ts && q.at < ts - 300000) || (api.rate && Math.abs(rate / api.rate - 1) > 0.1)) return api;   // an older price, or a jump of more than 10%: a wrong price, not a move
+    const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
+    return { pl: Math.round(pl * 100) / 100, rate, live: true };
+  }
+  window.SRLive = { preload, positionPL, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();

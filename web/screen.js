@@ -98,7 +98,7 @@
       if (r && r.status === 200) { const j = JSON.parse(r.body); if (j && j.clientPortfolio) { demo = j.clientPortfolio; demoAt = Date.now(); demoErr = null;
         const key = (demo.positions || []).map((o) => o.positionID).sort().join(',') + '|' + (demo.ordersForOpen || []).map((o) => o.orderID).sort().join(',');
         if (key !== lastKey) { if (lastKey) { histAt = 0; pracAt = Math.min(pracAt, 1); loadPractice(true); } lastKey = key; }   // something opened or closed: the closed trades and the VM's record are read again now
-        point((+demo.credit || 0) + (demo.positions || []).reduce((x, o) => x + (+o.amount || 0), 0) + (+demo.unrealizedPnL || 0)); } }
+        point((+demo.credit || 0) + (demo.positions || []).reduce((x, o) => x + (+o.amount || 0) + (window.SRLive && window.SRLive.positionPL ? window.SRLive.positionPL(o).pl : 0), 0) + (window.SRLive && window.SRLive.positionPL ? 0 : +demo.unrealizedPnL || 0)); } }
       else demoErr = r ? (r.reason === 'no keys' ? 'no keys' : r.status) : 0;
       if (!demoErr && Date.now() - histAt > 2 * 60e3) {            // closed trades: every two minutes, and at once when a position disappears
         const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10), h = await SRApp.etoroGet(`/api/v1/trading/info/trade/demo/history?minDate=${since}&pageSize=200`, 1);

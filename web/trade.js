@@ -93,19 +93,20 @@
     const out = { P, L, live, D, positions: [], waiting: [], closed: [], rules: P.rules || {}, start: +P.startEquity > 0 ? +P.startEquity : null };
     if (D) {
       for (const o of D.positions || []) {
-        const t = known(o), u = o.unrealizedPnL || {}, now = +u.closeRate || +o.openRate, side = o.isBuy ? 1 : -1, expo = Math.abs(+u.exposureInAccountCurrency || (+o.amount || 0) * (+o.leverage || 1));
+        const t = known(o), u = o.unrealizedPnL || {}, LP = window.SRLive && window.SRLive.positionPL ? window.SRLive.positionPL(o) : { pl: +u.pnL || 0, rate: +u.closeRate || null }, plv = LP.pl;   // from the live price, as eToro works it out
+        const now = LP.rate || +u.closeRate || +o.openRate, side = o.isBuy ? 1 : -1, expo = Math.abs(+u.exposureInAccountCurrency || (+o.amount || 0) * (+o.leverage || 1)) * (+u.closeRate > 0 ? now / +u.closeRate : 1);
         const stop = t && t.softStop ? t.stop : +o.stopLossRate > 0 ? +o.stopLossRate : t ? t.stop : 0, target = +o.takeProfitRate > 0 ? +o.takeProfitRate : t ? t.target : 0;
         const risk = stop > 0 ? expo * Math.abs(now - stop) / now : 0;                        // what is lost from here if the stop is hit
         out.positions.push({ o, t, id: o.instrumentID, sym: symOf(o.instrumentID, t), cls: clsOf(o.instrumentID, t), arm: t ? t.arm : 'hand', side, lev: +o.leverage || 1, entry: +o.openRate, now, stop, target, soft: !!(t && t.softStop), etoroStop: +o.stopLossRate || 0,
-          amount: +o.amount || 0, expo, pl: +u.pnL || 0, plPct: (+o.amount || 0) > 0 ? 100 * (+u.pnL || 0) / +o.amount : 0, move: 100 * side * (now / +o.openRate - 1), r: t && t.riskMoney > 0 ? (+u.pnL || 0) / t.riskMoney : null, risk, opened: Date.parse(o.openDateTime), due: t ? Date.parse(t.due) : null, fees: (+o.totalExternalFees || 0) + (+o.totalFees || 0), score: t ? t.score : null });
+          amount: +o.amount || 0, expo, pl: plv, plLive: !!LP.live, plPct: (+o.amount || 0) > 0 ? 100 * plv / +o.amount : 0, move: 100 * side * (now / +o.openRate - 1), r: t && t.riskMoney > 0 ? plv / t.riskMoney : null, risk, opened: Date.parse(o.openDateTime), due: t ? Date.parse(t.due) : null, fees: (+o.totalExternalFees || 0) + (+o.totalFees || 0), score: t ? t.score : null });
       }
       posFacts(out.positions.map((p) => p.id)); const mid = new Date(); mid.setHours(0, 0, 0, 0);
-      for (const p of out.positions) { const f = pf.m.get(p.id), row = rows.get(p.id), u = p.o.unrealizedPnL || {}, rate = +u.closeRate;
+      for (const p of out.positions) { const f = pf.m.get(p.id), row = rows.get(p.id), rate = p.now;
         // Since the last close, or since it opened today.
         p.day = null;
         if (Number.isFinite(p.opened)) {
           if (p.opened >= mid.getTime()) {
-            if (u.pnL != null && u.pnL !== '' && Number.isFinite(+u.pnL)) p.day = +u.pnL;
+            if (Number.isFinite(p.pl)) p.day = p.pl;
           } else if (pf.at >= mid.getTime() && f && f.close > 0 && Number.isFinite(rate) && rate > 0) {
             p.day = p.side * p.expo * (rate - f.close) / rate;
           }
@@ -122,7 +123,7 @@
     }
     out.closed.sort((a, b) => b.at - a.at);
     const pos = out.positions, cl = out.closed, sum = (a, f) => a.reduce((x, y) => x + f(y), 0);
-    out.cash = D ? +D.credit || 0 : P.account ? P.account.cash : 0; out.frozen = sum(out.waiting, (w) => w.frozen); out.margin = sum(pos, (p) => p.amount); out.run = D ? +D.unrealizedPnL || sum(pos, (p) => p.pl) : 0;
+    out.cash = D ? +D.credit || 0 : P.account ? P.account.cash : 0; out.frozen = sum(out.waiting, (w) => w.frozen); out.margin = sum(pos, (p) => p.amount); out.run = D ? sum(pos, (p) => p.pl) : 0;   // each position from the live price (eToro's own figure when there is none)
     out.value = D ? out.cash + out.margin + out.run : P.account ? +P.account.equity : 0;
     out.long = sum(pos.filter((p) => p.side > 0), (p) => p.expo); out.short = sum(pos.filter((p) => p.side < 0), (p) => p.expo); out.gross = out.long + out.short; out.net = out.long - out.short;
     out.riskOpen = sum(pos, (p) => p.risk); out.feesOpen = sum(pos, (p) => p.fees); out.dayOpen = pos.some((p) => p.day != null) ? sum(pos, (p) => p.day || 0) : null;
@@ -308,13 +309,13 @@
     tv.note.textContent = `${how}Since the first reading: ${usd2(C[C.length - 1][1] - C[0][1])} (${pc(100 * (C[C.length - 1][1] / C[0][1] - 1))}), low ${usd(lo0)}, high ${usd(hi0)}. The same chart as the markets: drag to move, pinch or scroll to zoom, the tools above it to draw and measure, the square for the full view. Arrows: a trade of the program opened; dots: one closed, with its result. The dashed line is the starting value${ui.bench ? '; the orange line is the S&P 500 over the same hours' : ''}.`;
   }
 
-  // ---- the value between two readings, moved by the prices eToro pushes (its WebSocket, as on the asset charts): up to four times a second ----
-  // Each reading of the account (every 5 s) is the anchor: its exact value, and the streamed price of each open position at that moment.
-  // Between readings the value moves by side × (money × leverage ÷ opening price) × the price's change since the anchor. The next reading puts it right again.
+  // ---- the value between two readings of the account, from the prices eToro pushes (its WebSocket, as on the asset charts): up to four
+  //      times a second. Cash and the money in the positions come from the last reading (every 5 s); each position's running result is
+  //      worked out from the live bid and ask, as eToro does (SRLive.positionPL) ----
   function liveFollow(root, M) {
-    const S = window.SRLive; if (!S || !S.onTick || !S.want || !M.D || !(M.value > 0)) return;
-    const Q = S.quotes, ids = [...new Set(M.positions.map((p) => p.id).filter((x) => x > 0))];
-    liveA = { value: M.value, at: Date.now(), pos: M.positions.filter((p) => p.id > 0 && p.entry > 0).map((p) => { const q = Q.get(p.id); return { id: p.id, k: p.side * p.amount * p.lev / p.entry, base: q && q.price > 0 ? q.price : null }; }) };
+    const S = window.SRLive; if (!S || !S.onTick || !S.want || !S.positionPL || !M.D || !(M.value > 0)) return;
+    const ids = [...new Set(M.positions.map((p) => p.id).filter((x) => x > 0))];
+    liveA = { base: M.cash + M.margin, os: M.positions.map((p) => p.o), at: Date.now() };
     S.want('demo', ids);
     if (!liveOff) liveOff = S.onTick(liveTick);
   }
@@ -330,9 +331,8 @@
   function liveTick() {
     const S = window.SRLive, A = liveA, page = document.querySelector('#trade .t-value');
     if (!A || !page || !tv || !tv.host.isConnected) { if (liveOff) { liveOff(); liveOff = null; } if (S && S.want) S.want('demo', []); return; }
-    let d = 0, moved = false; for (const p of A.pos) { const q = S.quotes.get(p.id); if (!q || !(q.price > 0)) continue; if (p.base == null) { p.base = q.price; continue; } if (Math.abs(q.price / p.base - 1) > 0.1) continue; if (q.price !== p.base) moved = true; d += p.k * (q.price - p.base); }   // a jump of more than 10% within seconds is a wrong price, not a move
-    if (!moved && tv.liveV === A.value) return;
-    const v = Math.round((A.value + d) * 100) / 100, now = Date.now(), mk = Math.floor(now / 60e3); tv.liveV = v;
+    let run = 0; for (const o of A.os) run += S.positionPL(o).pl;
+    const v = Math.round((A.base + run) * 100) / 100, now = Date.now(), mk = Math.floor(now / 60e3); if (v === tv.liveV) return; tv.liveV = v;
     const x = liveMin.get(mk); if (x) { x.hi = Math.max(x.hi, v); x.lo = Math.min(x.lo, v); x.last = v; } else liveMin.set(mk, { hi: v, lo: v, last: v });
     for (const k of liveMin.keys()) if (k < mk - 360) liveMin.delete(k);                     // six hours in memory; the device's own points keep the rest
     showValue(page, v); page.classList.add('t-tick'); for (const f of document.querySelectorAll('#trade .t-fullv')) showValue(f, v, true); tv.host.dataset.live = String((+tv.host.dataset.live || 0) + 1); tv.host.dataset.v = String(v);
