@@ -320,11 +320,67 @@
     const frames = wrap.appendChild(el('div', 'av-ranges'));
     for (const f of FRAMES) { const b = frames.appendChild(el('button', '', f.k)); b.type = 'button'; b.addEventListener('click', () => { frame = f; lsSet('sr.frame', f.k); drawBell(); resetComparisonFrame(); load(true); }); }
     drawBell();
+    // ---- the price over a period, as on eToro: one line, the change, the high and the low. The candles, the signals and the
+    //      drawing tools are one tap away ("detail"); the choice is kept ----
+    const QR = [
+      { k: '1D', iv: 'FiveMinutes', n: 320, span: 864e5, day: true, say: 'today' }, { k: '1W', iv: 'ThirtyMinutes', n: 400, span: 7 * 864e5, say: 'in a week' },
+      { k: '1M', iv: 'FourHours', n: 220, span: 31 * 864e5, say: 'in a month' }, { k: '3M', iv: 'OneDay', n: 110, span: 92 * 864e5, say: 'in 3 months' },
+      { k: '6M', iv: 'OneDay', n: 200, span: 183 * 864e5, say: 'in 6 months' }, { k: 'YTD', iv: 'OneDay', n: 370, ytd: true, say: 'this year' },
+      { k: '1Y', iv: 'OneDay', n: 400, span: 366 * 864e5, say: 'in a year' }, { k: '3Y', iv: 'OneWeek', n: 170, span: 3 * 366 * 864e5, say: 'in 3 years' },
+      { k: '5Y', iv: 'OneWeek', n: 280, span: 5 * 366 * 864e5, say: 'in 5 years' }, { k: 'Max', iv: 'OneWeek', n: 1000, span: Infinity, say: 'since' }];
+    let mode = lsGet('sr.avMode', 'quick') === 'detail' ? 'detail' : 'quick', qr = QR.find((r) => r.k === lsGet('sr.qrange', '1D')) || QR[0], qPts = null, qSeq = 0, qAt = 0, qHover = null;
+    const quick = el('section', 'av-quick'); wrap.insertBefore(quick, frames);
+    const qHead = quick.appendChild(el('div', 'av-qhead'));
+    const qBox = quick.appendChild(el('div', 'av-qchart'));
+    const qBtns = quick.appendChild(el('div', 'av-qr'));
+    for (const r of QR) { const b = qBtns.appendChild(el('button', r === qr ? 'is-on' : '', r.k)); b.type = 'button'; b.setAttribute('aria-pressed', String(r === qr)); b.addEventListener('click', () => { qr = r; lsSet('sr.qrange', r.k); for (const x of qBtns.children) { x.classList.toggle('is-on', x === b); x.setAttribute('aria-pressed', String(x === b)); } qLoad(); }); }
+    const qMore = quick.appendChild(el('button', 'av-qmore', 'Candles, signals and drawing tools ›')); qMore.type = 'button';
+    const qBack = el('button', 'av-qmore av-qback', '‹ Simple price chart'); qBack.type = 'button'; wrap.insertBefore(qBack, frames);
+    function setMode(m) { mode = m; lsSet('sr.avMode', m); page.classList.toggle('is-quick', m === 'quick'); quick.hidden = m !== 'quick'; qBack.hidden = m === 'quick'; if (m === 'quick') qLoad(); else { if (chFit) chFit(); if (ch.fit) ch.fit(); } }
+    qMore.addEventListener('click', () => setMode('detail')); qBack.addEventListener('click', () => setMode('quick'));
+    async function qLoad() {
+      const my = ++qSeq, r = qr;
+      if (!hasKeys()) { qHead.textContent = ''; qBox.replaceChildren(el('div', 'av-qnote', 'Add your eToro keys in Settings for prices.')); return; }
+      qBox.classList.add('is-loading');
+      let rows = null; try { rows = await candles(inst.id, r.iv, r.n, 2); } catch (e) { rows = null; }
+      if (dead || my !== qSeq) return;
+      qBox.classList.remove('is-loading');
+      if (!rows || rows.length < 2) { qPts = null; qHead.textContent = ''; qBox.replaceChildren(el('div', 'av-qnote', 'No prices from eToro for this period.')); return; }
+      const end = rows[rows.length - 1].t; let from = r.ytd ? Date.UTC(new Date().getUTCFullYear(), 0, 1) : end - r.span;
+      if (r.day) for (let i = rows.length - 1; i > 0 && rows[i].t > from; i--) if (rows[i].t - rows[i - 1].t > 3 * 36e5) { from = rows[i].t; break; }   // a market that closes at night: its last session only
+      let pts = rows.filter((x) => x.t >= from && x.close > 0).map((x) => ({ t: x.t, v: x.close })); if (pts.length < 2) pts = rows.slice(-2).map((x) => ({ t: x.t, v: x.close }));
+      qPts = { k: r.k, pts }; qDraw();
+    }
+    function qDraw() {
+      if (!qPts || mode !== 'quick' || dead) return; qAt = Date.now();
+      const q = live(), pts = qPts.pts.slice(), r = qr, intraday = /Minutes|Hour/.test(r.iv);
+      if (q && q.price > 0 && Date.now() > pts[pts.length - 1].t) pts.push({ t: Date.now(), v: q.price });   // ends on the live price
+      const W = Math.max(220, qBox.clientWidth || 340), H = 200, padT = 24, padB = 24, n = pts.length;
+      const base = r.day && prev > 0 ? prev : pts[0].v, lastV = pts[n - 1].v, up = lastV >= base, col = up ? '#089981' : '#d64545';
+      let lo = Infinity, hi = -Infinity, iLo = 0, iHi = 0; pts.forEach((p, i) => { if (p.v < lo) { lo = p.v; iLo = i; } if (p.v > hi) { hi = p.v; iHi = i; } });
+      const x = (i) => (n > 1 ? (i / (n - 1)) * (W - 2) + 1 : W / 2), y = (v) => (hi === lo ? H / 2 : padT + (hi - v) / (hi - lo) * (H - padT - padB));   // closed hours take no room, as on eToro
+      const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(''), gid = 'qg-' + who;
+      const when = (t) => new Date(t).toLocaleString('en-GB', intraday ? { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short', year: 'numeric' });
+      const pill = (i, v, below) => { const tx = Math.max(30, Math.min(W - 30, x(i))); return `<g class="av-qpill"><rect x="${tx - 34}" y="${below ? y(v) + 6 : y(v) - 22}" width="68" height="16" rx="8"/><text x="${tx}" y="${below ? y(v) + 18 : y(v) - 10}" text-anchor="middle">${fmtP(v)}</text></g>`; };
+      const baseY = base >= lo && base <= hi ? `<line class="av-qbase" x1="0" x2="${W}" y1="${y(base).toFixed(1)}" y2="${y(base).toFixed(1)}"/>` : '';
+      qBox.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${inst.symbol} price ${r.k}"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity="0.22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${baseY}<path d="${line}L${x(n - 1).toFixed(1)},${H}L${x(0).toFixed(1)},${H}Z" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round"/>${pill(iHi, hi, false)}${pill(iLo, lo, true)}<g class="av-qcross" visibility="hidden"><line y1="0" y2="${H}"/><circle r="4" fill="${col}"/></g></svg>`;
+      const d = lastV - base, since = r.k === 'Max' ? `since ${new Date(pts[0].t).getFullYear()}` : r.say;
+      const head = (v, i) => { const dd = v - base; if (i == null && r.day) { qHead.replaceChildren(el('span', 'av-qwhen', `Range today ${fmtP(lo)} – ${fmtP(hi)}`)); return; }   // today's change is already beside the price
+        qHead.replaceChildren(el('b', 'av-qchg ' + (dd >= 0 ? 'up' : 'down'), `${dd >= 0 ? '+' : '−'}${fmtP(Math.abs(dd))} (${fmtPct(v / base - 1)})`), el('span', 'av-qwhen', i == null ? ' ' + since : ` ${fmtP(v)} · ${when(pts[i].t)}`)); };
+      head(lastV, null);
+      const svg = qBox.firstChild, cross = svg.querySelector('.av-qcross'), cl = cross.firstChild, dot = cross.lastChild;
+      const at = (ev) => { const b = svg.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round(((ev.clientX - b.left) / b.width * W - 1) / (W - 2) * (n - 1)))); qHover = i;
+        cl.setAttribute('x1', x(i)); cl.setAttribute('x2', x(i)); dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(pts[i].v)); cross.setAttribute('visibility', 'visible'); head(pts[i].v, i); };
+      const off = () => { qHover = null; cross.setAttribute('visibility', 'hidden'); head(lastV, null); };
+      svg.addEventListener('pointerdown', at); svg.addEventListener('pointermove', (ev) => { if (ev.pointerType === 'mouse' || ev.buttons) at(ev); }); svg.addEventListener('pointerleave', off); svg.addEventListener('pointerup', (ev) => { if (ev.pointerType !== 'mouse') setTimeout(off, 1500); });
+      qBox.dataset.range = r.k; qBox.dataset.points = String(n);
+    }
+    if (window.ResizeObserver) { let qw = 0; new ResizeObserver(() => { const w = qBox.clientWidth; if (w && Math.abs(w - qw) > 4) { qw = w; qDraw(); } }).observe(qBox); }
     const verdictEl = wrap.appendChild(el('div', 'av-verdict'));
     const miniEl = wrap.insertBefore(el('button', 'av-mini'), verdictEl); miniEl.type = 'button'; miniEl.hidden = true;   // summary above the chart; details below
     verdictEl.tabIndex = -1;
     miniEl.setAttribute('aria-label', 'View signal details');
-    miniEl.addEventListener('click', () => { verdictEl.focus({ preventScroll: true }); verdictEl.scrollIntoView({ block: 'nearest' }); });   // the action on the timeframe shown, with its probability and the record of past entries
+    miniEl.addEventListener('click', () => { if (mode === 'quick') setMode('detail'); verdictEl.focus({ preventScroll: true }); verdictEl.scrollIntoView({ block: 'nearest' }); });   // the action on the timeframe shown, with its probability and the record of past entries
     const box = wrap.appendChild(el('div', 'av-chart'));
     const taBox = side.appendChild(el('div', 'av-ta'));
     const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;
@@ -840,9 +896,10 @@
       if (drawErr) failed('The chart could not be drawn (' + drawErr + '). Tell me this message.', false);
       try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); }
     }
-    const tick = () => { if (dead) return; liveCandle(); renderComparison(); header(); facts(); };
+    const tick = () => { if (dead) return; liveCandle(); renderComparison(); header(); facts(); if (mode === 'quick' && qHover == null && Date.now() - qAt > 2000) qDraw(); };
     ticks.add(tick);
     want(who, [inst.id]);
+    setMode(mode);
     load(true);
     const api = { id: inst.id, timing: () => lastLoad, back: () => { if (ch.back()) return true; if (comparePanel.hidden) return false; setCompareOpen(false); return true; }, destroy() { dead = true; if (pageRO) pageRO.disconnect(); clearTimeout(compareTimer); ticks.delete(tick); want(who, []); want(compareWho, []); views.delete(api); ch.destroy(); } };
     views.add(api);

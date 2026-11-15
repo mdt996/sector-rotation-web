@@ -801,6 +801,26 @@ div.av-pick { max-width: none; }
 /* long explanations: two lines, a tap opens them */
 .fold { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .fold-more { display: block; background: none; border: 0; padding: 0; margin: -2px 0 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--color-accent, #2563eb); cursor: pointer; }
+/* asset page: the price over a period, as on eToro (the candles and tools one tap away) */
+.av-quick { display: grid; gap: 6px; }
+.av-quick[hidden], .av-qmore[hidden] { display: none; }
+.av-qhead { min-height: 22px; font-size: 15px; font-variant-numeric: tabular-nums; }
+.av-qchg { font-weight: 700; } .av-qchg.up { color: #089981; } .av-qchg.down { color: #d64545; }
+.av-qwhen { color: var(--color-fg-muted); font-size: 13.5px; }
+.av-qchart { position: relative; height: 200px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.av-qchart svg { display: block; width: 100%; height: 200px; overflow: visible; }
+.av-qchart.is-loading { opacity: 0.45; transition: opacity 0.2s; }
+.av-qnote { padding: 80px 0; text-align: center; color: var(--color-fg-muted); font-size: 13.5px; }
+.av-qpill rect { fill: var(--color-panel, #fff); stroke: var(--color-border-line); }
+.av-qpill text { font-size: 11px; fill: var(--color-fg); font-variant-numeric: tabular-nums; }
+.av-qbase { stroke: var(--color-fg-muted); stroke-dasharray: 3 4; opacity: 0.45; }
+.av-qcross line { stroke: var(--color-fg-muted); stroke-dasharray: 2 3; }
+.av-qr { display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.av-qr::-webkit-scrollbar { display: none; }
+.av-qr button { flex: 1 1 0; min-width: 0; padding: 6px 0; border: 1.5px solid transparent; border-radius: 999px; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); cursor: pointer; }
+.av-qr button.is-on { border-color: var(--color-fg); color: var(--color-fg); }
+.av-qmore { justify-self: start; margin-top: 4px; background: none; border: 1px solid var(--color-border-line); border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--color-accent, #2563eb); cursor: pointer; }
+.av-page.is-quick .av-ranges, .av-page.is-quick .av-chart, .av-page.is-quick .av-verdict { display: none !important; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

@@ -31,6 +31,7 @@
     22: 'Natural gas (the US Henry Hub price), in US dollars per million BTU. Very volatile, with strong seasons.',
     100000: 'Bitcoin: the first and largest cryptocurrency, with a supply fixed at 21 million coins. It trades every day, around the clock.',
     100001: 'Ether: the currency of the Ethereum network, on which many crypto applications and stablecoins run. It trades every day, around the clock.',
+    100063: 'Solana: the currency of the Solana network, a fast blockchain used for payments, trading apps and tokens. It trades every day, around the clock.',
     1: 'The euro in US dollars: how many dollars one euro buys.',
     3000: 'SPDR S&P 500 ETF Trust: the oldest and largest fund that follows the S&P 500, the 500 largest US companies.',
     3006: 'Invesco QQQ: the fund that follows the Nasdaq-100, the 100 largest non-financial companies on the Nasdaq.',
