@@ -338,6 +338,10 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .g-row-v { grid-area: v; align-self: center; text-align: right; display: grid; font-variant-numeric: tabular-nums; }
 .g-row-c { font-size: 13px; font-weight: 600; color: var(--color-fg-muted); }
 .g-row-tags { grid-area: t; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; font-size: 12px; }
+.g-group-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 12px 6px; }
+.g-group-h b { font-size: 16px; }
+.g-group-v { display: flex; flex-direction: column; align-items: flex-end; }
+.g-group-v .g-row-c { font-size: 13px; }
 .g-holdings-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .g-holdings-head h2 { margin: 0; font-size: 18px; }
 .g-holdings-head .btn { min-height: 44px; }

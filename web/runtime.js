@@ -149,15 +149,19 @@
 
   // ---- holdings: one per line: "TICKER", "TICKER = US symbol it follows", "long" for a long-term hold,
   //      "rough" when the US symbol only roughly follows it, and optionally the euro amount held:
-  //      "SEC0 = SMH 500", "MSTR 250,50 long", "QUTM = QQQ rough 100" ----
+  //      "SEC0 = SMH 500", "MSTR 250,50 long", "QUTM = QQQ rough 100"
+  //      A line such as "Investments:" or "Revolut X:" names the account of the lines below it (Portfolio groups them) ----
   function parseHoldings(text) {
     const defaults = window.SR_HOLDINGS || [];
     if (!text || !String(text).trim()) return defaults.slice();
     const out = [];
+    let account = '';
     // a comma between two digits is a decimal comma (250,50); any other comma, a semicolon or a new line separates holdings
     for (const raw of String(text).split(/\r?\n|;|,(?!\d)|(?<!\d),/)) {
       let line = raw.trim();
       if (!line) continue;
+      const head = /^([A-Za-z][^=:\d]{0,39}):$/.exec(line);
+      if (head) { account = head[1].trim(); continue; }
       const long = /\blong(-term)?\b/i.test(line), rough = /\brough\b/i.test(line);
       line = line.replace(/\blong(-term)?\b|\brough\b/ig, ' ');
       // what was paid for it, for the tax a sale would cost: "paid 1800" (or "cost 1800")
@@ -177,6 +181,7 @@
         ticker, name: d ? d.name : revName, tracks,
         match: rough ? 'rough' : known ? d.match : tracks === ticker ? 'same' : 'close',
         long_term: long, note: known ? d.note : '', amount: amount > 0 ? amount : null, paid: paid > 0 ? paid : null,
+        account,
       });
     }
     return out;

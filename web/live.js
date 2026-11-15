@@ -1031,12 +1031,18 @@
   // ---- your holdings, live -------------------------------------------------------------
   // European ETFs on Revolut with a live twin on eToro (the same fund on the London exchange)
   const TWINS = { VUAA: [1040155, 'VUAA.L'], IS0E: [3228, 'SPGP.L'], QUTM: [1047540, 'QNTM.L'] };
+  // eToro's own ids of assets you may hold that are not in the ranking: shares, and the coins Revolut X can list (TON, PEPE and SHIB are not on eToro)
+  const LIVE_IDS = { NVDA: 1137, BTC: 100000, ETH: 100001, BCH: 100002, XRP: 100003, LTC: 100005, ETC: 100007, WIF: 100014, ADA: 100017, XLM: 100020, TRX: 100026,
+    XTZ: 100032, DOT: 100037, LINK: 100040, UNI: 100041, DOGE: 100043, AAVE: 100044, FIL: 100045, ALGO: 100046, ATOM: 100047, MANA: 100048, POL: 100056,
+    HBAR: 100061, SOL: 100063, CRV: 100068, FET: 100079, SAND: 100084, AVAX: 100085, APT: 100315, ONDO: 100323, SEI: 100326, INJ: 100330, ARB: 100333,
+    RENDER: 100334, OP: 100335, NEAR: 100337, TIA: 100338, SUI: 100340, ICP: 100417, TAO: 100418, HYPE: 100446, KAS: 100459, JUP: 100462 };
+  const idOfAny = (sym) => SRApp.idOf(sym) || LIVE_IDS[sym] || null;
   function liveOf(h) {
     const t = TWINS[h.ticker];
     if (t) return { id: t[0], symbol: t[1], proxy: false };
-    const own = SRApp.idOf(h.ticker);
+    const own = idOfAny(h.ticker);
     if (own && h.tracks === h.ticker) return { id: own, symbol: h.ticker, proxy: false };
-    const tr = SRApp.idOf(h.tracks);
+    const tr = idOfAny(h.tracks);
     return tr ? { id: tr, symbol: h.tracks, proxy: true } : null;
   }
   function holdingsLive() {
@@ -1156,6 +1162,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { preload, positionPL, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { preload, positionPL, liveIdOf: idOfAny, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();

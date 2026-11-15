@@ -58,7 +58,7 @@
     return rows.map((h) => {
       const L = SR.liveFolio ? SR.liveFolio(h) : null;
       const own = HD.find((x) => x.ticker === h.ticker);
-      return { ...h, paid: h.paid != null ? h.paid : own ? own.paid : null, value: L && L.value != null ? L.value : h.amount || 0, chg: L ? L.chg : null, live: !!(L && L.value != null), symbol: L ? L.symbol : h.tracks };
+      return { ...h, account: own ? own.account || '' : h.account || '', paid: h.paid != null ? h.paid : own ? own.paid : null, value: L && L.value != null ? L.value : h.amount || 0, chg: L ? L.chg : null, live: !!(L && L.value != null), symbol: L ? L.symbol : h.tracks };
     });
   }
   function openHolding(h) {
@@ -631,8 +631,19 @@
       else if (sold.some((h) => h.paid > 0)) c.appendChild(el('div', 'g-hint', 'Tax needs a live value and an amount paid.'));
       else c.appendChild(el('div', 'g-hint', 'Add what you paid in Settings to see estimated tax.')); };
     if (two) costs();
+    // grouped by account when the holdings name them ("Investments:", "Revolut X:"), in the order they are typed, each with its live total
+    const order = [...new Set(all.map((h) => h.account || ''))], grouped = order.length > 1 || order[0] !== '';
+    const groups = grouped ? order.map((a) => ({ name: a || 'Other', H: H.filter((h) => (h.account || '') === a) })).filter((g) => g.H.length) : [{ name: '', H }];
+    for (const g of groups) {
     const list = right.appendChild(el('div', 'g-list'));
-    for (const h of H) {
+    if (g.name) {
+      const sum = d3.sum(g.H, (h) => h.value), withChg = g.H.filter((h) => h.chg != null), was = d3.sum(withChg, (h) => h.value / (1 + h.chg)), now = d3.sum(withChg, (h) => h.value), d = now - was;
+      const head = list.appendChild(el('div', 'g-group-h'));
+      const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); l.appendChild(el('span', 'g-muted', T.total ? ` ${p0(sum / T.total)}` : ''));
+      const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eur(sum)));
+      v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? `${eur(d, true)} ${pct(was ? d / was : 0)}` : 'not live'));
+    }
+    for (const h of g.H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
       r.addEventListener('click', () => holdingSheet(h, st, all));
       const a = r.appendChild(el('div', 'g-row-a'));
@@ -651,7 +662,8 @@
       }
       tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
     }
-    if (!H.length) list.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));
+    }
+    if (!H.length) right.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));
     if (!two) costs();
   });
 

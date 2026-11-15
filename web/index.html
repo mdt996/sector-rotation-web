@@ -396,7 +396,20 @@
     <details class="settings-help"><summary>Entry format and example</summary>
       <p class="hint">Enter the Revolut ticker and amount in euros. Optionally add <code>= US ticker</code> for a match, <code>paid</code> and the cost for estimated tax, <code>long</code> for long-term holdings, or <code>rough</code> for a loose match.</p>
       <p class="hint">Example: <code>SEC0 = SMH 500 paid 420</code>. The US ticker must be in the ranking. Leave blank to use the default list.</p>
+      <p class="hint">A line such as <code>Investments:</code> or <code>Revolut X:</code> starts a group; Portfolio shows each group with its own total.</p>
     </details>
+    </details>
+    <details class="sr-disclosure" id="settings-revx"><summary>Revolut X (crypto)</summary>
+      <p class="hint" id="revx-status"></p>
+      <p class="hint bad" id="revx-app" hidden>Reading Revolut X needs app version 1.0.68 or later. The key can be made now.</p>
+      <div class="row"><button id="btn-revx-key" class="btn" type="button">Make a key</button><button id="btn-revx-copy" class="btn" type="button" hidden>Copy public key</button></div>
+      <label class="field" id="revx-pub-box" hidden><span>Public key, for Revolut X</span><textarea id="revx-pub" rows="4" readonly spellcheck="false"></textarea></label>
+      <label class="field"><span>Revolut X API key</span><input id="cfg-revx" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      <div class="keys-test"><button id="btn-revx-read" class="btn" type="button">Read my coins</button><span class="hint" id="revx-result" aria-live="polite"></span></div>
+      <details class="settings-help"><summary>How to connect</summary>
+        <p class="hint">1. Make a key, then Copy public key. 2. In Revolut X on the web (exchange.revolut.com): Profile → API keys → new key. Paste the public key and choose read-only, no trading. 3. Paste the API key Revolut X shows here, then Read my coins.</p>
+        <p class="hint">The app then reads your coin quantities when it opens and every 15 minutes, values them at live eToro prices and updates their lines in Holdings. The secret half of the key never leaves this device and is never synced.</p>
+      </details>
     </details>
     <details class="sr-disclosure" id="alerts-block"><summary>Alerts</summary>
     <label class="opt"><input type="checkbox" id="cfg-notify"><span>Enable alerts · about hourly, using completed daily closes</span></label>
@@ -447,6 +460,7 @@
 <script src="tastats.js"></script>
 <script src="live.js"></script>
 <script src="sync.js"></script>
+<script src="revolutx.js"></script>
 <script src="rotation.js"></script>
 <script src="screen.js"></script>
 <script src="guide.js"></script>
