@@ -107,6 +107,21 @@
     bar.querySelector('span').textContent = `The app was updated (build ${build}).`;
   }
   window.appUpdated = (build) => offerReload(build);
+  // the Mac app updating itself: it builds the new version in the background, then offers the restart
+  window.appNativeUpdate = (state, code, msg) => {
+    let bar = document.getElementById('native-bar');
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'native-bar'; bar.className = 'update-bar';
+      bar.innerHTML = '<span></span><button class="btn" type="button" hidden>Restart</button>';
+      bar.querySelector('button').addEventListener('click', () => { if (N && N.relaunchApp) N.relaunchApp(); });
+      document.body.appendChild(bar);
+    }
+    const t = bar.querySelector('span'), b = bar.querySelector('button');
+    if (state === 'building') { t.textContent = `Updating the app to 1.0.${code} in the background…`; b.hidden = true; }
+    else if (state === 'ready') { t.textContent = `App 1.0.${code} is ready.`; b.hidden = false; }
+    else { t.textContent = `The app could not update itself${msg ? ` (${msg})` : ''}. It tries again later.`; b.hidden = true; setTimeout(() => bar.remove(), 15000); }
+    showUpdateInfo(t.textContent);
+  };
   let shownAt = 0, lastCheck = 0; // when the page was last opened or brought back; when updates were last checked
   // after an update, say once what changed (each build of the screens ships its own notes)
   function whatsNew() {
@@ -272,7 +287,8 @@
   if (needsKeys && !cache) openSettings();
   if (needsKeys || SRApp.isStale()) SRApp.refresh();
   setInterval(() => { if (!document.hidden && sheet.hidden && SRApp.isStale()) SRApp.refresh(); }, 5 * 60 * 1000);
-  $('btn-update').addEventListener('click', () => { showUpdateInfo('checking…'); if (N && N.checkUpdates) N.checkUpdates(); });
+  // checking for updates also fetches the other devices' latest settings and holdings at once
+  $('btn-update').addEventListener('click', () => { showUpdateInfo('checking…'); if (N && N.checkUpdates) N.checkUpdates(); if (window.SRSync && window.SRSync.pull) window.SRSync.pull(); });
   whatsNew();
   // the page started: tell the app this build of the screens works
   try { if (N && N.booted) N.booted(); } catch (e) { /* older app */ }

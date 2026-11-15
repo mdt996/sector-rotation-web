@@ -1,12 +1,16 @@
 {
- "build": 88,
+ "build": 89,
  "min_native": 9,
- "published": "2026-11-15T17:11:00Z",
+ "native": {
+  "mac": 69,
+  "android": 68
+ },
+ "published": "2026-11-15T17:19:46Z",
  "files": {
   "about.js": "af19f3e2b7e3162368e2b362e4949c22362df77bc0b2bf61b5ed01e5bd8d563f",
   "app.css": "d463417cb52ceced832a106d8304a5427b8b5d48b4edc8a0d6743f47c5f82739",
-  "app.js": "ff0139e1e8f81d5398c733780d908c1facc85738792ea81b35803d42f6e3c991",
-  "build.json": "8a220c741f86b5d792152ec0c931cdec557c6de9d8af7ab68c2d1d2e459e5e9d",
+  "app.js": "59a936edf8f84bd9c82ddc65b07f91fccaa2543ea3d8e382853044423ef83f77",
+  "build.json": "5900df5e54c32c82851e46d1796db2b8e06d2925edcec1e385cf7384ca49ba0e",
   "calc.js": "978688a2deacffa9ca467000bd0c2a54a63ac112f6031a6566911445e09583b1",
   "chart.js": "42c063aaacae88efa3ada9a0a7682dc6b1326b5c801b4feb410b826b7c2b8b44",
   "d3.min.js": "912111098ea99503a6f4967361d2bbdc9dbf58cf9c678c8e27e5b02d1a07f0c1",
@@ -23,7 +27,7 @@
   "lightweight-charts.js": "e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf",
   "live.js": "daa99edbb0fa76a59dddf98f50a532c0c894612f49292a6e05b25ded8a9911eb",
   "logo.js": "b03bf5208215c350e6ed1daeea14b700594c815503ec8451ee3573ee68e5e3f9",
-  "notes.js": "f731ce9ac003f9bf0754d4f552f4698b9ee281add996785977e23b43556d6db4",
+  "notes.js": "c12ff76f6e5ae8f6ff2caceb2ea342a7555d770fb9c7da22da9d3c10a8bb26c8",
   "revolut.js": "8a87300511076c6930020494b367556c47f90b8f54efd636fe2c5ba9b0d8bc3e",
   "revolutx.js": "b5e2c26d81061eb350da268514a93bf999055530330617098d20af4a445f7649",
   "rotation.js": "441776b839143dd034c553ec0f5678475d8a560d554f2c85faee91eca569c1d2",
