@@ -37,25 +37,28 @@
     const set = new Set((ids || []).filter((x) => x > 0));
     if (set.size) wanted.set(who, set); else wanted.delete(who);
     const key = [...allIds()].sort().join(',');
-    if (key !== lastIds) { lastIds = key; clearTimeout(soon); soon = setTimeout(poll, 250); streamSync(); }
+    if (key !== lastIds) { lastIds = key; clearTimeout(soon); soon = setTimeout(() => poll(missing()), 150); streamSync(); }   // something new on screen: its price soon, at once and ahead of the queue when it has none yet
     streamOpen();
     if (!timer) { const loop = () => { timer = setTimeout(() => { poll(); loop(); }, streaming() ? 30000 : views.size && SRApp.etoroState && SRApp.etoroState().lastMinute < 60 ? 3000 : POLL_MS); }; loop(); }   // with the stream alive, one read every 30 s is enough (currency conversion);   // every 4 s while an asset is open and the minute's request budget is not tight, every 10 s otherwise
   }
+  const missing = () => [...allIds()].some((i) => !quotes.has(i));   // an asset on screen with no price yet
   function allIds() { const s = new Set([FX]); for (const set of wanted.values()) for (const i of set) s.add(i); return s; }
   const PRD = { ok: 0, err: '', errAt: 0 };   // the last read of prices: when it worked, and the last failure (shown when a price is old)
-  async function poll() {
-    if (busy || document.hidden || !hasKeys()) return;
-    busy = true;
+  let again = false;
+  async function poll(urgent) {
+    if (document.hidden || !hasKeys()) return;
+    if (busy) { if (urgent) again = true; return; }   // a read already on its way: one more right after it, so that a new asset is not left waiting for the next round (30 s with the stream)
+    busy = true; again = false;
     try {
       const ids = [...allIds()].slice(0, 100);
-      let j; try { j = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.join(',')); PRD.ok = Date.now(); PRD.err = ''; } catch (e) { PRD.err = e.status === 429 ? "eToro's limit of 120 reads a minute" : e.status ? 'eToro answered ' + e.status : 'no answer from eToro'; PRD.errAt = Date.now(); throw e; }
+      let j; try { j = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.join(','), urgent ? 2.5 : 2); PRD.ok = Date.now(); PRD.err = ''; } catch (e) { PRD.err = e.status === 429 ? "eToro's limit of 120 reads a minute" : e.status ? 'eToro answered ' + e.status : 'no answer from eToro'; PRD.errAt = Date.now(); throw e; }
       for (const q of j.rates || []) {
         const p = q.bid > 0 && q.ask > 0 ? (q.bid + q.ask) / 2 : q.lastExecution || q.bid || q.ask;
         const conv = q.conversionRateBid > 0 ? q.conversionRateBid : 1;
         if (p > 0) quotes.set(q.instrumentID, { price: p, bid: +q.bid || null, ask: +q.ask || null, usd: p * conv, conv, convAsk: +q.conversionRateAsk > 0 ? +q.conversionRateAsk : null, at: Date.parse(q.date) || Date.now(), got: Date.now() });
       }
       runTicks(true);
-    } catch (e) { /* the next round tries again */ } finally { busy = false; }
+    } catch (e) { /* the next round tries again */ } finally { busy = false; if (again) { again = false; if (missing()) setTimeout(() => poll(true), 0); } }
   }
   // ---- live prices pushed by eToro (its public WebSocket): prices tick as in eToro's own app and no longer cost a read every
   // few seconds. Polling stays as the fallback, and as the slow source of the currency conversion the stream does not carry.
@@ -106,10 +109,11 @@
         const id = +String(x.topic).split(':')[1], bid = +(c.Bid || c.BidDiscounted), ask = +(c.Ask || c.AskDiscounted), last = +c.LastExecution, price = bid > 0 && ask > 0 ? (bid + ask) / 2 : last || bid || ask;
         if (c.IsMarketOpen != null) STREAM.open.set(id, String(c.IsMarketOpen) === 'true');
         if (!(id > 0) || !(price > 0)) continue;
-        // the rate to dollars: from the message itself, else the one already known; without either, wait for the next read (a price in pounds taken as dollars would value a holding wrongly)
-        const old = quotes.get(id), cvm = +c.ConversionRateBid, conv = cvm > 0 ? cvm : old && old.conv > 0 ? old.conv : null; if (conv == null) continue;
+        // the rate to dollars: from the message itself, else the one already known; without either the price still shows (the asset page needs only the price),
+        // and what needs dollars (holdings, the demo account) waits for the next read (a price in pounds taken as dollars would value a holding wrongly)
+        const old = quotes.get(id), cvm = +c.ConversionRateBid, conv = cvm > 0 ? cvm : old && old.conv > 0 ? old.conv : null;
         const cva = +c.ConversionRateAsk > 0 ? +c.ConversionRateAsk : old && old.convAsk > 0 ? old.convAsk : null;
-        quotes.set(id, { price, bid: bid > 0 ? bid : null, ask: ask > 0 ? ask : null, usd: price * conv, conv, convAsk: cva, at: Date.parse(c.Date) || Date.now(), got: Date.now() }); got = true;
+        quotes.set(id, { price, bid: bid > 0 ? bid : null, ask: ask > 0 ? ask : null, usd: conv ? price * conv : null, conv, convAsk: cva, at: Date.parse(c.Date) || Date.now(), got: Date.now() }); got = true;
       }
       if (got) { STREAM.lastTick = Date.now(); STREAM.state = 'streaming'; paintSoon(); }   // the open asset repaints up to four times a second; the portfolio screens every 5 s, so that a list being read does not move
     };
@@ -1046,7 +1050,7 @@
     let changed = b !== cfg.holdingsBase;
     if (fx) for (const h of holdingsLive()) {
       const q = quotes.get(h.id), r = b.rows[h.ticker];
-      if (h.amount > 0 && q && (!r || r.id !== h.id)) { b.rows[h.ticker] = { id: h.id, usd: q.usd, fx: fx.price, at: Date.now() }; changed = true; }
+      if (h.amount > 0 && q && q.conv > 0 && (!r || r.id !== h.id)) { b.rows[h.ticker] = { id: h.id, usd: q.usd, fx: fx.price, at: Date.now() }; changed = true; }
     }
     if (changed && Object.keys(b.rows).length) { SRApp.saveConfig(Object.assign(cfg, { holdingsBase: b })); if (window.SRSync) window.SRSync.pushSoon(); }
     return b;
@@ -1058,7 +1062,7 @@
     const fx = quotes.get(FX), b = base(), fp = fxPrev(), out = {};
     let total = 0, prevTotal = 0, lt = 0, n = 0;
     for (const h of holdingsLive()) {
-      const q = quotes.get(h.id); if (!q || !fx) continue;
+      const q = quotes.get(h.id); if (!q || !fx || !(q.conv > 0)) continue;
       const pc = prevSync(h.id), eurNow = q.usd / fx.price, eurPrev = pc && fp ? (pc * q.conv) / fp : null;
       const chg = eurPrev ? eurNow / eurPrev - 1 : null;
       const r = b && b.rows[h.ticker];

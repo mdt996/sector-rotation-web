@@ -46,7 +46,7 @@
     try { const D = S2 && S2.demo ? S2.demo() : null; if (D && D.at) add('Account', ago(D.at), !D.err && Date.now() - D.at < 120000); else if (D) add('Account', D.err ? 'not read' : 'not read yet', false); } catch (e) { /* not ready */ }
     try { if (S2 && S2.demoWatch) { const D = S2.demo(); if (!D.at || Date.now() - D.at > 60000) S2.demoWatch(oneRead); } if (S2 && S2.loadPractice) S2.loadPractice(); } catch (e) { /* not ready */ }   // Settings asks for them itself
     if (!metaAsked && window.SRSync && window.SRSync.getFile) { metaAsked = true; window.SRSync.getFile('about/meta.json').then((j) => { meta = j; }).catch(() => { metaAsked = false; }); }
-    if (meta && meta.looked) add('Descriptions', `${meta.described.toLocaleString('en-US')} of ${meta.looked.toLocaleString('en-US')} shares`, Date.now() - Date.parse(meta.made) < 40 * 864e5);
+    if (meta && meta.looked) add('Descriptions', `Wikipedia ${meta.described.toLocaleString('en-US')}, eToro's for the other shares`, Date.now() - Date.parse(meta.made) < 40 * 864e5);
     p.replaceChildren(); for (const [k, v, ok] of parts) { const s = p.appendChild(document.createElement('span')); s.className = 'sp-st ' + (ok ? 'ok' : 'warn'); s.textContent = `${k} ${v}`; }
   }
   function mount() {

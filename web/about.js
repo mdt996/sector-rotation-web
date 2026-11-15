@@ -4,9 +4,9 @@
 //    links, fields, charts and the asset page itself is left alone, and words that are also common abbreviations (US, ETF, RSI…) never are.
 // 2. The "About" box of an asset's page, as on eToro: what the asset is in a few sentences, then eToro's own facts about it (sector,
 //    market value, P/E, results date, analysts, what eToro's investors do, the changes over a week, a month, a year).
-//    eToro's public interface has no description text. For the app's own funds, indices, metals, energy and crypto the text is written
-//    here; for shares it is Wikipedia's, matched through the ISIN eToro gives (gathered now and then by the VM into about/NN.json of your
-//    private repository; the phone only reads it). The facts are read from eToro when the page opens (one read, kept 6 hours).
+//    For the app's own funds, indices, metals, energy and crypto the text is written here; for shares it is Wikipedia's, matched through
+//    the ISIN eToro gives (gathered now and then into about/NN.json of your private repository; the phone only reads it), else eToro's
+//    own description of the company, read with the facts when the page opens (one read, kept 6 hours).
 (function () {
   'use strict';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -62,7 +62,7 @@
   };
 
   // ---- eToro's facts (its search interface, one read per asset, kept 6 hours) ----
-  const FIELDS = 'instrumentId,displayname,internalSymbolFull,internalExchangeName,internalAssetClassName,industry,sector,marketCapInUSD,peRatio-TTM,eps-TTM,dividendYieldDaily-TTM,priceToSales-TTM,tipranksConsensus,tipranksTargetPrice,nextEarningDate,isin,buyHoldingPct,traders7DayChange,weeklyPriceChange,monthlyPriceChange,oneYearPriceChange,currYearPriceChange';
+  const FIELDS = 'instrumentId,displayname,internalSymbolFull,internalExchangeName,internalAssetClassName,industry,sector,marketCapInUSD,peRatio-TTM,eps-TTM,dividendYieldDaily-TTM,priceToSales-TTM,tipranksConsensus,tipranksTargetPrice,nextEarningDate,isin,buyHoldingPct,traders7DayChange,weeklyPriceChange,monthlyPriceChange,oneYearPriceChange,currYearPriceChange,longBusinessDescription-TTM,shortBio-en-gb';
   const facts = new Map();
   async function factsOf(id) {
     const c = facts.get(id); if (c && Date.now() - c.at < 6 * 36e5) return c.f;
@@ -85,6 +85,15 @@
     const v = j[id] || null; lsSet(key, { at: Date.now(), v }); return v;
   }
 
+  // eToro's description of a company: the business description (factual), else its short presentation without the lines about eToro itself
+  function etoroText(f) {
+    if (!f) return '';
+    const one = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+    const long = one(f['longbusinessdescription-ttm'] || f['businessdescription-ttm']); if (long.length > 40) return long;
+    const bio = String(f['shortbio-en-gb'] || '').split(/\n+/).map(one).filter(Boolean).join(' ');
+    return (bio.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || []).map((x) => x.trim()).filter((x) => x && !/etoro/i.test(x)).join(' ');
+  }
+
   // ---- the box ----
   const big = (x) => (x >= 1e12 ? `$${(x / 1e12).toFixed(2)}T` : x >= 1e9 ? `$${(x / 1e9).toFixed(1)}B` : x >= 1e6 ? `$${Math.round(x / 1e6)}M` : `$${Math.round(x).toLocaleString('en-US')}`);
   const pc = (x, d = 1) => (x == null || !isFinite(x) ? '—' : (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(d) + '%');
@@ -95,17 +104,24 @@
     const id = +inst.id; if (!(id > 0)) { box.hidden = true; return; }
     const head = box.appendChild(el('div', 'ab-h'));
     head.appendChild(el('span', 'ab-av', String(inst.symbol || '?').replace(/[^A-Z0-9]/gi, '').slice(0, 2).toUpperCase())).setAttribute('aria-hidden', 'true');
+    { const lg = window.SRLogo && window.SRLogo.logo(id, inst.symbol, 36); if (lg) head.firstChild.replaceWith(lg); }
     const hm = head.appendChild(el('div', 'ab-hm')), title = hm.appendChild(el('b', 'ab-t', 'About ' + (inst.symbol || ''))), sub = hm.appendChild(el('span', 'ab-sub', ''));
     const desc = box.appendChild(el('p', 'ab-d g-muted', '…')), more = box.appendChild(el('button', 'ab-more', 'More')), src = box.appendChild(el('div', 'ab-src'));
     more.type = 'button'; more.hidden = true; more.addEventListener('click', () => { const on = box.classList.toggle('is-open'); more.textContent = on ? 'Less' : 'More'; });
     const perf = box.appendChild(el('div', 'ab-perf')), grid = box.appendChild(el('dl', 'ab-grid'));
-    textOf(id).then((v) => {
+    // the text: the app's own or Wikipedia's when there is one, else eToro's (both readings arrive in any order)
+    let wiki, eto, wikiDone = false, etoDone = false;
+    const showText = () => {
       if (!box.isConnected) return;
-      desc.classList.toggle('g-muted', !v); desc.textContent = v && v.d ? v.d : 'No description of this asset yet.';
-      src.textContent = v && v.w ? `From Wikipedia: “${v.w}”` : '';
+      const own = wiki && wiki.d ? wiki.d : '', t = own || (eto || '');
+      if (!t && !(wikiDone && etoDone)) return;   // wait for the other one before saying there is none
+      desc.classList.toggle('g-muted', !t); desc.textContent = t || 'No description of this asset yet.';
+      src.textContent = own ? (wiki.w ? `From Wikipedia: “${wiki.w}”` : '') : t ? 'From eToro' : '';
       requestAnimationFrame(() => { more.hidden = !(desc.scrollHeight > desc.clientHeight + 4); });
-    }).catch(() => { desc.textContent = 'No description of this asset yet.'; });
+    };
+    textOf(id).then((v) => { wiki = v; }).catch(() => { /* none */ }).then(() => { wikiDone = true; showText(); });
     factsOf(id).then((f) => {
+      eto = etoroText(f); etoDone = true; showText();
       if (!box.isConnected) return;
       if (!f) { sub.textContent = [inst.symbol, inst.exchange].filter(Boolean).join(' · '); return; }
       title.textContent = 'About ' + (f.displayname || inst.name || inst.symbol);
@@ -131,7 +147,7 @@
       if (f.traders7daychange != null && isFinite(+f.traders7daychange)) row('Its traders on eToro, 7 days', pc(+f.traders7daychange));
       row('ISIN', f.isin || null);
       box.dataset.facts = String(grid.children.length);
-    }).catch(() => { sub.textContent = inst.symbol || ''; });
+    }).catch(() => { etoDone = true; showText(); sub.textContent = inst.symbol || ''; });
   }
 
   // ---- names that open their asset's page ----
