@@ -822,6 +822,16 @@ div.av-pick { max-width: none; }
 .av-qmore { justify-self: start; margin-top: 4px; background: none; border: 1px solid var(--color-border-line); border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--color-accent, #2563eb); cursor: pointer; }
 .av-page.is-quick .av-ranges, .av-page.is-quick .av-chart, .av-page.is-quick .av-verdict { display: none !important; }
 
+/* eToro's asset logos (logo.js): round, on white so that dark logos read in the dark theme too; a letter when one does not load */
+.sr-logo { flex: none; display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px var(--color-border-line); vertical-align: middle; line-height: 1; }
+.sr-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sr-logo.is-letter { background: var(--color-bg); color: var(--color-fg-muted); font-weight: 600; }
+.sr-lead { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.sc-a .sr-logo, .g-row-a .sr-logo { align-self: center; }
+.av-id.has-logo { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; }
+.av-id.has-logo .sr-logo { grid-row: span 2; }
+
+
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }
   .sr * { box-sizing: border-box; }

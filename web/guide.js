@@ -405,7 +405,7 @@
     const st = ((window.SR_TASTATS || {}).model || {})['1D'];
     for (const r of T) {
       const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button'; b.addEventListener('click', () => window.SRScreen.open(r));
-      b.appendChild(el('span', 'g-pill g-buy', r.sym));
+      { const pl = el('span', 'g-pill g-buy', r.sym); b.appendChild(window.SRLogo ? window.SRLogo.wrap(pl, r.id, r.sym, 22) : pl); }
       b.appendChild(el('span', 'g-wrow-t', `${r.strong ? 'Strong buy' : 'Buy'} signal, score ${Math.round(r.ms * 100)} · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
       if (st) b.appendChild(el('b', 'g-wrow-g', p0((r.strong && st.strong ? st.strong : st.buy).win)));
     }
@@ -436,7 +436,7 @@
       const row = (o, t, text, right, cls) => {
         const b = body.appendChild(el('button', 'g-wrow')); b.type = 'button'; const sym = name(o, t);
         b.addEventListener('click', () => window.SRScreen.open({ sym, id: o.instrumentID || o.id, name: t ? t.n : (byId.get(o.instrumentID) || {}).name || sym }));
-        b.appendChild(el('span', 'g-pill ' + ((o.isBuy != null ? o.isBuy : o.side > 0) ? 'g-buy' : 'g-sell'), sym)); b.appendChild(el('span', 'g-wrow-t', text)); b.appendChild(el('b', 'g-wrow-g' + (cls ? ' ' + cls : ''), right));
+        { const pl = el('span', 'g-pill ' + ((o.isBuy != null ? o.isBuy : o.side > 0) ? 'g-buy' : 'g-sell'), sym); b.appendChild(window.SRLogo ? window.SRLogo.wrap(pl, o.instrumentID || o.id, sym, 22) : pl); } b.appendChild(el('span', 'g-wrow-t', text)); b.appendChild(el('b', 'g-wrow-g' + (cls ? ' ' + cls : ''), right));
       };
       if (D) {
         // a short view: the figures that matter and the open trades; everything else is on the Trading tab

@@ -444,7 +444,7 @@
     if (!pos.length) root.appendChild(el('div', 'g-hint', M.live ? 'No open position.' : 'Waiting for eToro.'));
     for (const p of pos) {
       const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(p));
-      const l1 = b.appendChild(el('div', 't-l1')); l1.appendChild(el('span', 'g-pill ' + (p.side > 0 ? 'g-buy' : 'g-sell'), p.sym)); l1.appendChild(el('span', 't-tag', `${p.side > 0 ? 'Long' : 'Short'}${p.lev > 1 ? ' ×' + p.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[p.arm] || p.arm));
+      const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, p.id, p.sym, 22); l1.appendChild(el('span', 'g-pill ' + (p.side > 0 ? 'g-buy' : 'g-sell'), p.sym)); l1.appendChild(el('span', 't-tag', `${p.side > 0 ? 'Long' : 'Short'}${p.lev > 1 ? ' ×' + p.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[p.arm] || p.arm));
       const r = l1.appendChild(el('span', 't-pl ' + sign(p.pl))); r.appendChild(el('b', '', usd2(p.pl))); r.appendChild(el('span', '', ` ${pc(p.move)}${p.r != null ? ` · ${p.r >= 0 ? '+' : '−'}${Math.abs(p.r).toFixed(2)} R` : ''}`));
       // where the price stands between the stop and the target
       if (p.stop > 0 && p.target > 0) { const lo = Math.min(p.stop, p.target), hi = Math.max(p.stop, p.target), at = (v) => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo || 1))), flip = p.side < 0;
@@ -462,7 +462,7 @@
     }
     head(root, `Orders waiting for the market (${M.waiting.length})`);
     if (!M.waiting.length) root.appendChild(el('div', 'g-hint', 'None.'));
-    for (const w of M.waiting) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(w)); const l1 = b.appendChild(el('div', 't-l1')); l1.appendChild(el('span', 'g-pill ' + (w.side > 0 ? 'g-buy' : 'g-sell'), w.sym)); l1.appendChild(el('span', 't-tag', w.side > 0 ? 'Buy order' : 'Short order')); l1.appendChild(el('span', 't-tag t-arm', ARM[w.arm] || w.arm)); l1.appendChild(el('span', 't-pl', usd(w.amount)));
+    for (const w of M.waiting) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(w)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, w.id, w.sym, 22); l1.appendChild(el('span', 'g-pill ' + (w.side > 0 ? 'g-buy' : 'g-sell'), w.sym)); l1.appendChild(el('span', 't-tag', w.side > 0 ? 'Buy order' : 'Short order')); l1.appendChild(el('span', 't-tag t-arm', ARM[w.arm] || w.arm)); l1.appendChild(el('span', 't-pl', usd(w.amount)));
       b.appendChild(el('div', 't-l2', `${isFinite(w.placed) ? 'Sent ' + when(w.placed) + ' · ' : ''}opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`)); }
     const stuck = (M.P.open || []).filter((t) => t.status !== 'open' && M.live && !M.waiting.some((w) => w.t === t) && !M.positions.some((p) => p.t === t));
     if (stuck.length) { head(root, 'Orders eToro did not open'); for (const t of stuck) root.appendChild(el('div', 'g-hint', `${t.s}: sent ${when(t.placed)}; eToro neither opened it nor keeps it waiting. No money was taken. The program clears it at its next look.`)); }
@@ -477,7 +477,7 @@
     const list = M.closed.filter((c) => ui.arm === 'all' || c.arm === ui.arm), net = list.reduce((x, c) => x + c.net, 0), won = list.filter((c) => c.net > 0).length;
     head(root, `Closed trades (${list.length})`);
     if (list.length) root.appendChild(el('div', 'g-line', `${won} with a gain (${Math.round(100 * won / list.length)}%), ${usd2(net)} after costs.`)); else root.appendChild(el('div', 'g-hint', 'No trade has closed yet. Each one will appear here with its entry, exit, result and how it ended.'));
-    for (const c of list.slice(0, 80)) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(c)); const l1 = b.appendChild(el('div', 't-l1')); l1.appendChild(el('span', 'g-pill ' + (c.side > 0 ? 'g-buy' : 'g-sell'), c.sym)); l1.appendChild(el('span', 't-tag', `${c.side > 0 ? 'Long' : 'Short'}${c.lev > 1 ? ' ×' + c.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[c.arm] || c.arm));
+    for (const c of list.slice(0, 80)) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(c)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, c.id, c.sym, 22); l1.appendChild(el('span', 'g-pill ' + (c.side > 0 ? 'g-buy' : 'g-sell'), c.sym)); l1.appendChild(el('span', 't-tag', `${c.side > 0 ? 'Long' : 'Short'}${c.lev > 1 ? ' ×' + c.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[c.arm] || c.arm));
       const r = l1.appendChild(el('span', 't-pl ' + sign(c.net))); r.appendChild(el('b', '', usd2(c.net))); if (c.r != null) r.appendChild(el('span', '', ` ${c.r >= 0 ? '+' : '−'}${Math.abs(c.r).toFixed(2)} R`));
       b.appendChild(el('div', 't-l2', `${px(c.entry)} → ${px(c.exit)} (${pc(100 * c.side * (c.exit / c.entry - 1))}) · ended by ${c.how}${isFinite(c.opened) ? ` · held ${span(c.at - c.opened)}` : ''} · closed ${when(c.at)}${c.fees ? ` · fees ${usd2(-c.fees).replace('−', '')}` : ''}`)); }
     // what the program did, look by look

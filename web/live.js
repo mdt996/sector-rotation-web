@@ -299,6 +299,7 @@
     const top = wrap.appendChild(el('div', 'av-top'));
     const idt = top.appendChild(el('div', 'av-id'));
     idt.appendChild(el('div', 'av-sym', inst.symbol));
+    if (window.SRLogo && window.SRLogo.lead(idt, inst.id, inst.symbol, 40)) idt.classList.add('has-logo');
     idt.appendChild(el('div', 'av-name', [inst.name, inst.exchange].filter(Boolean).join(' · ')));
     if (opts.picker) top.appendChild(opts.picker);
     // signal alert for this asset on the candle size shown (the phone's hourly background check sends it)
@@ -531,7 +532,7 @@
         compareResults.replaceChildren();
         if (!items.length) { compareResults.textContent = 'No other eToro assets found.'; return; }
         for (const asset of items) {
-          const pick = compareResults.appendChild(el('button', 'sr-res', asset.symbol + ' · ' + asset.name)); pick.type = 'button';
+          const pick = compareResults.appendChild(el('button', 'sr-res', asset.symbol + ' · ' + asset.name)); pick.type = 'button'; if (window.SRLogo) window.SRLogo.lead(pick, asset.id, asset.symbol, 22);
           pick.addEventListener('click', () => {
             compareAsset = asset; compareInput.value = asset.symbol; compareResults.hidden = true; compareClear.hidden = false;
             want(compareWho, [asset.id]);
@@ -962,6 +963,7 @@
     const b = el('button', 'sr-res'); b.type = 'button';
     const av = b.appendChild(el('span', 'sr-res-av', (r.symbol || '?').replace(/[^A-Z0-9]/gi, '').slice(0, 2)));
     av.setAttribute('aria-hidden', 'true');
+    { const lg = window.SRLogo && window.SRLogo.logo(r.id, r.symbol, 36); if (lg) av.replaceWith(lg); }
     const mid = b.appendChild(el('span', 'sr-res-mid'));
     mid.appendChild(el('b', '', r.symbol));
     mid.appendChild(el('span', 'sr-res-name', [r.name, r.type].filter(Boolean).join(' · ')));

@@ -250,7 +250,7 @@
   }
   function rowEl(r) {
     const b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
-    const a = b.appendChild(el('span', 'sc-a')); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group || ''));
+    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 22); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group || ''));
     const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0.0005 ? 'up' : r.chg < -0.0005 ? 'down' : ''), pct(r.chg)));
     const m = [r.mine ? 'Yours' : null, r.cls === 'Stocks' ? r.sec || 'Stock' : r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null, r.sales ? 'revenue ' + big(r.sales) : null, r.pe > 0 ? 'P/E ' + (r.pe >= 100 ? Math.round(r.pe) : r.pe.toFixed(1)) : null].filter(Boolean);
     if (m.length) b.appendChild(el('span', 'sc-m', m.join(' · ')));
