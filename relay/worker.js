@@ -5,6 +5,12 @@
 //    Yahoo Finance charts, and the Revolut X balances, prices and staking rewards. GET only, to those addresses only.
 // It keeps nothing: no keys, no holdings, no prices. The keys travel inside each request from the phone, as in the apps,
 // and are never logged. The settings sync goes from the phone straight to GitHub, not through here.
+// 3. Accounts for other people (16 Nov 2026), in Cloudflare KV (binding ACCT, free plan): a username, a check value of a key
+//    made from the password on the phone, and one blob of their settings and keys, encrypted on the phone with another key
+//    made from the same password. The password and that second key never come here: nobody here can read the blob.
+// 4. The nightly scan's market files (no holdings, no trades), read-only, for phones without the owner's own sync: read
+//    from the private sync repository with a read-only key kept as a secret (SYNC_READ), these files only.
+// 5. /get: the page to give to people (the iPhone version and the Android app), /android: the newest Android app.
 const RAW = 'https://raw.githubusercontent.com/mdt996/sector-rotation-web/main/';
 const RELAYED = [
   /^https:\/\/public-api\.etoro\.com\/api\/v1\//,
@@ -16,6 +22,10 @@ const PASS = ['accept', 'user-agent', 'x-api-key', 'x-user-key', 'x-request-id',
 const TYPES = { js: 'application/javascript; charset=utf-8', css: 'text/css; charset=utf-8', html: 'text/html; charset=utf-8', json: 'application/json', png: 'image/png', svg: 'image/svg+xml', txt: 'text/plain; charset=utf-8' };
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const NO_STORE = { 'Cache-Control': 'no-store' };
+const SYNC_API = 'https://api.github.com/repos/mdt996/sector-rotation-sync/contents/';
+const DATA = /^(scan\.json|scanmeta\.json|about\/(meta|\d{2})\.json|packs\/\d{1,8}\.json)$/;   // market files only
+const APK = 'https://github.com/mdt996/sector-rotation-web/releases/latest/download/SectorRotation.apk';
+const USER = /^[a-z0-9][a-z0-9._-]{2,31}$/, KEY = /^[0-9a-f]{64}$/, MAX_BLOB = 300000;
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const sha256 = async (buf) => hex(await crypto.subtle.digest('SHA-256', buf));
@@ -109,16 +119,75 @@ async function relay(req, self) {
   return new Response(await r.text(), { status: r.status, headers: { 'Content-Type': r.headers.get('Content-Type') || 'text/plain', ...NO_STORE } });
 }
 
+// ---- accounts: one KV entry per username, { h: SHA-256 of the login key, d: the encrypted blob, iv, v: version, at } ----
+const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json', ...NO_STORE } });
+async function account(req, env, op) {
+  if (!env || !env.ACCT) return json({ error: 'Accounts are not set up yet.' }, 503);
+  let b;
+  try { b = await req.json(); } catch (e) { return json({ error: 'bad request' }, 400); }
+  const u = String((b && b.u) || '').trim().toLowerCase(), a = String((b && b.a) || '');
+  if (!USER.test(u)) return json({ error: 'Usernames are 3 to 32 letters, digits, dots, dashes or underscores.' }, 400);
+  if (!KEY.test(a)) return json({ error: 'bad request' }, 400);
+  const k = 'u:' + u, h = await sha256(new TextEncoder().encode(a));
+  const rec = await env.ACCT.get(k, 'json');
+  if (op === 'signup') {
+    if (rec) return json({ error: 'This username is taken.' }, 409);
+    await env.ACCT.put(k, JSON.stringify({ h, d: null, iv: null, v: 0, at: Date.now(), c: Date.now() }));
+    return json({ ok: true, v: 0 });
+  }
+  if (!rec || rec.h !== h) return json({ error: 'Wrong username or password.' }, 401);   // the same answer whether the name exists or not
+  if (op === 'get') return json({ v: rec.v, at: rec.at, d: rec.d, iv: rec.iv });
+  if (op === 'delete') { await env.ACCT.delete(k); return json({ ok: true }); }
+  const d = String((b && b.d) || ''), iv = String((b && b.iv) || '');
+  if (!d || d.length > MAX_BLOB || !/^[A-Za-z0-9+/=]+$/.test(d) || !/^[A-Za-z0-9+/=]{16,24}$/.test(iv)) return json({ error: 'bad request' }, 400);
+  if (+b.v !== rec.v) return json({ error: 'changed on another device', v: rec.v }, 409);   // the phone reads the newer copy first
+  const next = { ...rec, d, iv, v: rec.v + 1, at: Date.now() };
+  if (op === 'rekey') { const a2 = String(b.a2 || ''); if (!KEY.test(a2)) return json({ error: 'bad request' }, 400); next.h = await sha256(new TextEncoder().encode(a2)); }
+  else if (op !== 'put') return text('not found', 404);
+  await env.ACCT.put(k, JSON.stringify(next));
+  return json({ ok: true, v: next.v, at: next.at });
+}
+
+// ---- the nightly scan's market files, read-only (the candle files are on their own branch, "packs") ----
+async function data(path, env) {
+  if (!DATA.test(path)) return text('not found', 404);
+  if (!env || !env.SYNC_READ) return text('The market data is not set up yet.', 503);
+  const h = { Authorization: 'Bearer ' + env.SYNC_READ, Accept: 'application/vnd.github.raw+json', 'User-Agent': 'sector-rotation-worker', 'X-GitHub-Api-Version': '2022-11-28' };
+  let r = await fetch(SYNC_API + path + (/^packs\//.test(path) ? '?ref=packs' : ''), { headers: h });
+  if (r.status === 404 && /^packs\//.test(path)) r = await fetch(SYNC_API + path, { headers: h });
+  if (!r.ok) return text('not available', r.status === 404 ? 404 : 502);
+  return new Response(r.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=600', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+// ---- the page to give to people ----
+const getPage = (origin) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sector Rotation</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 22px;color:#1d2330;background:#f3f4f6}
+h1{font-size:26px;margin:0 0 6px}h2{font-size:19px;margin:28px 0 6px}.c{background:#fff;border-radius:16px;padding:16px 18px;margin:12px 0;border:1px solid #e3e6ea}
+a.b{display:inline-block;background:#2f6fed;color:#fff;text-decoration:none;padding:12px 18px;border-radius:12px;font-weight:600}ol{padding-left:22px;margin:6px 0}
+.m{color:#5b6472;font-size:15px}@media(prefers-color-scheme:dark){body{background:#0e1013;color:#e7e9ee}.c{background:#171a20;border-color:#262b33}.m{color:#9aa3b2}}</style>
+<h1>Sector Rotation</h1><p class="m">Market screener, charts and your own portfolio, with live eToro prices. You need your own eToro API keys.</p>
+<div class="c"><h2>iPhone</h2><ol><li>Open <b>${origin}</b> in <b>Safari</b>.</li><li>Tap Share, then <b>Add to Home Screen</b>.</li><li>Open it from the Home Screen.</li></ol></div>
+<div class="c"><h2>Android</h2><p><a class="b" href="/android">Download the app (.apk)</a></p><p class="m">Open the file to install it. Android asks once to allow installing from your browser.</p></div>
+<div class="c"><h2>Then</h2><ol><li>Settings → <b>eToro</b>: paste your own API keys (from eToro: Settings → Trading → API keys; read-only is enough).</li>
+<li>Optional: Settings → <b>Your account</b>: make a username and password to keep your settings and keys on all your phones. They are encrypted on your phone with your password: nobody else can read them, and a forgotten password cannot be recovered.</li>
+<li>Optional: Settings → <b>Revolut X</b> for your coins.</li></ol></div>
+<p class="m">Analysis, not investment advice. Updates arrive on their own.</p></html>`, { headers: { 'Content-Type': TYPES.html, 'Cache-Control': 'max-age=300' } });
+
 export default {
-  async fetch(req) {
+  async fetch(req, env) {
     const url = new URL(req.url), p = url.pathname;
     if (p === '/relay') return req.method === 'POST' ? relay(req, url.origin) : text('relay: POST only', 405);
+    const ac = p.match(/^\/acct\/(signup|get|put|rekey|delete)$/);
+    if (ac) return req.method === 'POST' ? account(req, env, ac[1]) : text('POST only', 405);
     if (req.method !== 'GET' && req.method !== 'HEAD') return text('not allowed', 405);
     if (p === '/' || p === '/index.html') return page();
     if (p === '/latest') {
       try { const m = await manifest(); return new Response(JSON.stringify({ build: m.build }), { headers: { 'Content-Type': 'application/json', ...NO_STORE } }); } catch (e) { return text('not readable', 503); }
     }
     if (p === '/app.webmanifest') return webmanifest();
+    if (p.startsWith('/data/')) return data(decodeURIComponent(p.slice(6)), env);
+    if (p === '/get') return getPage(url.origin);
+    if (p === '/android') return Response.redirect(APK, 302);
     const c = p.match(/^\/c\/([^/]+)\/([^/]+)$/);
     if (c) return asset(c[1], decodeURIComponent(c[2]));
     return text('not found', 404);
