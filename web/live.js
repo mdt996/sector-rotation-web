@@ -1080,7 +1080,7 @@
   }
   function holdingsLive() {
     const H = (S().holdings && S().holdings.data) || [];
-    return H.map((h) => { const l = liveOf(h); return l ? { ...h, ...l, name: h.name || h.ticker } : null; }).filter(Boolean);
+    return H.filter((h) => !h.pending && h.ticker !== 'CASH').map((h) => { const l = liveOf(h); return l ? { ...h, ...l, name: h.name || h.ticker } : null; }).filter(Boolean);   // cash and an unfilled order have no price
   }
   // amounts are anchored to the live price each holding had when its amount was typed in (or first seen live)
   function base() {
@@ -1118,7 +1118,8 @@
       if (value != null) { total += value; n++; prevTotal += value / (1 + (chg || 0)); if (h.long_term) lt += value; }
     }
     // holdings without a live price count at the amount typed in, so the total stays complete
-    for (const h of (S().holdings && S().holdings.data) || []) if (h.amount > 0 && !(out[h.ticker] && out[h.ticker].value != null)) { total += h.amount; prevTotal += h.amount; if (h.long_term) lt += h.amount; }
+    // (an order not filled yet does not count: its money is still in the cash)
+    for (const h of (S().holdings && S().holdings.data) || []) if (h.amount > 0 && !h.pending && !(out[h.ticker] && out[h.ticker].value != null)) { total += h.amount; prevTotal += h.amount; if (h.long_term) lt += h.amount; }
     if (n) totals = { total, today: total - prevTotal, todayPct: prevTotal ? total / prevTotal - 1 : null, lt, at: fx ? fx.at : Date.now() };
     for (const k of Object.keys(out)) if (out[k].value != null && totals) out[k].share = out[k].value / totals.total;
     SR.liveRows = out;

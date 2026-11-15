@@ -150,6 +150,8 @@
   // ---- holdings: one per line: "TICKER", "TICKER = US symbol it follows", "long" for a long-term hold,
   //      "rough" when the US symbol only roughly follows it, and optionally the euro amount held:
   //      "SEC0 = SMH 500", "MSTR 250,50 long", "QUTM = QQQ rough 100"
+  //      "CASH 611.89" for the cash on the account; "pending" for an order not filled yet ("ANT 397.35 pending"): shown, but
+  //      not counted, as its money is still in the cash
   //      A line such as "Investments:" or "Revolut X:" names the account of the lines below it (Portfolio groups them) ----
   function parseHoldings(text) {
     const defaults = window.SR_HOLDINGS || [];
@@ -162,8 +164,8 @@
       if (!line) continue;
       const head = /^([A-Za-z][^=:\d]{0,39}):$/.exec(line);
       if (head) { account = head[1].trim(); continue; }
-      const long = /\blong(-term)?\b/i.test(line), rough = /\brough\b/i.test(line);
-      line = line.replace(/\blong(-term)?\b|\brough\b/ig, ' ');
+      const long = /\blong(-term)?\b/i.test(line), rough = /\brough\b/i.test(line), pending = /\bpending\b/i.test(line);
+      line = line.replace(/\blong(-term)?\b|\brough\b|\bpending\b/ig, ' ');
       // what was paid for it, for the tax a sale would cost: "paid 1800" (or "cost 1800")
       let paid = null;
       line = line.replace(/\b(?:paid|cost)\s*(?:€\s?)?(\d+(?:[.,]\d+)?)(?:\s?€|\s?eur(?:os?)?)?/i, (m, num) => { paid = parseFloat(num.replace(',', '.')); return ' '; });
@@ -181,7 +183,7 @@
         ticker, name: d ? d.name : revName, tracks,
         match: rough ? 'rough' : known ? d.match : tracks === ticker ? 'same' : 'close',
         long_term: long, note: known ? d.note : '', amount: amount > 0 ? amount : null, paid: paid > 0 ? paid : null,
-        account,
+        account, pending,
       });
     }
     return out;

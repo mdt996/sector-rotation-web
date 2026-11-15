@@ -60,7 +60,8 @@
     return rows.map((h) => {
       const L = SR.liveFolio ? SR.liveFolio(h) : null;
       const own = HD.find((x) => x.ticker === h.ticker);
-      return { ...h, account: own ? own.account || '' : h.account || '', paid: h.paid != null ? h.paid : own ? own.paid : null, value: L && L.value != null ? L.value : h.amount || 0, chg: L ? L.chg : null, live: !!(L && L.value != null), symbol: L ? L.symbol : h.tracks };
+      const pend = !!(h.pending || (own && own.pending));   // an order not filled yet: shown apart, its money is still in the cash
+      return { ...h, pending: pend, pendingEur: pend ? h.amount || (own && own.amount) || 0 : 0, account: own ? own.account || '' : h.account || '', paid: h.paid != null ? h.paid : own ? own.paid : null, value: pend ? 0 : L && L.value != null ? L.value : h.amount || 0, chg: L ? L.chg : null, live: !!(L && L.value != null), symbol: L ? L.symbol : h.tracks };
     });
   }
   function openHolding(h) {
@@ -613,8 +614,11 @@
     const x = S && h.tracks === h.ticker ? S.coins[h.ticker] : null;
     if (!x) return;
     const qty = ((SRApp.config().revx || {}).qty || {})[h.ticker], c = h.ticker;
-    kv(s, 'Staking', `${fq(x.staked)} ${c} staked${qty > 0 && x.staked > 0 ? (x.staked >= qty * 0.999 ? ' (all of it)' : ` of ${fq(qty)}`) : ''}${x.rate ? ` · about ${rateOf(x.rate)} a year at the last 7 days' pace` : ''}`);
-    kv(s, 'It pays', x.perDay > 0 ? `about ${fq(x.perDay)} ${c} a day (${eurs(x.perDayEur)}), ${eurs(x.perDayEur * 30)} a month` : 'No reward in the last 30 days yet: a new stake starts earning after a few days.');
+    if (x.auto) kv(s, 'Staking', `${fq(x.staked)} ${c} earning on auto-earn (nothing locked: it stays available to sell)${x.rate ? ` · ${x.expect ? `Revolut's rate ${rateOf(x.rate)}` : `about ${rateOf(x.rate)} at the last 7 days' pace`} a year` : ''}`);
+    else kv(s, 'Staking', `${fq(x.staked)} ${c} staked${qty > 0 && x.staked > 0 ? (x.staked >= qty * 0.999 ? ' (all of it)' : ` of ${fq(qty)}`) : ''}${x.rate ? ` · about ${rateOf(x.rate)} a year at the last 7 days' pace` : ''}`);
+    const firstOn = x.first ? (x.first > Date.now() ? `around ${new Date(x.first).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'any day now') : 'about 20 days after buying';
+    if (x.expect) kv(s, 'It pays', `about ${fq(x.perDay)} ${c} a day at that rate (${eurs(x.perDayEur)}), ${eurs(x.perDayEur * 30)} a month. First reward ${firstOn}: Cardano pays only after a delay.`);
+    else kv(s, 'It pays', x.perDay > 0 ? `about ${fq(x.perDay)} ${c} a day (${eurs(x.perDayEur)}), ${eurs(x.perDayEur * 30)} a month` : 'No reward in the last 30 days yet: a new stake starts earning after a few days.');
     if (x.last) kv(s, 'Last reward', `+${fq(x.last.q)} ${c} (${eurs(x.lastEur)}), ${whenOf(x.last.t)}`);
     if (x.n30) kv(s, 'Last 30 days', `+${fq(x.d30)} ${c} (${eurs(x.d30Eur)}) in ${x.n30} payment${x.n30 === 1 ? '' : 's'}`);
     if (x.all > 0) kv(s, 'Earned so far', `+${fq(x.all)} ${c}, worth ${eurs(x.allEur)} now${x.since ? `, since ${new Date(x.since + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`);
@@ -669,7 +673,7 @@
     const named = all.some((h) => h.account), coin = (h) => !!(window.SRLive && SRLive.isCoin && SRLive.isCoin(h));
     const acc = (h) => named ? h.account || 'Other' : coin(h) ? 'Revolut X' : 'Investments';
     const order = named ? [...new Set(all.map(acc))] : ['Investments', 'Revolut X'];
-    const groups = order.map((a) => ({ name: a, H: H.filter((h) => acc(h) === a) })).filter((g) => g.H.length);
+    const groups = order.map((a) => ({ key: a, name: a, H: H.filter((h) => acc(h) === a) })).filter((g) => g.H.length);
     const S0 = stakeInfo(H);
     if (groups.length === 1 && !named) groups[0].name = '';
     for (const g of groups) {
@@ -696,10 +700,11 @@
       a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : '')));
       const v = r.appendChild(el('div', 'g-row-v'));
       v.appendChild(el('b', '', eurc(h.value)));
-      v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
+      v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.ticker === 'CASH' ? 'cash' : h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
+      if (h.ticker === 'CASH') { const res = d3.sum(all.filter((x) => x.pendingEur > 0 && acc(x) === g.key), (x) => x.pendingEur); if (res > 0) a.querySelector('.g-row-n').textContent = `Revolut cash · ${eurc(res)} reserved for your order, ${eurc(h.value - res)} free`; }
       const tags = r.appendChild(el('div', 'g-row-tags'));
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
-      if (st.P) {
+      if (st.P && h.ticker !== 'CASH') {
         if (st.keep.has(h.ticker)) tags.appendChild(el('span', 'g-chip', 'Kept'));
         else if (st.T ? lineFor(h, st.T) : planTickers(st.p).has(h.ticker)) tags.appendChild(el('span', 'g-chip g-chip-plan', 'Plan'));
         else if (st.T && lineFor(h, allLines(st.p))) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Signal: sell'));
@@ -707,6 +712,14 @@
       }
       { const x = S0 && h.tracks === h.ticker ? S0.coins[h.ticker] : null; if (x && (x.staked > 0 || x.n30)) tags.appendChild(el('span', 'g-chip g-chip-stake', x.rate ? `Staking ${rateOf(x.rate)}` : 'Staked')); }
       tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
+    }
+    // orders not filled yet: shown under their account, not counted (their money is in the cash above)
+    for (const h of all.filter((x) => x.pendingEur > 0 && acc(x) === g.key)) {
+      const r = list.appendChild(el('div', 'g-row g-row-pending'));
+      { const lg = window.SRLogo ? window.SRLogo.logo(0, h.ticker, 32) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
+      const a = r.appendChild(el('div', 'g-row-a')); a.appendChild(el('b', '', h.ticker)); a.appendChild(el('span', 'g-muted g-row-n', 'Order pending: paid from your cash, not counted twice'));
+      const v = r.appendChild(el('div', 'g-row-v')); v.appendChild(el('b', '', eurc(h.pendingEur))); v.appendChild(el('span', 'g-row-c', 'pending'));
+      r.appendChild(el('div', 'g-row-tags')).appendChild(el('span', 'g-chip', 'Order pending'));
     }
     }
     if (!H.length) right.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));

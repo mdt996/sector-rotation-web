@@ -141,6 +141,9 @@
   }
 
   // ---- staking: Revolut X pays a reward on staked coins about every day (every 2 to 3 days for SOL, every 5 for ADA) ----
+  // ADA earns on "auto-earn": nothing is locked (Revolut X's API counts it as available, not staked), the whole balance earns,
+  // Revolut's rate (1.96% a year on 15 Nov 2026) and a first reward about 20 days after buying (Cardano's delay)
+  const AUTO = { ADA: { rate: 0.0196, wait: 20 } };
   // The last 30 days of rewards, every page. Query keys in alphabetical order, as signed.
   const query = (o) => Object.keys(o).sort().map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(o[k])}`).join('&');
   function parseRewards(j) {
@@ -199,17 +202,21 @@
     const staked = r.staked && Object.keys(r.staked).length ? r.staked : s.staked || {};
     const rewards = Array.isArray(s.rewards) ? s.rewards : [];
     if (!Object.keys(staked).length && !rewards.length) return null;
-    const now = Date.now(), fresh = px && now - px.at < 10 * 60e3 ? px.eur : {};
+    const now = Date.now(), fresh = px && now - px.at < 10 * 60e3 ? px.eur : {}, qty = r.qty || {}, trades = SRApp.config().trades || [];
     const price = (c) => (fresh[c] ? fresh[c].p : priceOf ? priceOf(c) : null);
     const coins = {};
     for (const c of new Set([...Object.keys(staked), ...rewards.map((x) => x.c), ...Object.keys(s.days || {})])) {   // coins staked before count in what was earned
-      const L = rewards.filter((x) => x.c === c), L7 = L.filter((x) => now - x.t <= 7 * DAY), p = price(c), st = staked[c] || 0;
+      const L = rewards.filter((x) => x.c === c), L7 = L.filter((x) => now - x.t <= 7 * DAY), p = price(c), A = AUTO[c];
+      const st = staked[c] || ((A || L.length) && qty[c] > 0 ? qty[c] : 0);   // a coin earning on auto-earn: its whole balance
       const oldest = L.length ? L[L.length - 1].t : null, gap = L.length > 1 ? (L[0].t - oldest) / (L.length - 1) : DAY;
       const days = oldest && now - oldest < 7 * DAY ? Math.min(7, Math.max(1, (now - oldest + gap) / DAY)) : 7;   // staked less than a week ago: since its first reward
       const d7 = L7.reduce((a, x) => a + x.q, 0), d30 = L.reduce((a, x) => a + x.q, 0), perDay = L7.length ? d7 / days : 0;
       const D = (s.days || {})[c] || {}, dk = Object.keys(D).sort(), all = dk.length ? dk.reduce((a, k) => a + D[k], 0) : d30;
-      coins[c] = { c, staked: st, last: L[0] || null, d7, d30, n30: L.length, perDay, rate: st > 0 && perDay > 0 ? (perDay * 365) / st : null, all, since: dk[0] || (oldest ? dayOf(oldest) : null), allEur: p ? all * p : null,
-        price: p, stakedEur: p ? st * p : null, perDayEur: p ? perDay * p : null, d7Eur: p ? d7 * p : null, d30Eur: p ? d30 * p : null, lastEur: p && L[0] ? L[0].q * p : null };
+      // no reward yet on auto-earn: what it should pay at Revolut's rate, and when the first reward comes (about 20 days after the first buy)
+      const expect = !L.length && !all && A && st > 0, buys = trades.filter((t) => t.src === 'revx' && t.s === c && t.side === 'B').map((t) => Date.parse(t.d)).filter((x) => x > 0);
+      const pd = expect ? (st * A.rate) / 365 : perDay;
+      coins[c] = { c, staked: st, auto: !!A, expect, first: expect && buys.length ? Math.min(...buys) + A.wait * DAY : null, last: L[0] || null, d7, d30, n30: L.length, perDay: pd, rate: expect ? A.rate : st > 0 && perDay > 0 ? (perDay * 365) / st : null, all, since: dk[0] || (oldest ? dayOf(oldest) : null), allEur: p ? all * p : null,
+        price: p, stakedEur: p ? st * p : null, perDayEur: p ? pd * p : null, d7Eur: p ? d7 * p : null, d30Eur: p ? d30 * p : null, lastEur: p && L[0] ? L[0].q * p : null };
     }
     const all = Object.values(coins), sum = (k) => { const v = all.map((x) => x[k]).filter((x) => x != null); return v.length ? v.reduce((a, x) => a + x, 0) : null; };   // a coin with no price yet is left out of the euro totals
     const stakedEur = sum('stakedEur'), perDayEur = sum('perDayEur');
@@ -241,6 +248,7 @@
       const syms = bal.filter((b) => parseFloat(b.total) > 0).map((b) => String(b.currency || '').toUpperCase()).filter((s) => s && !CASH.has(s));
       const staked = {};
       for (const b of bal) { const sym = String(b.currency || '').toUpperCase(), q = parseFloat(b.staked); if (sym && q > 0) staked[sym] = q; }
+      for (const b of bal) { const sym = String(b.currency || '').toUpperCase(), q = parseFloat(b.total); if (AUTO[sym] && q > 0 && !(staked[sym] > 0)) staked[sym] = q; }   // auto-earn: the whole balance
       // the staking rewards: every 30 minutes, and when you ask (an older app may not let this through: the sync brings them then)
       let rewards = null;
       const full = (SRApp.config().staking || {}).v !== 2, since = Date.now() - (full ? 365 : 30) * DAY;   // the first reading goes back a year (every window), then 30 days

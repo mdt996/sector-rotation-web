@@ -7,12 +7,17 @@
 // - Crypto: taxed only when sold for money, and not at all in a year whose sales total €305 or less (all platforms together);
 //   gains and losses of the year net out. A sale's gain is taken against that coin's average price paid (the official formula
 //   uses the whole crypto portfolio: close for a small one). Staking rewards count as bought at zero.
+// - Fees are deducted: a buy's fee adds to what was paid, a sale's fee comes off what was received. Each trade's own fee when
+//   known ("f": money, in the trade's currency; "fq": taken in the coin on a Revolut X buy, which then gives that much less);
+//   otherwise Revolut's standard fee for a share or fund (0.25%, at least €1) and Revolut X's 0.09% for a coin.
 // - eToro (real account, in dollars): its closed trades this year, read with this device's eToro keys (GET
 //   /api/v1/trading/info/trade/history, read only); real shares and crypto against their cost in euros on the day bought, CFDs
 //   (leverage, short, commodities, indices, currencies) at their result in euros on the day closed, fees deducted.
 (function () {
   'use strict';
   const RATE = 0.314, ALLOWANCE = 305, CARRY_YEARS = 10, DAY = 864e5;
+  // the fee a trade of this many euros costs when its own fee is not known
+  const feeFor = (kind, eurV) => (kind === 'crypto' ? 0.0009 * eurV : Math.max(1, 0.0025 * eurV));
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (label, cls, fn) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; };
   const eur = (x, sign) => { if (x == null || !isFinite(x)) return '—'; const s = Math.abs(x).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return (s === '0.00' ? '' : sign && x > 0 ? '+' : x < 0 ? '−' : '') + '€' + s; };
@@ -38,17 +43,20 @@
     const T = (trades || []).filter((t) => t && t.s && t.q > 0 && t.p > 0 && t.d).slice().sort((a, b) => String(a.d).localeCompare(String(b.d)));
     for (const t of T) {
       const kind = t.src === 'revx' ? 'crypto' : 'sec', key = kind + ':' + t.s + (t.cfd ? ':cfd' : '');
-      let money = t.q * t.p;
-      if (t.c === 'USD') { const k = usdPerEur ? usdPerEur(String(t.d).slice(0, 10)) : null; if (!(k > 0)) { missing++; continue; } money /= k; }
+      let money = t.q * t.p, k = 1;
+      if (t.c === 'USD') { k = usdPerEur ? usdPerEur(String(t.d).slice(0, 10)) : null; if (!(k > 0)) { missing++; continue; } money /= k; }
       else if (t.c && t.c !== 'EUR') { missing++; continue; }
+      // the fee: the trade's own (in its currency, or in the coin) or the standard one
+      const fq = t.fq > 0 ? Math.min(+t.fq, t.q) : 0, fee = t.f != null && isFinite(t.f) ? +t.f / k : fq ? 0 : feeFor(kind, money);
       const p = pos.get(key) || { q: 0, cost: 0 };
-      const y = years[year(t.d)] = years[year(t.d)] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, list: [] };
+      const y = years[year(t.d)] = years[year(t.d)] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, fees: 0, list: [] };
+      y.fees = (y.fees || 0) + fee + (fq ? money * (fq / t.q) : 0);
       if (t.side === 'S') {
-        const q = Math.min(t.q, p.q), cost = p.q > 0 ? (p.cost / p.q) * q : 0, g = money * (q / t.q) - cost;
+        const q = Math.min(t.q, p.q), cost = p.q > 0 ? (p.cost / p.q) * q : 0, g = (money - fee) * (q / t.q) - cost;
         p.q -= q; p.cost -= cost; if (p.q < 1e-9) { p.q = 0; p.cost = 0; }
         y[kind] += g; y.sales++; if (kind === 'crypto') y.cryptoSales += money;
-        y.list.push({ s: t.s, d: t.d, kind, money, gain: g, cfd: !!t.cfd });
-      } else { p.q += t.q; p.cost += money; }
+        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd });
+      } else { p.q += t.q - fq; p.cost += money + fee; }
       pos.set(key, p);
     }
     return { years, missing };
@@ -65,16 +73,17 @@
     return { secBase, cryptoBase, secTax: RATE * secBase, cryptoTax: RATE * cryptoBase, tax: RATE * (secBase + cryptoBase) };
   };
   function revolut(trades, holdings, y, usdPerEur) {
-    const R = realised(trades, usdPerEur), Y = R.years[y] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, list: [] }, carry = carryFor(R.years, y);
+    const R = realised(trades, usdPerEur), Y = R.years[y] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, fees: 0, list: [] }, carry = carryFor(R.years, y);
     const due = taxOn(Y.sec, Y.crypto, Y.cryptoSales, carry);
-    let secU = 0, cryU = 0, cryValue = 0, secValue = 0, unknown = [];
+    let secU = 0, cryU = 0, cryValue = 0, secValue = 0, sellFees = 0, unknown = [];
     for (const h of holdings || []) {
-      if (!(h.value > 0)) continue;
+      if (!(h.value > 0) || h.ticker === 'CASH' || h.pending) continue;   // cash and an order not filled yet are not sold
       if (!(h.paid > 0)) { unknown.push(h.ticker); continue; }
-      if (h.crypto) { cryU += h.value - h.paid; cryValue += h.value; } else { secU += h.value - h.paid; secValue += h.value; }
+      const fee = feeFor(h.crypto ? 'crypto' : 'sec', h.value); sellFees += fee;   // what selling it would cost
+      if (h.crypto) { cryU += h.value - fee - h.paid; cryValue += h.value; } else { secU += h.value - fee - h.paid; secValue += h.value; }
     }
     const all = taxOn(Y.sec + secU, Y.crypto + cryU, Y.cryptoSales + cryValue, carry);
-    return { year: y, Y, carry, due, all, secU, cryU, secValue, cryValue, unknown, missing: R.missing };
+    return { year: y, Y, carry, due, all, secU, cryU, secValue, cryValue, sellFees, unknown, missing: R.missing };
   }
 
   // ---- eToro: the real account's closed trades of the year ----
@@ -186,12 +195,14 @@
     const a = card(box, 'Sales this year');
     kv(a, 'Shares and funds', `${gainTxt(Y.sec)}${R.carry > 0 ? `, less ${eur(R.carry)} of earlier losses` : ''} → ${eur(R.due.secTax)}`);
     kv(a, 'Crypto (Revolut X)', `${cryptoTxt(Y.cryptoSales, Y.crypto)}${Y.cryptoSales > ALLOWANCE ? ` → ${eur(R.due.cryptoTax)}` : ''}`);
+    if (Y.fees > 0) kv(a, 'Fees', `${eur(Y.fees)} on this year's trades, deducted`);
     if (R.missing) a.appendChild(el('div', 'g-hint', `${R.missing} trade${R.missing === 1 ? '' : 's'} left out: no euro rate for that day yet.`));
     const b = card(box, 'If you sold everything now (live)');
     b.appendChild(el('div', 'x-big', eur(R.all.tax)));
     kv(b, 'Investments', `${eur(R.secValue)} now, ${gainTxt(R.secU)} on what you hold → ${eur(R.all.secTax)} with this year's sales`);
     kv(b, 'Revolut X', `${eur(R.cryValue)} now, ${gainTxt(R.cryU)} → ${eur(R.all.cryptoTax)}`);
-    kv(b, 'You would keep', eur(R.secValue + R.cryValue - R.all.tax));
+    if (R.sellFees > 0) kv(b, 'Selling fees', `about ${eur(R.sellFees)}, deducted`);
+    kv(b, 'You would keep', eur(R.secValue + R.cryValue - R.sellFees - R.all.tax));
     if (R.unknown.length) b.appendChild(el('div', 'g-hint', `Not counted (no amount paid typed): ${R.unknown.join(', ')}.`));
     if (S.combAll) kv(b, 'With eToro too', `${eur(S.combAll.tax)} in all (both brokers add up on the return)`);
     salesList(box, 'tax-revolut-sales', `This year's sales (${Y.sales})`, Y.list.map((x) => ({ ...x, label: `${x.s}${x.cfd ? ' CFD' : ''}${x.kind === 'crypto' ? ' (crypto)' : ''} · sold ${eur(x.money)}` })));
