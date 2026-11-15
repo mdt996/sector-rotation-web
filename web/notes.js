@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 85, "text": "A newly opened asset gets its live price at once, and almost every share's About box now has a description (eToro's own when Wikipedia has none)."};
+window.SR_NOTES = {"build": 86, "text": "Market tiles now run from the most red to the most green, so the day's weakest and strongest are easy to find."};

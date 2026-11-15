@@ -279,20 +279,22 @@
     // the day's change as coloured tiles: the world first, then the eleven US sectors and the industries the app follows (the same funds as the ranking)
     // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
     const UN = new Map(universe().map((u) => [u.sym, u]));
-    const tile = (map, r, short) => {
+    const moveOf = (r) => { const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null); return tooOld(r.sym, RR) ? null : dayMove(RR, r.id); };
+    // each grid in the order of the day's change: the most red first, the most green last (redrawn with the prices); not yet known: at the end
+    const sorted = (items) => items.map((x) => Object.assign(x, { m: moveOf(x.r) })).sort((a, b) => (a.m == null) - (b.m == null) || (a.m ? a.m.chg : 0) - (b.m ? b.m.chg : 0));
+    const tile = (map, r, short, m) => {
       const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
-      const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null), m = tooOld(r.sym, RR) ? null : dayMove(RR, r.id);
       t.appendChild(el('b', '', r.sym)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.title = `${r.name || r.sym}: ${m.day}'s change. Its market has not traded yet today.`; t.classList.add('is-last'); }
       if (short) t.appendChild(el('small', '', short));
       if (m) t.style.background = `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;
     };
     const map = box.appendChild(el('div', 'sc-map'));
-    for (const r of R.filter((x) => x.group === 'World')) tile(map, r);
+    for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m);
     const bySym = new Map(R.map((r) => [r.sym, r]));
-    const sectors = SRApp.disclosure(box, 'market-sectors', 'Sectors and industries');
+    const sectors = SRApp.disclosure(box, 'market-sectors', 'Sectors and industries', 'weakest to strongest today');
     for (const [head, list] of TILES) {
       sectors.appendChild(el('div', 'sc-maph', head)); const m2 = sectors.appendChild(el('div', 'sc-map sc-map2'));
-      for (const [sym, short, name] of list) tile(m2, bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short);
+      for (const x of sorted(list.map(([sym, short, name]) => ({ r: bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short })))) tile(m2, x.r, x.short, x.m);
     }
     const how = box.appendChild(howBox());
     const scan = wide ? `Scan: ${wide.scanned} assets on ${String(wide.made).slice(0, 10)}. Ideas: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wider scan is unavailable.';
