@@ -253,6 +253,8 @@
     const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 22); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group || ''));
     const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0.0005 ? 'up' : r.chg < -0.0005 ? 'down' : ''), pct(r.chg)));
     const m = [r.mine ? 'Yours' : null, r.cls === 'Stocks' ? r.sec || 'Stock' : r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null, r.sales ? 'revenue ' + big(r.sales) : null, r.pe > 0 ? 'P/E ' + (r.pe >= 100 ? Math.round(r.pe) : r.pe.toFixed(1)) : null].filter(Boolean);
+    { const M = window.SRLive && SRLive.market && r.id ? SRLive.market(r.id) : null; if (r.id && SRLive.marketAsk) SRLive.marketAsk([r.id]);   // each row says when its market is shut
+      const shut = M ? (M.delisted ? 'delisted' : M.tradable === false ? 'not tradable now' : M.open === false ? 'market closed' : '') : ''; if (shut) m.push(shut); }
     if (m.length) b.appendChild(el('span', 'sc-m', m.join(' · ')));
     const y = b.appendChild(el('span', 'sc-y'));
     if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));

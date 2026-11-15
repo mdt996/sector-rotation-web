@@ -355,6 +355,8 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .x-big { font-size: 28px; font-weight: 700; margin: 2px 0 8px; }
 .g-group-note { margin: -2px 12px 8px; font-size: 13px; color: var(--color-fg-muted); }
 .g-chip-stake { color: var(--color-ok); border-color: color-mix(in srgb, var(--color-ok) 40%, transparent); }
+.g-chip-shut { color: var(--color-muted, #6b7280); border-style: dashed; }
+.sr-res-chg.is-shut { color: var(--color-muted, #6b7280); }
 .g-holdings-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .g-holdings-head h2 { margin: 0; font-size: 18px; }
 .g-holdings-head .btn { min-height: 44px; }

@@ -638,8 +638,13 @@
       row.appendChild(btn('Open chart', '', () => { closeSheet(); openHolding(h); }));
     });
   }
+  // is a holding's market open (eToro's word, asked for all the holdings at once); coins and cash say nothing
+  const mkt = (h) => { if (h.ticker === 'CASH' || h.pending || !window.SRLive || !SRLive.market || !SRLive.liveOf) return null; const l = SRLive.liveOf(h); return l && !(SRLive.isCoin && SRLive.isCoin(h)) ? SRLive.market(l.id) : null; };
+  if (window.SRLive && SRLive.onMarket) SRLive.onMarket(() => { const p = document.querySelector('#pfolio'); if (p && !p.closest('[hidden]')) SRApp.renderDraw('pfolio'); });
   dash.draw('pfolio', (outer) => {
-    const all = holdings(), H = all.filter((h) => h.value > 0).sort((a, b) => b.value - a.value), T = totals(H), st = planState(all);
+    const all = holdings();
+    if (window.SRLive && SRLive.marketAsk && SRLive.liveOf) SRLive.marketAsk(all.map((h) => { const l = SRLive.liveOf(h); return l && l.id; }));
+    const H = all.filter((h) => h.value > 0).sort((a, b) => b.value - a.value), T = totals(H), st = planState(all);
     outer.replaceChildren();
     // a wide window (the Mac): the total and the plan on the left, every holding on the right; one column on a phone
     const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
@@ -711,6 +716,7 @@
         else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Outside'));
       }
       { const x = S0 && h.tracks === h.ticker ? S0.coins[h.ticker] : null; if (x && (x.staked > 0 || x.n30)) tags.appendChild(el('span', 'g-chip g-chip-stake', x.rate ? `Staking ${rateOf(x.rate)}` : 'Staked')); }
+      { const M = mkt(h); if (M) { const t = M.delisted ? 'Delisted' : M.tradable === false ? 'Not tradable now' : M.open === false ? 'Market closed' : ''; if (t) tags.appendChild(el('span', 'g-chip g-chip-shut', t)); } }
       tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
     }
     // orders not filled yet: shown under their account, not counted (their money is in the cash above)

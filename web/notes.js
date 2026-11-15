@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 100, "text": "Revolut fees are now in the tax estimate (each trade's real fee). ADA shows as staked: it earns on auto-earn, first reward about 20 days after buying. Portfolio shows your cash, with what is reserved for a pending order, and the order apart."};
+window.SR_NOTES = {"build": 101, "text": "Every asset now says whether its market is open, as eToro reports it: on its page (\"Market closed \u00b7 last price 2 days ago\", or open but with no new price, or not tradable), on Portfolio rows, in the screener and in search results. Last-price ages are in minutes, hours or days."};

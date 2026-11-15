@@ -63,6 +63,60 @@
   // ---- live prices pushed by eToro (its public WebSocket): prices tick as in eToro's own app and no longer cost a read every
   // few seconds. Polling stays as the fallback, and as the slow source of the currency conversion the stream does not carry.
   const STREAM = { ws: null, ok: false, subs: new Set(), lastTick: 0, lastMsg: 0, tries: 0, refused: false, refusals: 0, paint: null, lastPaint: 0, state: 'not started', open: new Map() };   // open: instrument -> its market is open (eToro's snapshot)
+
+  // ---- is each asset's market open, for every asset the app shows: eToro's own word. The stream says it with every price of an
+  //      asset on screen (IsMarketOpen); for the others eToro's search says isExchangeOpen, isCurrentlyTradable and isDelisted,
+  //      read for the assets shown at most every 5 minutes, 100 at a time, at the lowest priority. Coins trade around the clock. ----
+  const MK = { m: new Map(), want: new Set(), busy: false, t: null };
+  function marketAsk(ids) {
+    let added = false;
+    for (const x of ids || []) { const id = +x; if (id > 0 && !(id >= 100000 && id < 200000)) { const f = MK.m.get(id); if (!f || Date.now() - f.at > 300000) { MK.want.add(id); added = true; } } }
+    if (added && !MK.t) MK.t = setTimeout(marketRead, 300);
+  }
+  async function marketRead() {
+    MK.t = null;
+    if (MK.busy || !hasKeys() || !SRApp.etoroGet) return;
+    const ids = [...MK.want].slice(0, 100);
+    if (!ids.length) return;
+    MK.busy = true;
+    try {
+      const r = await SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,isExchangeOpen,isCurrentlyTradable,isDelisted,isActiveInPlatform&instrumentId=${ids.join(',')}&pageSize=100`, 2);
+      if (r && r.status === 200) {
+        const j = JSON.parse(r.body), at = Date.now(), b = (v) => (v === true || v === 'true' ? true : v === false || v === 'false' ? false : undefined);
+        for (const it of (j && j.items) || []) MK.m.set(+it.instrumentId, { open: b(it.isExchangeOpen), tradable: b(it.isActiveInPlatform) === false ? false : b(it.isCurrentlyTradable), delisted: b(it.isDelisted), at });   // switched off on eToro: not tradable
+        for (const id of ids) { MK.want.delete(id); if (!MK.m.has(id)) MK.m.set(id, { at }); }
+        for (const f of marketSeen) { try { f(); } catch (e) { /* the next one */ } }
+      }
+    } catch (e) { /* asked again with the next assets shown */ } finally { MK.busy = false; if (MK.want.size && !MK.t) MK.t = setTimeout(marketRead, 3000); }
+  }
+  const marketSeen = new Set();   // what redraws when eToro has said which markets are open
+  // open: true / false / undefined (not known yet); a price that moved in the last 2 minutes means open, whatever was read before
+  function marketOf(id) {
+    id = +id;
+    const q = quotes.get(id), f = MK.m.get(id) || {}, s = STREAM.open.has(id) ? STREAM.open.get(id) : undefined, coin = id >= 100000 && id < 200000;
+    const fresh = !!(q && Date.now() - q.at < 120000);
+    const open = coin ? true : s !== undefined ? s : fresh ? true : f.open;
+    return { open, tradable: f.tradable, delisted: f.delisted, at: q ? q.at : null, fresh };
+  }
+  // how long ago, in words a person reads at a glance: "3 min", "5 h", "2 days (Fri 22:00)"
+  function agoText(t) {
+    if (!(t > 0)) return '';
+    const m = (Date.now() - t) / 60000;
+    if (m < 1) return 'just now';
+    if (m < 60) return `${Math.round(m)} min ago`;
+    if (m < 48 * 60) return `${Math.round(m / 60)} h ago`;
+    const d = new Date(t);
+    return `${Math.round(m / 1440)} days ago (${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })})`;
+  }
+  // the line under an asset's price when its price is not live: closed, open but silent, or no longer traded
+  function marketLine(id) {
+    const M = marketOf(id), ago = agoText(M.at);
+    if (M.delisted) return { k: 'off', text: `Delisted on eToro${ago ? ' · last price ' + ago : ''}` };
+    if (M.tradable === false) return { k: 'off', text: `Not tradable on eToro now${ago ? ' · last price ' + ago : ''}` };
+    if (M.open === false) return { k: 'closed', text: `Market closed${ago ? ' · last price ' + ago : ''}` };
+    if (M.open === true) return { k: 'silent', text: `Market open, but no new price${ago ? ' for ' + ago.replace(' ago', '') : ''}: eToro may have paused it` };
+    return { k: 'unknown', text: `Last price ${ago || '—'} · checking whether the market is open` };
+  }
   const streaming = () => STREAM.ok && Date.now() - STREAM.lastTick < 20000;
   // in words, for the line under an asset's price: why the prices come by request instead of by the stream
   const streamWhy = () => (typeof WebSocket === 'undefined' ? 'no stream in this app' : !hasKeys() ? 'no keys' : STREAM.ok ? (STREAM.lastTick ? 'stream quiet' : 'stream: waiting for a price') : STREAM.state);
@@ -107,7 +161,7 @@
         let c; try { c = typeof x.content === 'string' ? JSON.parse(x.content) : x.content; } catch (e) { continue; }
         if (!c) continue;
         const id = +String(x.topic).split(':')[1], bid = +(c.Bid || c.BidDiscounted), ask = +(c.Ask || c.AskDiscounted), last = +c.LastExecution, price = bid > 0 && ask > 0 ? (bid + ask) / 2 : last || bid || ask;
-        if (c.IsMarketOpen != null) STREAM.open.set(id, String(c.IsMarketOpen) === 'true');
+        if (c.IsMarketOpen != null) { const o = String(c.IsMarketOpen) === 'true'; if (STREAM.open.get(id) !== o) { STREAM.open.set(id, o); for (const f of marketSeen) { try { f(); } catch (e) { /* the next one */ } } } }
         if (!(id > 0) || !(price > 0)) continue;
         // the rate to dollars: from the message itself, else the one already known; without either the price still shows (the asset page needs only the price),
         // and what needs dollars (holdings, the demo account) waits for the next read (a price in pounds taken as dollars would value a holding wrongly)
@@ -575,10 +629,12 @@
       const wr = weeklyRsi(daily);
       badge.textContent = wr > 70 ? `Overheated · weekly RSI ${Math.round(wr)}` : ''; badge.className = 'av-zone' + (wr > 70 ? ' z-hot' : '');
       if (nodata || drawErr || (box.classList.contains('is-loading') && SRApp.etoroState && SRApp.etoroState().wait > 0)) return;   // not frozen while the crosshair stays on the chart after a touch; eToro's limit message stays while the chart waits
-      const age = q ? Math.round((Date.now() - q.at) / 60000) : 0, stale = q && Date.now() - q.at > 120000;
+      const stale = q && Date.now() - q.at > 120000;
       const missed = PRD.err && PRD.errAt > PRD.ok;
-      const status = stale ? `Last price · ${age} min ago · ${missed ? 'latest read failed (' + PRD.err + ')' : PRD.ok ? 'market may be closed' : 'no successful read yet'}`
-        : q ? `Live · ${streaming() ? 'streaming' : `prices every ${views.size ? 3 : 10} s (${streamWhy()})`}` : hasKeys() ? 'Waiting for a live price…' : 'Add eToro keys in Settings for live prices.';
+      marketAsk([inst.id]);
+      const ML = stale || (!q && bars.length) ? marketLine(inst.id) : null;
+      const status = stale && missed ? `Last price ${agoText(q.at)} · latest read failed (${PRD.err})` : ML && (stale || ML.k !== 'unknown') ? ML.text
+        : q ? `Market open · Live · ${streaming() ? 'streaming' : `prices every ${views.size ? 3 : 10} s (${streamWhy()})`}` : hasKeys() ? 'Waiting for a live price…' : 'Add eToro keys in Settings for live prices.';
       sub.textContent = status;
       sub.title = q ? `Price time: ${new Date(q.at).toLocaleTimeString()}${lastLoad ? ` · chart in ${(lastLoad.ms / 1000).toFixed(1)} s${lastLoad.quick ? ' from this device' : ''}` : ''}` : '';
       sub.className = 'av-sub' + (q && !stale ? ' is-live' : stale ? ' is-stale' : '');
@@ -992,9 +1048,11 @@
       if (r.prev == null) { const p = prevSync(r.id); if (p) r.prev = p; }
       b.querySelector('.sr-res-price').textContent = price != null ? fmtP(price) : 'No live price';
       b.classList.toggle('is-stale', price == null && quotesSeen.has(r.id));
-      const c = price != null && r.prev ? price / r.prev - 1 : null, ce = b.querySelector('.sr-res-chg');
-      ce.textContent = c == null ? '' : fmtPct(c); ce.className = 'sr-res-chg ' + cls(c);
+      const c = price != null && r.prev ? price / r.prev - 1 : null, ce = b.querySelector('.sr-res-chg'), M = marketOf(r.id);
+      const shut = M.delisted ? 'delisted' : M.tradable === false ? 'not tradable' : M.open === false ? 'closed' : '';   // each result says when its market is shut
+      ce.textContent = [c == null ? '' : fmtPct(c), shut].filter(Boolean).join(' · '); ce.className = 'sr-res-chg ' + cls(c) + (shut ? ' is-shut' : '');
     }
+    marketAsk([...document.querySelectorAll('#search-results .sr-res')].map((b) => b._r && b._r.id));
   }
   const quotesSeen = new Set();
   ticks.add(() => { for (const id of allIds()) quotesSeen.add(id); if (!sheet() || sheet().hidden) return; paintQuotes(); });
@@ -1206,6 +1264,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();
