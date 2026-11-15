@@ -1069,7 +1069,15 @@
     totals = null;
     const fx = quotes.get(FX), b = base(), fp = fxPrev(), out = {};
     let total = 0, prevTotal = 0, lt = 0, n = 0;
+    // your Revolut X coins at Revolut X's own euro prices (when this device reads Revolut X), so the app shows what Revolut X shows
+    const rx = window.SRRevx && window.SRRevx.values ? window.SRRevx.values() : null, byRevx = new Set();
+    if (rx) for (const h of (S().holdings && S().holdings.data) || []) {
+      const v = h.ticker === h.tracks ? rx[h.ticker] : null; if (!v) continue;
+      out[h.ticker] = { chg: v.chg, value: v.value, chgEur: v.chg != null ? v.value - v.value / (1 + v.chg) : null, proxy: false, symbol: h.ticker, at: v.at, src: 'revx' };
+      total += v.value; n++; prevTotal += v.value / (1 + (v.chg || 0)); if (h.long_term) lt += v.value; byRevx.add(h.ticker);
+    }
     for (const h of holdingsLive()) {
+      if (byRevx.has(h.ticker)) continue;
       const q = quotes.get(h.id); if (!q || !fx || !(q.conv > 0)) continue;
       const pc = prevSync(h.id), eurNow = q.usd / fx.price, eurPrev = pc && fp ? (pc * q.conv) / fp : null;
       const chg = eurPrev ? eurNow / eurPrev - 1 : null;

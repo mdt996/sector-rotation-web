@@ -1,9 +1,11 @@
 // Revolut X (crypto): your coin quantities, read with a read-only key and valued at live eToro prices.
 // The key is made on this device (Ed25519): its secret half never leaves the device and is never synced.
-// Only GET /api/1.0/balances is asked for; the apps let nothing else through to Revolut X.
+// Only GET /api/1.0/balances and /api/1.0/tickers are asked for; the apps let nothing else through to Revolut X.
+// Your Revolut X coins are valued at Revolut X's own euro prices (decided by Matteo on 15 Nov 2026), so the app shows what
+// Revolut X shows; every other price in the app stays eToro's.
 (function () {
   'use strict';
-  const BASE = 'https://revx.revolut.com', PATH = '/api/1.0/balances';
+  const BASE = 'https://revx.revolut.com', PATH = '/api/1.0/balances', TICKERS = '/api/1.0/tickers';
   const CASH = new Set(['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'RON', 'CZK', 'HUF', 'SEK', 'NOK', 'DKK', 'BGN', 'USDC', 'USDT', 'EURC', 'DAI']);
   const EVERY = 15 * 60 * 1000;
   const $ = (id) => document.getElementById(id);
@@ -13,7 +15,7 @@
   const R = () => Object.assign({ apiKey: '', priv: '', pub: '', coins: null, at: 0, msg: '' }, SRApp.config().revx || {});
   function saveR(patch) { const c = SRApp.config(); c.revx = Object.assign(R(), patch); SRApp.saveConfig(c); return c.revx; }
   const appInfo = () => { try { return JSON.parse((window.Native && window.Native.appInfo()) || '{}'); } catch (e) { return {}; } };
-  let busy = false, lastTry = 0;
+  let busy = false, lastTry = 0, lastPx = 0, pxBusy = false;
 
   async function makeKey() {
     const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
@@ -25,9 +27,9 @@
   }
 
   // Revolut X's signature: Ed25519 over timestamp + method + path (+ query + body, none here), in base64
-  async function signedHeaders(r, ts) {
+  async function signedHeaders(r, ts, path) {
     const key = await crypto.subtle.importKey('pkcs8', unb64(r.priv), { name: 'Ed25519' }, false, ['sign']);
-    const sig = await crypto.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(ts + 'GET' + PATH));
+    const sig = await crypto.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(ts + 'GET' + (path || PATH)));
     return { 'X-Revx-API-Key': r.apiKey, 'X-Revx-Timestamp': ts, 'X-Revx-Signature': b64(sig), Accept: 'application/json' };
   }
 
@@ -94,6 +96,40 @@
     return { text: out.join('\n').trim(), changed: touched.size > 0, touched, coins, noPrice };
   }
 
+  // ---- Revolut X's own euro prices (its tickers: the middle of its best bid and ask), every minute while the app is open ----
+  let px = null;   // { at, eur: { SOL: { p, chg } } }
+  function parseTickers(j) {
+    const eur = {}, usd = {};
+    for (const t of (j && j.data) || []) {
+      const [b, q] = String(t.symbol || '').toUpperCase().split(/[/-]/), bid = parseFloat(t.bid), ask = parseFloat(t.ask);
+      const mid = parseFloat(t.mid) > 0 ? parseFloat(t.mid) : bid > 0 && ask > 0 ? (bid + ask) / 2 : parseFloat(t.last_price);
+      if (!b || !(mid > 0)) continue;
+      const last = parseFloat(t.last_price), ch = parseFloat(t.price_change_24h);
+      const chg = last > 0 && isFinite(ch) && last - ch > 0 ? last / (last - ch) - 1 : null;   // the last 24 hours
+      if (q === 'EUR') eur[b] = { p: mid, chg }; else if (q === 'USD') usd[b] = { p: mid, chg };
+    }
+    // a coin traded only in dollars: at Revolut X's own dollar-to-euro rate (bitcoin's price in dollars over its price in euros)
+    const rate = eur.BTC && usd.BTC ? usd.BTC.p / eur.BTC.p : null;
+    if (rate > 0) for (const [b, v] of Object.entries(usd)) if (!eur[b]) eur[b] = { p: v.p / rate, chg: v.chg };
+    return eur;
+  }
+  async function readTickers(r) {
+    const res = await SRApp.request('GET', BASE + TICKERS, await signedHeaders(r, String(Date.now()), TICKERS));
+    if (res.status !== 200) return false;
+    const eur = parseTickers(JSON.parse(res.body));
+    if (!Object.keys(eur).length) return false;
+    px = { at: Date.now(), eur };
+    return true;
+  }
+  // your coins' values at those prices (quantities from the last read of your balances); nothing when they are older than 10 minutes
+  function values() {
+    const r = R();
+    if (!px || !r.coins || Date.now() - px.at > 10 * 60e3) return null;
+    const out = {};
+    for (const [sym, q] of Object.entries(r.coins)) { const t = px.eur[sym]; if (t && q > 0) out[sym] = { value: q * t.p, chg: t.chg, at: px.at, price: t.p }; }
+    return out;
+  }
+
   // after a change, the lines left as they were keep their anchor price (the amounts were typed at that price)
   function rebase(cfg, text, touched) {
     const b = cfg.holdingsBase && cfg.holdingsBase.text === cfg.holdings ? cfg.holdingsBase : null;
@@ -115,8 +151,13 @@
       const bal = JSON.parse(res.body);
       if (!Array.isArray(bal)) { saveR({ msg: 'Revolut X sent an unexpected answer.' }); return show('Revolut X sent an unexpected answer.', true); }
       const syms = bal.filter((b) => parseFloat(b.total) > 0).map((b) => String(b.currency || '').toUpperCase()).filter((s) => s && !CASH.has(s));
-      let eur;
-      try { eur = await eurPrices(syms); } catch (e) { const m = 'Read your coins, but eToro gave no prices (' + e.message + '): nothing changed.'; saveR({ msg: m }); return show(m, true); }
+      // Revolut X's own euro prices first; eToro's for a coin Revolut X gives none for
+      try { if (await readTickers(r)) lastPx = Date.now(); } catch (e) { /* eToro's below */ }
+      let eur = {};
+      const fromRevx = px && Date.now() - px.at < 10 * 60e3 ? px.eur : {};
+      for (const sym of syms) if (fromRevx[sym]) eur[sym] = fromRevx[sym].p;
+      const rest = syms.filter((x) => !(eur[x] > 0));
+      if (rest.length) { try { Object.assign(eur, await eurPrices(rest)); } catch (e) { if (!Object.keys(eur).length) { const m = 'Read your coins, but got no prices (' + e.message + '): nothing changed.'; saveR({ msg: m }); return show(m, true); } } }
       // the other devices' latest holdings first, so this read never writes back an older copy of them
       if (window.SRSync && window.SRSync.pull) { try { await window.SRSync.pull(); } catch (e) { /* this device's copy */ } }
       const cfg = SRApp.config();
@@ -124,7 +165,7 @@
       const m = merge(cfg.holdings, bal, eur, r.coins);
       const n = Object.keys(m.coins).length, at = Date.now();
       let msg = `Read at ${hhmm(at)}: ${n} coin${n === 1 ? '' : 's'}${m.changed ? ', holdings updated' : ', no change'}.`;
-      if (m.noPrice.length) msg += ` No eToro price for ${m.noPrice.join(', ')}: kept as typed.`;
+      if (m.noPrice.length) msg += ` No price for ${m.noPrice.join(', ')}: kept as typed.`;
       if (m.changed) {
         const base = rebase(cfg, m.text, m.touched);
         cfg.holdings = m.text;
@@ -189,8 +230,15 @@
 
   // when the app opens, when you come back to it, and every 15 minutes while it is open (only on the device that has the key)
   const due = () => { const r = R(); return r.priv && r.apiKey && !document.hidden && Date.now() - Math.max(r.at || 0, lastTry) > EVERY; };
-  const tick = () => { if (due()) read(false); };
-  window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, PATH, BASE };
+  const tick = () => {
+    if (due()) { read(false); return; }
+    const r = R();
+    if (r.priv && r.apiKey && r.coins && !document.hidden && !busy && !pxBusy && Date.now() - lastPx > 55e3) {
+      pxBusy = true; lastPx = Date.now();
+      readTickers(r).catch(() => false).then(() => { pxBusy = false; });
+    }
+  };
+  window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, values, parseTickers, PATH, BASE };
   wire();
   setTimeout(tick, 4000);
   setInterval(tick, 60 * 1000);
