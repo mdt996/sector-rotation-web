@@ -67,6 +67,8 @@ async function page() {
     '<link rel="manifest" href="/app.webmanifest">',
     at('webshim.js') ? `<script src="${at('webshim.js')}"></script>` : '',
   ].filter(Boolean).join('\n');
+  // edge to edge on the iPhone; the styles keep clear of the status bar, the rounded corners and the home bar
+  html = html.replace(/<meta name="viewport" content="([^"]*)">/, (all, c) => `<meta name="viewport" content="${/viewport-fit/.test(c) ? c : c + ', viewport-fit=cover'}">`);
   html = html.replace(/<head>/i, '<head>\n' + head);
   return new Response(html, { headers: { 'Content-Type': TYPES.html, ...NO_STORE } });
 }

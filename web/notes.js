@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 94, "text": "Sector Rotation now also runs on the iPhone: the same screens in Safari, added to the home screen, in the same sync as your phone and Mac."};
+window.SR_NOTES = {"build": 95, "text": "On the iPhone the app now fits the rounded screen: the top bar clears the camera island and the tab bar sits above the home bar."};
