@@ -215,7 +215,7 @@
   // ---- tabs and sub-tabs: each block of the dashboard page belongs to one of them; only what's open is drawn ----
   const TABS = {
     today: [['', ['today']]],
-    portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']]],
+    portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']], ['Taxes', ['ptax']], ['eToro taxes', ['petax']]],
     markets: [['Screener', ['screener']], ['Sectors', ['rotboard']], ['All funds', ['ranking']]],
     trading: [['Overview', ['trade']], ['Positions', ['tradepos']], ['History', ['tradehist']], ['Progress', ['tradeprog']], ['Review', ['tradereview']]],
     plan: [['Plan', ['plan']], ['26-year test', ['backtest']]],

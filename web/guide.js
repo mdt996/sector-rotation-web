@@ -617,6 +617,7 @@
     kv(s, 'It pays', x.perDay > 0 ? `about ${fq(x.perDay)} ${c} a day (${eurs(x.perDayEur)}), ${eurs(x.perDayEur * 30)} a month` : 'No reward in the last 30 days yet: a new stake starts earning after a few days.');
     if (x.last) kv(s, 'Last reward', `+${fq(x.last.q)} ${c} (${eurs(x.lastEur)}), ${whenOf(x.last.t)}`);
     if (x.n30) kv(s, 'Last 30 days', `+${fq(x.d30)} ${c} (${eurs(x.d30Eur)}) in ${x.n30} payment${x.n30 === 1 ? '' : 's'}`);
+    if (x.all > 0) kv(s, 'Earned so far', `+${fq(x.all)} ${c}, worth ${eurs(x.allEur)} now${x.since ? `, since ${new Date(x.since + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}`);
     if (S.at) s.appendChild(el('div', 'g-hint', `Rewards read by ${S.by || 'a device'} ${whenOf(S.at)}. The yearly rate is the pace of the last 7 days on today's staked amount, before compounding.`));
   }
   function holdingSheet(h, st, H) {
@@ -648,6 +649,11 @@
     } else if (!st.P) {
       const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan', 0)));
     }
+    // the tax so far this year and if everything were sold now (live), from tax.js; tap for the Taxes tab
+    { const T = window.SRTax ? (() => { try { return window.SRTax.summary(); } catch (e) { return null; } })() : null;
+      if (T) { const c = card(box, 'tax'); const both = T.comb ? T.comb.tax : T.R.due.tax, all = T.combAll ? T.combAll.tax : T.R.all.tax;
+        c.appendChild(el('div', 'g-line', `Tax for ${T.y} so far: ${eurc(both)}${T.comb ? ' (Revolut and eToro)' : ''} · if you sold everything now: ${eurc(all)}`));
+        c.appendChild(btn('Taxes', '', () => go('portfolio', 2))); } }
     const toolbar = right.appendChild(el('div', 'g-holdings-head'));
     toolbar.appendChild(el('h2', '', 'Holdings'));
     toolbar.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
@@ -678,7 +684,7 @@
       const S = g.H.some((h) => S0 && S0.coins[h.ticker] && h.tracks === h.ticker) ? S0 : null;
       if (S && S.perDayEur > 0) {
         const n = list.appendChild(el('div', 'g-group-note'));
-        n.textContent = `Staking pays about ${eurs(S.perDayEur)} a day (${eurs(S.perDayEur * 30)} a month)${S.rate ? `, about ${rateOf(S.rate)} a year` : ''}${S.last ? ` · last reward ${whenOf(S.last.t)} (${S.last.c})` : ''}`;
+        n.textContent = `Staking pays about ${eurs(S.perDayEur)} a day (${eurs(S.perDayEur * 30)} a month)${S.rate ? `, about ${rateOf(S.rate)} a year` : ''}${S.allEur > 0 ? ` · earned so far ${eurs(S.allEur)}` : ''}${S.last ? ` · last reward ${whenOf(S.last.t)} (${S.last.c})` : ''}`;
       } else if (S) list.appendChild(el('div', 'g-group-note', 'Staked on Revolut X: the rewards show here once a device has read them.'));
     }
     for (const h of g.H) {
@@ -791,5 +797,5 @@
   setInterval(() => { if (document.hidden || ui.busy) return; SRApp.renderDraw('today'); SRApp.renderDraw('pfolio'); }, 10000);
   setInterval(() => { if (!document.hidden && plan().id === 'smh') loadSignal(); }, 5 * 60000);
   SRApp.onChange(() => { if (plan().id === 'smh') { if (window.SRLive && window.SRLive.want) window.SRLive.want('guide', [SMH_ID]); loadSignal(); } });
-  window.SRGuide = { PLANS, planState: () => planState(holdings()), swingOrders: () => { const H = holdings(); return swingOrders(H, planState(H)); }, signal: () => sig, computeSignal, weekEnd };
+  window.SRGuide = { PLANS, holdings, planState: () => planState(holdings()), swingOrders: () => { const H = holdings(); return swingOrders(H, planState(H)); }, signal: () => sig, computeSignal, weekEnd };
 })();
