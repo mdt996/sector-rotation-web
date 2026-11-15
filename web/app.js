@@ -74,7 +74,7 @@
     let info = {};
     try { info = JSON.parse((N && N.appInfo && N.appInfo()) || '{}'); } catch (e) { info = {}; }
     $('app-version').textContent = info.version ? 'Version ' + info.version : '';
-    $('alerts-block').hidden = info.platform === 'mac'; // background alerts are the phone's
+    $('alerts-block').hidden = info.platform === 'mac' || info.platform === 'web'; // background alerts are the Android phone's
     showUpdateInfo();
   }
   // screens and logic update themselves from the public repository; this line says which copy is running

@@ -9,7 +9,7 @@
   const b64d = (s) => decodeURIComponent(escape(atob(String(s).replace(/\s/g, ''))));
   const token = () => String(SRApp.config().syncToken || '').replace(/\s+/g, '');
   const headers = (t) => ({ Authorization: 'Bearer ' + t, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' });
-  const device = () => { try { return JSON.parse(window.Native.appInfo() || '{}').platform === 'mac' ? 'Mac' : 'phone'; } catch (e) { return 'phone'; } };
+  const device = () => { try { return { mac: 'Mac', web: 'iPhone' }[JSON.parse(window.Native.appInfo() || '{}').platform] || 'phone'; } catch (e) { return 'phone'; } };
   const hhmm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   let sha = null, busy = null, status = '', lastPull = 0, pushTimer = null;
 
@@ -78,7 +78,7 @@
     if (got.none || (cfg.syncDirty && (!got.doc || cfg.syncDirty > (got.doc.at || 0)))) return pushNow(t);
     const doc = got.doc;
     if ((doc.at || 0) > (cfg.syncAt || 0)) apply(doc);
-    const who = doc.device === 'phone' || doc.device === 'Mac' ? 'the ' + doc.device : doc.device || 'the other device';
+    const who = ['phone', 'Mac', 'iPhone'].includes(doc.device) ? 'the ' + doc.device : doc.device || 'the other device';
     setStatus(`Synced at ${hhmm(Date.now())}: last change from ${who}, ${new Date(doc.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`);
   }
   const once = (fn) => () => { if (!busy) busy = fn().catch((e) => setStatus('Sync failed: ' + (e && e.message ? e.message : e))).finally(() => { busy = null; }); return busy; };
