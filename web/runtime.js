@@ -536,7 +536,7 @@
           job.tries++;
           if (job.sentAt >= EQ.strikeAt) { EQ.strikes = Math.min(EQ.strikes + 1, 4); EQ.strikeAt = t; EQ.pauseUntil = t + 4000 * Math.pow(2, EQ.strikes - 1); }   // one strike per burst, not per request
           EQ.q.push(job);
-        } else if ((r.status === 0 || r.status >= 500) && job.prio >= 2 && job.tries < 2) { job.tries++; setTimeout(() => { EQ.q.push(job); pump(); }, 1200 * job.tries); }   // a lost connection or a server error: two more tries
+        } else if ((r.status === 0 || r.status >= 500) && job.prio >= 2 && job.prio < 2.5 && job.tries < 2) { job.tries++; setTimeout(() => { EQ.q.push(job); pump(); }, 1200 * job.tries); }   // a lost connection or a server error: two more tries (not for the account's reading, prio 2.5: it is read again 5 s later anyway)
         else { if (r.status === 200) EQ.strikes = 0; EQ.log.push({ at: t, ms: t - job.sentAt, wait: job.sentAt - job.queuedAt, status: r.status, prio: job.prio }); if (EQ.log.length > 400) EQ.log.splice(0, 100); job.resolve(r); }   // for Settings > Speed on this phone
         pump();
       });

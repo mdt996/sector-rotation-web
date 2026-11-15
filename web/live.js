@@ -52,7 +52,7 @@
       for (const q of j.rates || []) {
         const p = q.bid > 0 && q.ask > 0 ? (q.bid + q.ask) / 2 : q.lastExecution || q.bid || q.ask;
         const conv = q.conversionRateBid > 0 ? q.conversionRateBid : 1;
-        if (p > 0) quotes.set(q.instrumentID, { price: p, bid: +q.bid || null, ask: +q.ask || null, usd: p * conv, conv, convAsk: +q.conversionRateAsk > 0 ? +q.conversionRateAsk : null, at: Date.parse(q.date) || Date.now() });
+        if (p > 0) quotes.set(q.instrumentID, { price: p, bid: +q.bid || null, ask: +q.ask || null, usd: p * conv, conv, convAsk: +q.conversionRateAsk > 0 ? +q.conversionRateAsk : null, at: Date.parse(q.date) || Date.now(), got: Date.now() });
       }
       runTicks(true);
     } catch (e) { /* the next round tries again */ } finally { busy = false; }
@@ -109,7 +109,7 @@
         // the rate to dollars: from the message itself, else the one already known; without either, wait for the next read (a price in pounds taken as dollars would value a holding wrongly)
         const old = quotes.get(id), cvm = +c.ConversionRateBid, conv = cvm > 0 ? cvm : old && old.conv > 0 ? old.conv : null; if (conv == null) continue;
         const cva = +c.ConversionRateAsk > 0 ? +c.ConversionRateAsk : old && old.convAsk > 0 ? old.convAsk : null;
-        quotes.set(id, { price, bid: bid > 0 ? bid : null, ask: ask > 0 ? ask : null, usd: price * conv, conv, convAsk: cva, at: Date.parse(c.Date) || Date.now() }); got = true;
+        quotes.set(id, { price, bid: bid > 0 ? bid : null, ask: ask > 0 ? ask : null, usd: price * conv, conv, convAsk: cva, at: Date.parse(c.Date) || Date.now(), got: Date.now() }); got = true;
       }
       if (got) { STREAM.lastTick = Date.now(); STREAM.state = 'streaming'; paintSoon(); }   // the open asset repaints up to four times a second; the portfolio screens every 5 s, so that a list being read does not move
     };
@@ -1143,8 +1143,10 @@
     if (!q || !(q.bid > 0) || !(q.ask > 0) || !(open > 0)) return api;
     const live = o.isBuy ? q.conv : q.convAsk || q.conv, conv = live > 0 ? live : +u.closeConversionRate > 0 ? +u.closeConversionRate : 1, oc = +o.openConversionRate > 0 ? +o.openConversionRate : conv;
     const units = +o.units > 0 ? +o.units : +o.amount > 0 ? +o.amount * (+o.leverage || 1) / (open * oc) : 0; if (!(units > 0)) return api;   // eToro always gives the units; the money ÷ the opening price otherwise
-    const ts = Date.parse(u.timestamp), rate = o.isBuy ? q.bid : q.ask;
-    if ((ts && q.at < ts - 300000) || (api.rate && Math.abs(rate / api.rate - 1) > 0.1)) return api;   // an older price, or a jump of more than 10%: a wrong price, not a move
+    const rate = o.isBuy ? q.bid : q.ask, old = q.got > 0 && Date.now() - q.got > 300000;
+    // the price's own time is not used: with the market shut (a weekend, a holiday) eToro's price is Friday's and still the right one.
+    // Not used: a price this device last received more than 5 minutes ago that differs from eToro's, or a jump of more than 10% (a wrong price, not a move)
+    if ((old && api.rate && rate !== api.rate) || (api.rate && Math.abs(rate / api.rate - 1) > 0.1)) return api;
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }

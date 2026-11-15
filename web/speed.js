@@ -37,13 +37,14 @@
     box.appendChild(dl);
   }
   // one line at the top of Settings: is everything the app depends on up to date?
-  let meta = null, metaAsked = false;
+  let meta = null, metaAsked = false; const oneRead = () => false;   // one reading of the account, no repaint after it
   function status(p) {
     const S2 = window.SRScreen, parts = [], ago = (t) => { const m = (Date.now() - t) / 60e3; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
     const add = (k, v, ok) => parts.push([k, v, ok]);
     try { const P = S2 && S2.practice ? S2.practice() : null; if (P && P.made) add('VM', ago(Date.parse(P.made)), !(S2.vmSilent && S2.vmSilent())); else add('VM', 'no record yet', false); } catch (e) { /* not ready */ }
     try { const m = S2 && S2.scanMade ? S2.scanMade() : null; if (m) { const t = Date.parse(String(m).slice(0, 10) + 'T12:00:00Z'); add('Scan', new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), Date.now() - t < 4 * 864e5); } } catch (e) { /* not ready */ }
     try { const D = S2 && S2.demo ? S2.demo() : null; if (D && D.at) add('Account', ago(D.at), !D.err && Date.now() - D.at < 120000); else if (D) add('Account', D.err ? 'not read' : 'not read yet', false); } catch (e) { /* not ready */ }
+    try { if (S2 && S2.demoWatch) { const D = S2.demo(); if (!D.at || Date.now() - D.at > 60000) S2.demoWatch(oneRead); } if (S2 && S2.loadPractice) S2.loadPractice(); } catch (e) { /* not ready */ }   // Settings asks for them itself
     if (!metaAsked && window.SRSync && window.SRSync.getFile) { metaAsked = true; window.SRSync.getFile('about/meta.json').then((j) => { meta = j; }).catch(() => { metaAsked = false; }); }
     if (meta && meta.looked) add('Descriptions', `${meta.described.toLocaleString('en-US')} of ${meta.looked.toLocaleString('en-US')} shares`, Date.now() - Date.parse(meta.made) < 40 * 864e5);
     p.replaceChildren(); for (const [k, v, ok] of parts) { const s = p.appendChild(document.createElement('span')); s.className = 'sp-st ' + (ok ? 'ok' : 'warn'); s.textContent = `${k} ${v}`; }
