@@ -57,7 +57,7 @@
       if (!L.length) box.textContent = 'No alert set. Open an asset and tap "Alert me" above its chart.';
       for (const a of L) { const b = document.createElement('button'); b.type = 'button'; b.className = 'cfg-alert'; b.textContent = `${a.sym} · ${(a.f || ['1D']).join(', ')}  ✕`; b.title = 'Remove this alert';
         b.addEventListener('click', () => { const cur = SRApp.config(); SRApp.saveConfig({ ...cur, alerts: (cur.alerts || []).filter((x) => x.id !== a.id) }); b.remove(); if (window.SRSync && window.SRSync.pushSoon) window.SRSync.pushSoon(); }); box.appendChild(b); } }
-    $('cfg-holdings').value = c.holdings || '';
+    $('cfg-holdings').value = c.holdings || ''; filledHoldings = c.holdings || '';
     $('cfg-sync').value = c.syncToken || '';
     if (window.SRSync) window.SRSync.showStatus();
     $('cfg-holdings').placeholder = (window.SR_HOLDINGS || []).map((h) => h.ticker + (h.tracks !== h.ticker ? ' = ' + h.tracks : '') + (h.long_term ? ' long' : '')).join('\n');
@@ -121,6 +121,7 @@
     bar.querySelector('button').addEventListener('click', () => bar.remove());
     document.body.appendChild(bar);
   }
+  let filledHoldings = null;   // the holdings as the sheet showed them when it opened
   function openSettings(focus) {
     fill(); sheet.hidden = false; document.body.classList.add('sheet-open');
     const body = sheet.querySelector('.settings-body');
@@ -146,7 +147,8 @@
       notifyRegime: $('cfg-regime').checked,
       notifyHoldings: $('cfg-holdon').checked,
       notifyAlerts: $('cfg-alerton').checked,
-      holdings: $('cfg-holdings').value.trim(),
+      // holdings not touched in this sheet stay as they are now: another device (or Revolut X) may have updated them while it was open
+      holdings: $('cfg-holdings').value.trim() === String(filledHoldings || '').trim() ? SRApp.config().holdings : $('cfg-holdings').value.trim(),
     });
     const prevToken = SRApp.config().syncToken || '';
     c.syncToken = $('cfg-sync').value.replace(/\s+/g, '');

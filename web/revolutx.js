@@ -20,8 +20,7 @@
     const priv = b64(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
     const spki = b64(await crypto.subtle.exportKey('spki', kp.publicKey));
     const pub = '-----BEGIN PUBLIC KEY-----\n' + spki.match(/.{1,64}/g).join('\n') + '\n-----END PUBLIC KEY-----';
-    const c = SRApp.config(); c.revxPub = pub; SRApp.saveConfig(c);         // the public half (not secret) syncs, so it can be pasted into Revolut X from another device
-    if (window.SRSync) window.SRSync.pushSoon();
+    const c = SRApp.config(); c.revxPub = pub; SRApp.saveConfig(c);         // the public half (not secret) goes with the next sync, so it can be pasted into Revolut X from another device
     return saveR({ priv, pub, apiKey: '', coins: null, at: 0, msg: '' });   // a new key needs a new API key in Revolut X
   }
 
@@ -118,6 +117,8 @@
       const syms = bal.filter((b) => parseFloat(b.total) > 0).map((b) => String(b.currency || '').toUpperCase()).filter((s) => s && !CASH.has(s));
       let eur;
       try { eur = await eurPrices(syms); } catch (e) { const m = 'Read your coins, but eToro gave no prices (' + e.message + '): nothing changed.'; saveR({ msg: m }); return show(m, true); }
+      // the other devices' latest holdings first, so this read never writes back an older copy of them
+      if (window.SRSync && window.SRSync.pull) { try { await window.SRSync.pull(); } catch (e) { /* this device's copy */ } }
       const cfg = SRApp.config();
       if (!String(cfg.holdings || '').trim()) { const m = 'Type your holdings in Holdings first: the coins are added to them.'; saveR({ msg: m }); return show(m, true); }
       const m = merge(cfg.holdings, bal, eur, r.coins);
@@ -151,7 +152,7 @@
         : !r.apiKey ? 'Key made on this device. Paste its public key in Revolut X, then the API key below.'
           : r.at ? `Connected (read only). ${r.msg || ''}` : 'API key saved. Tap Read my coins.';
     $('revx-pub-box').hidden = !r.pub; $('btn-revx-copy').hidden = !r.pub;
-    $('revx-pub').value = r.pub || '';
+    $('revx-pub').value = r.pub || '';   // as Revolut X wants it, BEGIN and END lines included; Copy takes it whole
     $('btn-revx-key').textContent = r.priv ? 'Make a new key' : 'Make a key';
     if (appInfo().revx !== true && window.Native) $('revx-app').hidden = false;
   }
@@ -166,11 +167,18 @@
       armed = 0;
       try { await makeKey(); fill(); show('Key made. Copy the public key into Revolut X.'); } catch (e) { show('Could not make the key: ' + (e && e.message ? e.message : 'this device does not support it') + '.', true); }
     });
+    // copies the whole public key as Revolut X wants it (with its BEGIN and END lines), in one tap
     $('btn-revx-copy').addEventListener('click', async () => {
-      const t = $('revx-pub'); let ok = false;
-      try { await navigator.clipboard.writeText(t.value); ok = true; } catch (e) { /* the older way below */ }
-      if (!ok) { try { t.focus(); t.select(); ok = document.execCommand('copy'); } catch (e) { ok = false; } }
-      show(ok ? 'Public key copied.' : 'Select the key above and copy it.', !ok);
+      const pem = R().pub; let ok = false;
+      if (!pem) return;
+      try { await navigator.clipboard.writeText(pem); ok = true; } catch (e) { /* the older way below */ }
+      if (!ok) {
+        const t = document.createElement('textarea'); t.value = pem; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.opacity = '0';
+        document.body.appendChild(t); t.select();
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        t.remove();
+      }
+      show(ok ? 'Copied. Paste it in Revolut X → Profile → API keys → Chiave pubblica.' : 'Could not copy: tap the key, select all and copy.', !ok);
     });
     $('btn-revx-read').addEventListener('click', () => { keepApiKey(); read(true); });
     $('cfg-revx').addEventListener('change', keepApiKey);

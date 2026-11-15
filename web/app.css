@@ -333,6 +333,8 @@ button.g-chip { font-size: 14px; padding: 6px 12px; }
 .g-bar-v { text-align: right; color: var(--color-fg-muted); }
 .g-list { display: grid; gap: 2px; margin-bottom: 12px; }
 .g-row { font: inherit; color: inherit; text-align: left; display: grid; grid-template-columns: 1fr auto; grid-template-areas: "a v" "t v"; gap: 2px 12px; padding: 10px 12px; background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: 14px; margin-bottom: 4px; cursor: pointer; }
+.g-row.has-logo { grid-template-columns: auto 1fr auto; grid-template-areas: "l a v" "l t v"; }
+.g-row.has-logo > .sr-logo { grid-area: l; align-self: center; }
 .g-row-a { grid-area: a; display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .g-row-n { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .g-row-v { grid-area: v; align-self: center; text-align: right; display: grid; font-variant-numeric: tabular-nums; }

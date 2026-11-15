@@ -632,20 +632,25 @@
       else c.appendChild(el('div', 'g-hint', 'Add what you paid in Settings to see estimated tax.')); };
     if (two) costs();
     // grouped by account when the holdings name them ("Investments:", "Revolut X:"), in the order they are typed, each with its live total
-    const order = [...new Set(all.map((h) => h.account || ''))], grouped = order.length > 1 || order[0] !== '';
-    const groups = grouped ? order.map((a) => ({ name: a || 'Other', H: H.filter((h) => (h.account || '') === a) })).filter((g) => g.H.length) : [{ name: '', H }];
+    // with no group lines, coins held as such go under Revolut X and everything else under Investments (as in Revolut)
+    const named = all.some((h) => h.account), coin = (h) => !!(window.SRLive && SRLive.isCoin && SRLive.isCoin(h));
+    const acc = (h) => named ? h.account || 'Other' : coin(h) ? 'Revolut X' : 'Investments';
+    const order = named ? [...new Set(all.map(acc))] : ['Investments', 'Revolut X'];
+    const groups = order.map((a) => ({ name: a, H: H.filter((h) => acc(h) === a) })).filter((g) => g.H.length);
+    if (groups.length === 1 && !named) groups[0].name = '';
     for (const g of groups) {
     const list = right.appendChild(el('div', 'g-list'));
     if (g.name) {
       const sum = d3.sum(g.H, (h) => h.value), withChg = g.H.filter((h) => h.chg != null), was = d3.sum(withChg, (h) => h.value / (1 + h.chg)), now = d3.sum(withChg, (h) => h.value), d = now - was;
       const head = list.appendChild(el('div', 'g-group-h'));
-      const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); l.appendChild(el('span', 'g-muted', T.total ? ` ${p0(sum / T.total)}` : ''));
+      const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); const all$ = d3.sum(H, (h) => h.value); l.appendChild(el('span', 'g-muted', all$ ? ` ${p0(sum / all$)}` : ''));
       const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eur(sum)));
       v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? `${eur(d, true)} ${pct(was ? d / was : 0)}` : 'not live'));
     }
     for (const h of g.H) {
       const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
       r.addEventListener('click', () => holdingSheet(h, st, all));
+      { const l = window.SRLive && SRLive.liveOf ? SRLive.liveOf(h) : null, lg = window.SRLogo ? window.SRLogo.logo(l ? l.id : 0, h.ticker, 32) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
       const a = r.appendChild(el('div', 'g-row-a'));
       a.appendChild(el('b', '', h.ticker));
       a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : '')));

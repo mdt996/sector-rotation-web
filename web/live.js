@@ -1037,6 +1037,8 @@
     HBAR: 100061, SOL: 100063, CRV: 100068, FET: 100079, SAND: 100084, AVAX: 100085, APT: 100315, ONDO: 100323, SEI: 100326, INJ: 100330, ARB: 100333,
     RENDER: 100334, OP: 100335, NEAR: 100337, TIA: 100338, SUI: 100340, ICP: 100417, TAO: 100418, HYPE: 100446, KAS: 100459, JUP: 100462 };
   const idOfAny = (sym) => SRApp.idOf(sym) || LIVE_IDS[sym] || null;
+  const COINS = new Set([...Object.keys(LIVE_IDS).filter((k) => LIVE_IDS[k] >= 100000), 'TON', 'PEPE', 'SHIB', 'BONK', 'EOS', 'IOTA', 'USDC', 'USDT']);
+  const isCoin = (h) => !!h && h.ticker === h.tracks && COINS.has(h.ticker);
   function liveOf(h) {
     const t = TWINS[h.ticker];
     if (t) return { id: t[0], symbol: t[1], proxy: false };
@@ -1162,6 +1164,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { preload, positionPL, liveIdOf: idOfAny, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => (STREAM.open.has(id) ? STREAM.open.get(id) : undefined), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();
