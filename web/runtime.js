@@ -556,10 +556,24 @@
     if (!(cfg.apiKey && cfg.userKey)) return { status: 0, body: '', reason: 'no keys' };
     return etoroSend('https://public-api.etoro.com' + path, etoroHeaders(cfg.apiKey, cfg.userKey), prio);
   }
+  // a redraw (live prices every few seconds) keeps the page where you are: the section keeps its height while it is rebuilt, and
+  // the page's scroll position is put back if the rebuild moved it
   function renderDraw(name) {
     const fn = draws[name];
-    if (fn) document.querySelectorAll('[data-draw="' + name + '"]').forEach((el) => { if (!el.closest('[hidden]')) safe(() => fn(el)); });
+    if (!fn) return;
+    const se = document.scrollingElement || document.documentElement, y = se ? se.scrollTop : 0;
+    document.querySelectorAll('[data-draw="' + name + '"]').forEach((el) => {
+      if (el.closest('[hidden]')) return;
+      const h = y > 0 ? el.offsetHeight : 0; if (h) el.style.minHeight = h + 'px';
+      safe(() => fn(el));
+      if (h) el.style.minHeight = '';
+    });
+    if (se && y > 0 && Math.abs(se.scrollTop - y) > 1) se.scrollTop = y;
+    // ...and once more on the next frames, for web views that move it a moment later (unless you scrolled meanwhile)
+    if (se && y > 0 && typeof requestAnimationFrame === 'function') { const u0 = userMoved; const back = () => { if (userMoved === u0 && Math.abs(se.scrollTop - y) > 1) se.scrollTop = y; }; requestAnimationFrame(() => { back(); setTimeout(back, 120); }); }
   }
+  let userMoved = 0;   // the last time you touched, scrolled or typed: a scroll after that is yours, not a redraw's
+  if (typeof window.addEventListener === 'function') ['touchstart', 'touchmove', 'wheel', 'keydown', 'pointerdown'].forEach((t) => window.addEventListener(t, () => { userMoved = Date.now(); }, { passive: true, capture: true }));
   function applyConfig() { setHoldings(); recompute(); emit(); } // after settings arrive from another device
   const idOf = (sym) => (DATASETS.find((d) => d[0] === sym) || [])[1] || null;
   // Draws replace some sections every few seconds; keep disclosure state by section.
