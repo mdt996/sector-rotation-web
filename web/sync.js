@@ -103,7 +103,14 @@
   // another file of the private repository (the nightly scan's ranking): read-only
   // GitHub's usual answer carries the file only up to 1 MB: the raw form is asked for, which has no such limit (the scan's ranking grows with its list of assets)
   async function getFile(name) {
-    const t = token(); if (!t) return null;
+    const t = token();
+    if (!t) {   // other people's phones: the same market files, read-only, through the app's Worker (never the settings or the demo account's record)
+      if (!/^(scan\.json|scanmeta\.json|about\/(meta|\d{2})\.json|packs\/\d{1,8}\.json)$/.test(name)) return null;
+      let web = false; try { web = JSON.parse(window.Native.appInfo() || '{}').platform === 'web'; } catch (e) { web = false; }
+      const r = await SRApp.request('GET', (web ? location.origin : 'https://sector-rotation.mdt996.workers.dev') + '/data/' + name);
+      if (r.status !== 200) return null;
+      try { return JSON.parse(r.body); } catch (e) { return null; }
+    }
     // the candle files live on their own branch ("packs": one commit, replaced when they are rewritten, so the repository does not grow); the main branch is tried if a file is not there
     const url = API.replace(/settings\.json$/, name) + '?t=' + Date.now(), hd = { ...headers(t), Accept: 'application/vnd.github.raw+json' };
     let r = await SRApp.request('GET', url + (/^packs\//.test(name) ? '&ref=packs' : ''), hd);
@@ -112,7 +119,7 @@
     const j = JSON.parse(r.body);
     return j && typeof j.content === 'string' && j.encoding === 'base64' && j.sha ? JSON.parse(b64d(j.content)) : j;   // the usual answer, if the raw form was not given
   }
-  window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus, getFile };
+  window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus, getFile, readFile: getFile };   // readFile: the reader itself, also where a check stands in for getFile
   // when the app opens, when you come back to it, and every 5 minutes while it is open
   setTimeout(pullOnce, 1500);
   setInterval(() => { if (!document.hidden) pullOnce(); }, 5 * 60 * 1000);

@@ -427,13 +427,26 @@
     <p class="hint" id="bg-status"></p>
     <p class="hint">Samsung can delay background checks to save battery. For on-time alerts: Settings → Apps → Sector Rotation → Battery → Unrestricted.</p>
     </details>
-    <details class="sr-disclosure"><summary>Sync</summary>
+    <details class="sr-disclosure" id="settings-acct"><summary>Your account</summary>
+      <p class="hint" id="acct-status"></p>
+      <div id="acct-form">
+        <label class="field"><span>Username</span><input id="acct-user" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
+        <label class="field"><span>Password (8 characters or more)</span><input id="acct-pass" type="password" autocomplete="current-password"></label>
+        <div class="row"><button id="btn-acct-in" class="btn primary" type="button">Sign in</button><button id="btn-acct-new" class="btn" type="button">Create account</button></div>
+      </div>
+      <div class="row" id="acct-signed" hidden><button id="btn-acct-sync" class="btn" type="button">Sync now</button><button id="btn-acct-out" class="btn" type="button">Sign out</button></div>
+      <details class="settings-help"><summary>How it works</summary>
+        <p class="hint">Your settings and keys (eToro, Revolut X) are encrypted on this phone with your password before they are saved, so they follow you on your other phones and nobody else can read them, not even the app's owner. A forgotten password cannot be recovered: you would add your keys again.</p>
+      </details>
+    </details>
+    <details class="sr-disclosure"><summary>Sync (owner)</summary>
       <label class="field"><span>GitHub key for sector-rotation-sync</span><input id="cfg-sync" type="password" autocomplete="off" spellcheck="false"></label>
       <p class="hint" id="sync-status"></p>
-      <p class="hint">Syncs holdings, watchlists and alert settings. eToro keys stay on each device.</p>
+      <p class="hint">The owner's devices only. Syncs holdings, watchlists and alert settings. eToro keys stay on each device.</p>
     </details>
     <details class="sr-disclosure"><summary>About</summary>
-      <p class="hint">Market analysis, not investment advice. <a href="https://claude.ai/artifact/CRz7cdnRQwsBc6vpZLqPLJ">Open the Claude dashboard</a>.</p>
+      <p class="hint">Market analysis, not investment advice.</p>
+      <p class="hint">The app for another phone (iPhone or Android): <a href="https://sector-rotation.mdt996.workers.dev/get">sector-rotation.mdt996.workers.dev/get</a>. Install a new Android app over the old one, never after uninstalling it (that erases the keys).</p>
     </details>
   </div>
   <div class="sheet-foot"><button id="btn-save" class="btn primary" type="button">Save and refresh</button></div>
@@ -462,6 +475,7 @@
 <script src="tastats.js"></script>
 <script src="live.js"></script>
 <script src="sync.js"></script>
+<script src="account.js"></script>
 <script src="revolutx.js"></script>
 <script src="rotation.js"></script>
 <script src="screen.js"></script>

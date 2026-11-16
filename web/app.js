@@ -86,7 +86,7 @@
     if (u.active) parts.push(`Screens build ${u.active}${u.downloaded ? ' (updated automatically)' : ''}`);
     if (msg) parts.push(msg);
     else if (when) parts.push(`last checked ${when}: ${u.last.message}`);
-    if (u.needs_app_update) parts.push('a newer app version is needed for the next update: ask Claude for the APK');
+    if (u.needs_app_update) parts.push('a newer app version is needed for the next update: download it from sector-rotation.mdt996.workers.dev/get and install it over this one');
     $('update-status').textContent = parts.join(' · ');
   }
   window.appUpdateResult = (build, message) => {
@@ -142,6 +142,7 @@
     const body = sheet.querySelector('.settings-body');
     body.scrollTop = 0;
     if (focus === 'data') $('settings-data').open = true;
+    if (focus === 'acct' && $('settings-acct')) { $('settings-acct').open = true; $('settings-acct').scrollIntoView({ block: 'start' }); if (window.SRAccount) window.SRAccount.draw(); }
     if (focus === 'holdings') {
       $('settings-holdings').open = true;
       const t = $('cfg-holdings'); t.focus({ preventScroll: true }); t.scrollIntoView({ block: 'center' });

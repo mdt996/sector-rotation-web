@@ -34,6 +34,13 @@
         .then(async (r) => reply(id, r.status, await r.text()), (e) => reply(id, 0, fail(e)));
       return;
     }
+    // the accounts and the nightly scan's market files are this page's own Worker: asked directly
+    const own = url.startsWith(location.origin + '/acct/') ? 'POST' : url.startsWith(location.origin + '/data/') ? 'GET' : '';
+    if (own && method === own && !url.includes('..') && !url.includes('#')) {
+      fetch(url, { method, headers: h, body: method === 'POST' && body != null ? String(body) : undefined, cache: 'no-store' })
+        .then(async (r) => reply(id, r.status, await r.text()), (e) => reply(id, 0, fail(e)));
+      return;
+    }
     if (method !== 'GET' || !RELAYED.some((re) => re.test(url))) { reply(id, 0, BLOCKED); return; }
     fetch('/relay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, headers: h }), cache: 'no-store' })
       .then(async (r) => reply(id, r.status, await r.text()), (e) => reply(id, 0, fail(e)));

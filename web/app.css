@@ -201,6 +201,10 @@ body.sheet-open .tabbar { display: none; }
 .ch.is-full { position: fixed; inset: 0; z-index: 80; background: var(--color-panel, #fff); padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); grid-template-rows: auto auto 1fr; }
 .ch.is-full .ch-main { height: auto !important; min-height: 0; }
 body.chart-full { overflow: hidden; }
+/* the full view must escape the boxes around it: Safari (the Mac app, the iPhone version) makes a card with container
+   queries the frame of a fixed element, and the Mac screener panel clips what it scrolls; both are lifted while it is open */
+body.chart-full .sr-card, body.chart-full .sc-detail { container-type: normal !important; contain: none !important; }
+body.chart-full .sc-detail { overflow: visible !important; }
 body.chart-full .tabbar { display: none; }
 .av-stats .z-fv dt::before { content: ''; display: inline-block; width: 10px; height: 0; border-top: 2px dashed rgba(41,98,255,.8); margin-right: 6px; vertical-align: 3px; }
 

@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 101, "text": "Every asset now says whether its market is open, as eToro reports it: on its page (\"Market closed \u00b7 last price 2 days ago\", or open but with no new price, or not tradable), on Portfolio rows, in the screener and in search results. Last-price ages are in minutes, hours or days."};
+window.SR_NOTES = {"build": 102, "text": "You can now give the app to other people: each one adds their own eToro keys, and can make an account (username and password) that keeps their settings and keys on all their phones, encrypted with their password. The link: sector-rotation.mdt996.workers.dev/get"};

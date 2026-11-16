@@ -567,7 +567,11 @@
     hero(box, H);
     if (c0.source !== 'yahoo' && !(c0.apiKey && c0.userKey)) {
       const c = card(box, 'warn', 'Connect eToro for live prices');
-      c.appendChild(btn('Open settings', 'primary', () => window.appOpenSettings && window.appOpenSettings('data')));
+      // someone new: their own eToro keys first; an account (optional) keeps them on all their phones
+      if (!c0.syncToken && !c0.acct) c.appendChild(el('div', 'g-line g-muted', 'Paste your own eToro API keys (eToro: Settings → Trading → API keys; read-only is enough). Already have an account? Sign in to bring your keys and settings.'));
+      const r = c.appendChild(el('div', 'g-btns'));
+      r.appendChild(btn('Add eToro keys', 'primary', () => window.appOpenSettings && window.appOpenSettings('data')));
+      if (!c0.syncToken && !c0.acct) r.appendChild(btn('Sign in or create account', '', () => window.appOpenSettings && window.appOpenSettings('acct')));
     }
     if (st.P && st.P.signal && !sig) loadSignal();
     verdictCard(box, H, st);
