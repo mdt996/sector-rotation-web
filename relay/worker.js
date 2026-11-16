@@ -24,7 +24,8 @@ const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/6
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const SYNC_API = 'https://api.github.com/repos/mdt996/sector-rotation-sync/contents/';
 const DATA = /^(scan\.json|scanmeta\.json|about\/(meta|\d{2})\.json|packs\/\d{1,8}\.json)$/;   // market files only
-const APK = 'https://github.com/mdt996/sector-rotation-web/releases/latest/download/SectorRotation.apk';
+// the Android app for other people: android/SectorRotation.apk of the public repository, served only if its SHA-256 is the one
+// android/version.json gives (as every screen file is checked against the manifest)
 const USER = /^[a-z0-9][a-z0-9._-]{2,31}$/, KEY = /^[0-9a-f]{64}$/, MAX_BLOB = 300000;
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -159,6 +160,17 @@ async function data(path, env) {
   return new Response(r.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=600', 'X-Content-Type-Options': 'nosniff' } });
 }
 
+async function android() {
+  const t = '?t=' + Math.floor(Date.now() / 60000);
+  let v;
+  try { const r = await fetch(RAW + 'android/version.json' + t); if (!r.ok) throw new Error(); v = await r.json(); } catch (e) { return text('The Android app is not published yet.', 503); }
+  const r = await fetch(RAW + 'android/SectorRotation.apk?v=' + encodeURIComponent(v.sha256 || ''));
+  if (!r.ok) return text('The Android app is not available right now.', 503);
+  const buf = await r.arrayBuffer();
+  if (!v.sha256 || await sha256(buf) !== v.sha256) return text('The Android app is being updated: try again in a few minutes.', 503);
+  return new Response(buf, { headers: { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': `attachment; filename="SectorRotation-${String(v.version || '').replace(/[^\d.]/g, '')}.apk"`, ...NO_STORE } });
+}
+
 // ---- the page to give to people ----
 const getPage = (origin) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sector Rotation</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 22px;color:#1d2330;background:#f3f4f6}
@@ -187,7 +199,7 @@ export default {
     if (p === '/app.webmanifest') return webmanifest();
     if (p.startsWith('/data/')) return data(decodeURIComponent(p.slice(6)), env);
     if (p === '/get') return getPage(url.origin);
-    if (p === '/android') return Response.redirect(APK, 302);
+    if (p === '/android') return android();
     const c = p.match(/^\/c\/([^/]+)\/([^/]+)$/);
     if (c) return asset(c[1], decodeURIComponent(c[2]));
     return text('not found', 404);
