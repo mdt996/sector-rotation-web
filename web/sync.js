@@ -113,7 +113,7 @@
     }
     // the candle files live on their own branch ("packs": one commit, replaced when they are rewritten, so the repository does not grow); the main branch is tried if a file is not there
     const url = API.replace(/settings\.json$/, name) + '?t=' + Date.now(), hd = { ...headers(t), Accept: 'application/vnd.github.raw+json' };
-    let r = await SRApp.request('GET', url + (/^packs\//.test(name) ? '&ref=packs' : ''), hd);
+    let r = await SRApp.request('GET', url + (/^packs\//.test(name) ? '&ref=packs' : name === 'lab.json' ? '&ref=lab' : ''), hd);   // lab.json: the paper labs' branch
     if (r.status === 404 && /^packs\//.test(name)) r = await SRApp.request('GET', url, hd);
     if (r.status !== 200) return null;
     const j = JSON.parse(r.body);

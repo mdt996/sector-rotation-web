@@ -664,6 +664,117 @@
     return true;
   }
 
+  // ---- Labs: three paper portfolios of $2,000 run all day by the VM on 1- and 5-minute bars (lab/ of the private repository, LAB.md).
+  //      Paper only: the VM reads prices and sends no order. Read from lab.json on the repository's branch "lab", every minute while open. ----
+  const LB = { j: null, at: 0, busy: false, sel: 'gold', open: {} };
+  const LSHORT = { orb: 'opening range', revert: 'back to average', squeeze: 'squeeze', momo: 'push', breakout: 'breakout', dip: 'dip', random: 'random' };
+  try { const k = localStorage.getItem('sr.labSel'); if (k) LB.sel = k; } catch (e) { /* the gold lab first */ }
+  async function labLoad(force) {
+    if (LB.busy || (!force && Date.now() - LB.at < 60000)) return;
+    LB.busy = true;
+    try { const j = window.SRSync && window.SRSync.getFile ? await window.SRSync.getFile('lab.json') : null; if (j && j.labs) LB.j = j; } catch (e) { /* the last reading stays */ }
+    LB.busy = false; LB.at = Date.now();
+    document.querySelectorAll('[data-draw="tradelab"]').forEach((r) => { if (!r.closest('[hidden]')) labs(r); });
+  }
+  const labMean = (rows, k) => { const n = rows.reduce((a, r) => a + r.n, 0); return n ? rows.reduce((a, r) => a + (r[k] || 0) * r.n, 0) / n : null; };
+  function labVerdict(st, rnd) {
+    if (!st || st.n < 100) return ['', `testing: ${st ? st.n : 0} of 100 trades`];
+    const m = st.mR, e = 2 * (st.se || 0);
+    if (m - e > 0 && (!rnd || rnd.mR == null || m > rnd.mR)) return ['up', 'earns after costs, beyond chance'];
+    if (m + e < 0) return ['down', 'loses after costs'];
+    return ['', 'no proof either way'];
+  }
+  function labCurve(root, L) {
+    const pts = (L.curve || []).filter((p) => p[1] > 0); if (pts.length < 2) return;
+    const W = 340, Hh = 90, t0 = pts[0][0], t1 = pts[pts.length - 1][0], vs = pts.map((p) => p[1]).concat([L.start]), lo = Math.min(...vs), hi = Math.max(...vs), rg = hi - lo || 1;
+    const X = (t) => (t1 > t0 ? ((t - t0) / (t1 - t0)) * W : 0), Y = (v) => 4 + (1 - (v - lo) / rg) * (Hh - 8);
+    const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.setAttribute('class', 't-labcurve'); svg.setAttribute('preserveAspectRatio', 'none');
+    const base = document.createElementNS(ns, 'line'); base.setAttribute('x1', 0); base.setAttribute('x2', W); base.setAttribute('y1', Y(L.start)); base.setAttribute('y2', Y(L.start)); base.setAttribute('class', 't-labbase'); svg.appendChild(base);
+    const pl = document.createElementNS(ns, 'polyline'); pl.setAttribute('points', pts.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')); pl.setAttribute('class', 't-labline ' + (pts[pts.length - 1][1] >= L.start ? 'up' : 'down')); svg.appendChild(pl);
+    const box = root.appendChild(el('div', 't-labchart')); box.appendChild(svg);
+    box.appendChild(el('div', 't-labaxis', `${new Date(t0).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} → now · dashed: the $${L.start.toLocaleString('en-US')} it started with`));
+  }
+  function labs(root) {
+    labLoad(false);
+    const J = LB.j; root.textContent = '';
+    if (!J) { root.appendChild(el('div', 'g-hint', LB.at ? 'No results from the labs yet. They appear here within 10 minutes of the labs starting on the VM (paper portfolios: Revolut X crypto, eToro leveraged markets, gold).' : 'Reading the labs…')); return; }
+    const age = Date.now() - Date.parse(J.made), H = J.health || {}, et = H.etoro || {}, rx = H.revx || {}, T = J.text || { rules: {}, exits: {} };
+    const feed = `eToro prices: ${et.state === 'streaming' ? 'live' : et.state || '?'} · Revolut X prices: ${rx.state || '?'}`;
+    root.appendChild(el('div', 'g-line' + (age > 30 * 60e3 ? ' g-warn' : ''), `Paper only: no order is ever sent. Updated ${span(age)} ago${age > 30 * 60e3 ? ' (the VM may be stopped)' : ''}. ${feed}.`));
+    const list = ['gold', 'etoro', 'crypto'].map((k) => J.labs.find((x) => x.key === k)).filter(Boolean);
+    if (!list.some((x) => x.key === LB.sel)) LB.sel = list[0].key;
+    const g = root.appendChild(el('div', 'g-stats t-labcards'));
+    for (const L of list) {
+      const d = tile(g, L.name, usd(L.equity), `${pc(100 * (L.equity / L.start - 1))} · ${L.port.n} trade${L.port.n === 1 ? '' : 's'}`, sign(L.equity - L.start));
+      d.classList.add('t-labcard'); if (L.key === LB.sel) d.classList.add('on'); d.setAttribute('role', 'button'); d.tabIndex = 0;
+      const pick = () => { LB.sel = L.key; try { localStorage.setItem('sr.labSel', L.key); } catch (e) { /* not kept */ } labs(root); };
+      d.addEventListener('click', pick); d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') pick(); });
+    }
+    labDetail(root, J, list.find((x) => x.key === LB.sel), T);
+  }
+  function labDetail(root, J, L, T) {
+    const RT = T.rules || {}, XT = T.exits || {};
+    head(root, L.name);
+    const top = root.appendChild(el('div', 't-top')); top.appendChild(el('div', 't-value', '$' + L.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
+    const sub = top.appendChild(el('div', 't-sub')), tot = L.equity - L.start;
+    sub.appendChild(el('b', sign(tot), `${usd2(tot)} (${pc(100 * tot / L.start)})`)); sub.appendChild(document.createTextNode(' since the start'));
+    if (L.day) { sub.appendChild(el('span', 't-sep', '·')); sub.appendChild(el('b', sign(L.day.pnl), usd2(L.day.pnl))); sub.appendChild(document.createTextNode(L.day.stopped ? ' today (down 3%: no new trade until midnight UTC)' : ' today')); }
+    labCurve(root, L);
+    const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). Buys wait at the bid: 0% fee; a stop sells at once: 0.09%.' : `Long and short, up to ${L.key === 'gold' ? '20x' : '20x (oil 10x, currencies 30x)'}, the spread as cost. Everything closed by 20:50 UTC, before eToro's nightly fee.`;
+    root.appendChild(el('div', 'g-hint', `${names} at ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} live prices. ${cap} Each trade risks 0.5% of the lab; at most 3 open.`));
+    // open now
+    const W = L.waiting || [];
+    head(root, `Open now: ${L.open.length}${W.length ? ` (+${W.length} waiting)` : ''}`);
+    if (!L.open.length && !W.length) root.appendChild(el('div', 'g-hint', 'Nothing open.'));
+    else {
+      const tb = root.appendChild(el('div', 't-table t-t4')), hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['Trade', 'Leverage', 'Since', 'Now']) hd.appendChild(el('span', '', h));
+      for (const o of L.open) { const r = tb.appendChild(el('div', 't-tr')), nm = r.appendChild(el('span', 't-name', `${o.sym} ${o.dir > 0 ? 'buy' : 'short'}`)); nm.appendChild(el('small', 't-sub', `${RT[o.rule] || o.rule} · ${XT[o.exit] || o.exit}`)); r.appendChild(el('span', '', o.lev > 1.05 ? o.lev.toFixed(o.lev < 10 ? 1 : 0) + 'x' : '1x')); r.appendChild(el('span', '', span(Date.now() - o.t0))); r.appendChild(el('span', sign(o.pl), usd2(o.pl))); }
+      for (const o of W) { const r = tb.appendChild(el('div', 't-tr')), nm = r.appendChild(el('span', 't-name', `${o.sym} buy at ${px(o.lim)}`)); nm.appendChild(el('small', 't-sub', `${RT[o.rule] || o.rule} · waiting order, no fee`)); r.appendChild(el('span', '', '1x')); r.appendChild(el('span', '', span(Date.now() - o.t))); r.appendChild(el('span', '', 'waiting')); }
+    }
+    // the money's own record
+    const P = L.port, n = P.n;
+    head(root, 'Is any rule beating its costs?');
+    const top2 = root.appendChild(el('div', 't-verdict')), ver = !n ? null : P.sR / n;
+    top2.appendChild(el('div', 't-vbig', n < 100 ? 'Too early to say' : ver > 0 ? 'Ahead after costs so far' : 'Behind after costs so far'));
+    top2.appendChild(el('div', 't-vsub', n ? `${n} trades of the lab's money: ${Math.round(100 * P.w / n)}% won, ${rtxt(ver)} per trade after costs (${rtxt(P.sG / n)} before). Costs so far ${usd2(-P.cost)}.` : 'No trade of the lab\'s money closed yet. Every signal is also followed on paper with four exits: the table below.'));
+    const bar = top2.appendChild(el('div', 't-need')); bar.appendChild(el('i')).style.width = Math.min(100, n) + '%';
+    // every rule on paper, with the exit it uses now
+    const st = L.stats || {}, pol = (L.policy && L.policy.rules) || {}, rnd = st.random || {};
+    const tb = root.appendChild(el('div', 't-table t-t4')), hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['Rule (on paper)', 'Trades', 'Per trade', 'Random']) hd.appendChild(el('span', '', h));
+    for (const r of L.entries) {
+      if (r === 'random') continue;
+      const p = pol[r] || { exit: 'base', on: true }, s = (st[r] || {})[p.exit], v = labVerdict(s, rnd[p.exit]);
+      const row = tb.appendChild(el('div', 't-tr t-labrow')), nm = row.appendChild(el('span', 't-name', RT[r] || r));
+      nm.appendChild(el('small', 't-sub ' + v[0], `${XT[p.exit] || p.exit} · ${p.on ? v[1] : 'switched off: ' + v[1]}`));
+      row.appendChild(el('span', '', String(s ? s.n : 0))); row.appendChild(el('span', s && s.mR != null ? sign(s.mR) : '', rtxt(s ? s.mR : null))); row.appendChild(el('span', '', rtxt(rnd[p.exit] ? rnd[p.exit].mR : null)));
+      row.addEventListener('click', () => { LB.open[L.key + r] = !LB.open[L.key + r]; labs(root); });
+      if (LB.open[L.key + r]) for (const x of Object.keys(st[r] || {})) {
+        const q = st[r][x], sr = tb.appendChild(el('div', 't-tr t-labsub')), nn = sr.appendChild(el('span', 't-name', XT[x] || x)); nn.appendChild(el('small', 't-sub', `before costs ${rtxt(q.mG)}${x === p.exit ? ' · in use' : ''}`));
+        sr.appendChild(el('span', '', String(q.n))); sr.appendChild(el('span', q.mR != null ? sign(q.mR) : '', rtxt(q.mR))); sr.appendChild(el('span', '', rtxt(rnd[x] ? rnd[x].mR : null)));
+      }
+    }
+    root.appendChild(el('div', 'g-hint', 'Per trade, in R: the money risked on it (+1 R won what it risked), after all costs. "Random": random entries with the same exit, the yardstick. A rule earns only if it beats zero and random by more than chance over 100 trades or more. Tap a rule for its four exits. At midnight UTC each rule takes its best exit; a rule clearly losing stops trading the money and stays on paper.'));
+    // Matteo's idea: out at +$1 net
+    const qs = L.entries.filter((r) => r !== 'random').map((r) => (st[r] || {}).quick).filter(Boolean), qn = qs.reduce((a, q) => a + q.n, 0), qw = qs.reduce((a, q) => a + q.w, 0);
+    const others = ['tight', 'base', 'trail'].map((x) => L.entries.filter((r) => r !== 'random').map((r) => (st[r] || {})[x]).filter(Boolean)).flat();
+    head(root, 'Your idea: out at +$1 net');
+    root.appendChild(el('div', 'g-line', qn ? `${qn} paper trades closed: ${Math.round(100 * qw / qn)}% won, ${rtxt(labMean(qs, 'mR'))} per trade after costs (${rtxt(labMean(qs, 'mG'))} before). The same signals with the other exits: ${rtxt(labMean(others, 'mR'))}. Random entries with the +$1 exit: ${rtxt(rnd.quick ? rnd.quick.mR : null)}.${qn < 100 ? ' Too early: fewer than 100 trades.' : ''}` : 'Every signal is also followed with this exit: out as soon as the trade has made $1 after all costs, or at its stop. The first results appear here.'));
+    // last trades
+    head(root, 'Last trades of the money');
+    const C = (L.closed || []).slice(-12).reverse();
+    if (!C.length) root.appendChild(el('div', 'g-hint', 'None closed yet.'));
+    else {
+      const t3 = root.appendChild(el('div', 't-table t-t4')), h3 = t3.appendChild(el('div', 't-tr t-th')); for (const h of ['Trade', 'How', 'Costs', 'Result']) h3.appendChild(el('span', '', h));
+      for (const c of C) { const r = t3.appendChild(el('div', 't-tr')), nm = r.appendChild(el('span', 't-name', `${c.sym} ${c.dir > 0 ? 'buy' : 'short'}`)); nm.appendChild(el('small', 't-sub', `${when(c.t1)} · ${span(c.t1 - c.t0)} · ${LSHORT[c.rule] || c.rule}`)); r.appendChild(el('span', '', c.how)); r.appendChild(el('span', '', usd2(-c.cost))); r.appendChild(el('span', sign(c.net), usd2(c.net))); }
+    }
+    // what was not taken
+    const sk = Object.entries(L.skipped || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (sk.length) { head(root, 'Signals not taken by the money'); root.appendChild(el('div', 'g-line', `${L.signals} signals so far. ` + sk.map(([k, v]) => `${k}: ${v}`).join(' · ') + '.')); }
+    const errs = (labHealth(J).errors || []).slice(-3); if (errs.length && Date.now() - errs[errs.length - 1][0] < 3600e3) root.appendChild(el('div', 'g-hint', 'Last problems on the VM: ' + errs.map((e) => `${clock(e[0])} ${e[1]}`).join(' · ')));
+  }
+  const labHealth = (J) => J.health || {};
+  dash.draw('tradelab', (root) => { labs(root); if (!LB.timer) LB.timer = setInterval(() => { const r = document.querySelector('[data-draw="tradelab"]'); if (r && !r.closest('[hidden]') && !document.hidden && !document.body.classList.contains('sheet-open')) labLoad(false); }, 15000); });
+
   // one watcher for the whole tab: each reading repaints the part on screen; when no part is on screen the readings stop
   const roots = {}; let watching = false;
   const live = (name, fn) => dash.draw(name, (root) => {

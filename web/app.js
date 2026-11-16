@@ -218,7 +218,7 @@
     today: [['', ['today']]],
     portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']], ['Taxes', ['ptax']], ['eToro taxes', ['petax']]],
     markets: [['Screener', ['screener']], ['Sectors', ['rotboard']], ['All funds', ['ranking']]],
-    trading: [['Overview', ['trade']], ['Positions', ['tradepos']], ['History', ['tradehist']], ['Progress', ['tradeprog']], ['Review', ['tradereview']]],
+    trading: [['Overview', ['trade']], ['Positions', ['tradepos']], ['History', ['tradehist']], ['Progress', ['tradeprog']], ['Review', ['tradereview']], ['Labs', ['tradelab']]],
     plan: [['Plan', ['plan']], ['26-year test', ['backtest']]],
   };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
