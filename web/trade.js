@@ -688,14 +688,17 @@
     return [st.mR < 0 ? 'down' : '', st.mR < 0 ? 'negative after costs so far' : 'break-even so far'];
   }
   function labCurve(root, L) {
-    const pts = (L.curve || []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])); if (pts.length < 2) return;
-    const W = 340, Hh = 90, t0 = pts[0][0], t1 = pts[pts.length - 1][0], vs = pts.map((p) => p[1]).concat([L.start]), lo = Math.min(...vs), hi = Math.max(...vs), rg = hi - lo || 1;
-    const X = (t) => (t1 > t0 ? ((t - t0) / (t1 - t0)) * W : 0), Y = (v) => 4 + (1 - (v - lo) / rg) * (Hh - 8);
+    const valid = (points) => Array.isArray(points) ? points.filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) : [];
+    const lifetime = valid(L.lifetimeCurve), across = lifetime.length >= 2, pts = across ? lifetime : valid(L.curve);
+    if (pts.length < 2) { root.appendChild(el('div', 'g-hint', 'Waiting for chart history.')); return; }
+    const W = 340, Hh = 90, t0 = pts[0][0], t1 = pts[pts.length - 1][0], vs = pts.map((p) => p[1]).concat([L.start]), lo = Math.min(...vs), hi = Math.max(...vs);
+    const X = (t) => (t1 > t0 ? ((t - t0) / (t1 - t0)) * W : 0), Y = (v) => hi === lo ? Hh / 2 : 4 + (hi - v) / (hi - lo) * (Hh - 8);
     const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`); svg.setAttribute('class', 't-labcurve'); svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', across ? 'Paper equity across resets, excluding top-ups' : 'Paper equity over time');
     const base = document.createElementNS(ns, 'line'); base.setAttribute('x1', 0); base.setAttribute('x2', W); base.setAttribute('y1', Y(L.start)); base.setAttribute('y2', Y(L.start)); base.setAttribute('class', 't-labbase'); svg.appendChild(base);
     const pl = document.createElementNS(ns, 'polyline'); pl.setAttribute('points', pts.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')); pl.setAttribute('class', 't-labline ' + (pts[pts.length - 1][1] >= L.start ? 'up' : 'down')); svg.appendChild(pl);
     const box = root.appendChild(el('div', 't-labchart')); box.appendChild(svg);
-    box.appendChild(el('div', 't-labaxis', `${new Date(t0).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} → ${when(t1)} · dashed: starting $${L.start.toLocaleString('en-US')}`));
+    box.appendChild(el('div', 't-labaxis', `${when(t0)} → ${when(t1)} · $${L.start.toLocaleString('en-US')} start${across ? ' · Top-ups excluded' : ''}`));
   }
   function labs(root) {
     labLoad(false);
@@ -741,12 +744,25 @@
     }
     const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). Buys wait at the bid: 0% fee; a stop sells at once: 0.09%.' : `Long and short, up to ${L.key === 'gold' ? '20x' : '20x (oil 10x, currencies 30x)'}, the spread as cost. Everything closed by 20:50 UTC, before eToro's nightly fee.`;
     root.appendChild(el('div', 'g-hint', `${names} at ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} live prices. ${cap} Each trade risks 0.5% of the lab; at most 3 open.`));
+    const adaptive = L.learning && Array.isArray(L.learning.assets) && L.learning.assets.some((a) => a.selection);
     if (L.learning && Array.isArray(L.learning.assets)) {
       const d = SRApp.disclosure(root, `lab-${L.key}-learning`, 'Learning by longer-term trend'); d.classList.add('t-lablearning');
-      d.appendChild(el('div', 'g-hint', 'Trend: completed 15-minute candles and their 50-bar average. Each asset and trade direction learns separately after 30 closed tests; until then it uses the overall results. Choices update daily and after a reset. Alternatives keep being tested on paper.'));
+      d.appendChild(el('div', 'g-hint', adaptive
+        ? 'Tests entry, exit and direction together for each asset and trend. A switch needs better after-cost results on later paper trades.'
+        : 'Uses completed 15-minute candles and their 50-bar average. Each asset and direction needs 30 tests before using its own results.'));
       for (const a of L.learning.assets) {
         head(d, `${a.sym} · ${{ up: 'rising', down: 'falling', flat: 'flat', unknown: 'trend not ready' }[a.trend] || 'trend not ready'}`);
-        for (const [rule, dirs] of Object.entries(a.rules || {})) for (const [dir, p] of Object.entries(dirs || {})) if (p) d.appendChild(el('div', 'g-line', `${LSHORT[rule] || rule} · ${dir === 'long' ? 'buy' : 'short'}: ${p.on ? XT[p.exit] || p.exit : 'paused'} · ${p.n} tests · ${p.source === 'trend' ? 'this trend' : 'overall results'}`));
+        if (a.selection) {
+          const { active, paused, trial } = a.selection;
+          const setup = (p) => `${LSHORT[p.rule] || p.rule} · ${p.dir > 0 ? 'buy' : 'short'} · ${XT[p.exit] || p.exit}`;
+          const current = active ? `Using ${setup(active)}` : paused ? 'Entries paused after losses' : 'Using warm-up rules';
+          d.appendChild(el('div', 'g-line', current));
+          d.appendChild(el('div', 'g-hint', trial
+            ? `Testing ${setup(trial)} · ${trial.n} closed · Review ${new Date(trial.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`
+            : 'Collecting paper results'));
+        } else {
+          for (const [rule, dirs] of Object.entries(a.rules || {})) for (const [dir, p] of Object.entries(dirs || {})) if (p) d.appendChild(el('div', 'g-line', `${LSHORT[rule] || rule} · ${dir === 'long' ? 'buy' : 'short'}: ${p.on ? XT[p.exit] || p.exit : 'paused'} · ${p.n} tests · ${p.source === 'trend' ? 'this trend' : 'overall results'}`));
+        }
       }
     }
     // open now
@@ -772,11 +788,11 @@
       if (r === 'random') continue;
       const p = pol[r] || { exit: 'base', on: true }, s = (st[r] || {})[p.exit], v = labVerdict(s, rnd[p.exit]);
       const row = tb.appendChild(el('div', 't-tr t-labrow')), nm = row.appendChild(el('span', 't-name', RT[r] || r));
-      nm.appendChild(el('small', 't-sub ' + v[0], `${XT[p.exit] || p.exit} · ${p.on ? v[1] : 'switched off: ' + v[1]}`));
+      nm.appendChild(el('small', 't-sub ' + v[0], `${XT[p.exit] || p.exit} · ${p.on || adaptive ? v[1] : 'switched off: ' + v[1]}`));
       row.appendChild(el('span', '', String(s ? s.n : 0))); row.appendChild(el('span', s && s.mR != null ? sign(s.mR) : '', rtxt(s ? s.mR : null))); row.appendChild(el('span', '', rtxt(rnd[p.exit] ? rnd[p.exit].mR : null)));
       row.addEventListener('click', () => { LB.open[L.key + r] = !LB.open[L.key + r]; labs(root); });
       if (LB.open[L.key + r]) for (const x of Object.keys(st[r] || {})) {
-        const q = st[r][x], sr = tb.appendChild(el('div', 't-tr t-labsub')), nn = sr.appendChild(el('span', 't-name', XT[x] || x)); nn.appendChild(el('small', 't-sub', `before costs ${rtxt(q.mG)}${x === p.exit ? ' · in use' : ''}`));
+        const q = st[r][x], sr = tb.appendChild(el('div', 't-tr t-labsub')), nn = sr.appendChild(el('span', 't-name', XT[x] || x)); nn.appendChild(el('small', 't-sub', `before costs ${rtxt(q.mG)}${x === p.exit && !adaptive ? ' · in use' : ''}`));
         sr.appendChild(el('span', '', String(q.n))); sr.appendChild(el('span', q.mR != null ? sign(q.mR) : '', rtxt(q.mR))); sr.appendChild(el('span', '', rtxt(rnd[x] ? rnd[x].mR : null)));
       }
     }
