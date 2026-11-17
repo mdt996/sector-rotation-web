@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 110, "text": "Paper labs: a backtest of each lab's own rules on the history the VM keeps, with a walk-forward that shows whether what the learner picked went on to earn. It gets deeper every day."};
+window.SR_NOTES = {"build": 111, "text": "Paper labs: how long a trade may last is now learned from the paper trades, per bar length and exit; the limits that moved are listed under the lab's rules."};
