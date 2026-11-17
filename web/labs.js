@@ -181,7 +181,7 @@
       }
       // readable marks: a lab with one market does not repeat its name on every arrow, and when many trades are in view only the
       // arrows and dots stay (the closed trades' list below has every figure)
-      const one = Array.isArray(L.assets) && L.assets.length === 1, crowded = mk.length > 36;
+      const one = Array.isArray(L.assets) && L.assets.length === 1, crowded = mk.length > 14;
       for (const m of mk) if (m.shape !== 'circle' ? one || crowded : crowded) m.text = '';
       mk.sort((a, b) => a.time - b.time); tv.marks.setMarkers(mk.slice(-90)); tv.host.dataset.marks = String(mk.length);
     }
