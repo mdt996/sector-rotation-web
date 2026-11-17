@@ -861,7 +861,11 @@ div.av-pick { max-width: none; }
 /* Trading → Labs, version 2: the markets' chart, live figures, statistics, review, journal */
 .t-labstatus .t-labrefresh { margin-left: auto; padding: 4px 10px; font-size: 12.5px; }
 .t-labchartbox { margin: 4px 0 6px; } .t-labl2 { padding: 0 10px 8px; margin: -2px 0 0; border-top: 0; }
-.t-labbrake { font-size: 13px; margin: 2px 0 8px; } .t-labwait { opacity: .75; } .t-labmore { margin: 8px 0 2px; font-size: 13px; padding: 5px 12px; }
+.t-labbrake { font-size: 13px; margin: 2px 0 8px; } .t-labwait { opacity: .75; }
+/* the open trades: room for long prices (PEPE: 0.000003848), which never overlap: narrower name, the details on full-width lines below */
+.t-labopen .t-tr { grid-template-columns: minmax(74px, 1.1fr) repeat(2, minmax(0, 1.35fr)) minmax(58px, 1fr); }
+.t-labopen .t-tr > span { min-width: 0; overflow-wrap: anywhere; } .t-labopen .t-long { font-size: .84em; letter-spacing: -.02em; align-self: center; }
+.t-labopen .t-labwait .t-name { grid-column: span 2; } .t-labl1 { margin-top: -4px; padding-bottom: 2px; color: var(--color-fg); } .t-labmore { margin: 8px 0 2px; font-size: 13px; padding: 5px 12px; }
 .t-labrev { border: 1px solid var(--color-border-line); border-left: 3px solid var(--color-ok); border-radius: 10px; padding: 9px 12px; margin: 0 0 8px; font-size: 13.5px; line-height: 1.4; }
 .t-labrev.down { border-left-color: var(--color-bad); } .t-labrev b { display: block; margin-bottom: 3px; color: var(--color-fg); } .t-labrev ul { margin: 0; padding-left: 18px; } .t-labrev li { margin: 3px 0; color: var(--color-fg); }
 .t-labjournal { display: grid; gap: 6px; margin: 0 0 8px; } .t-labj { display: grid; grid-template-columns: 86px 1fr; gap: 8px; font-size: 13px; line-height: 1.35; padding-left: 8px; border-left: 3px solid var(--color-border-line); color: var(--color-fg); }

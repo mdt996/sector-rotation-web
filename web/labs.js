@@ -236,16 +236,20 @@
     const W = V.N.waiting || [], O = V.N.open, T = LB.sum.text || {};
     head(box, `Open now: ${O.length}${W.length ? ` (+${W.length} waiting)` : ''}`);
     if (!O.length && !W.length) { box.appendChild(el('div', 'g-hint', 'Nothing open.')); return; }
-    const tb = table(box, ['Trade', 'Entry', 'Now', 'Result']);
+    const tb = table(box, ['Trade', 'Entry', 'Now', 'Result'], 't-t4 t-labopen');
+    // a price with many digits (a coin worth a few millionths of a dollar) is set smaller, so two of them never run into each other
+    const num = (t) => [t, t.length > 9 ? 't-long' : ''];
     O.forEach((o, i) => {
-      const v = V.rows[i], r = row(tb, `${o.sym} ${o.dir > 0 ? 'buy' : 'short'}`, `${SHORT[o.rule] || o.rule} · ${ALIGN_S[o.align] || ''} · ${TIER[o.tier] || ''}${o.lev > 1.05 ? ' · ' + levStep(o.lev) + 'x' : ''}`, [px(o.e), [px(v[1]), ''], [`${usd2(v[0])}`, sign(v[0])]]);
+      const v = V.rows[i], r = row(tb, `${o.sym} ${o.dir > 0 ? 'buy' : 'short'}`, '', [num(px(o.e)), num(px(v[1])), [`${usd2(v[0])}`, sign(v[0])]]);
+      // the rule, its place in the trend, the stake and the leverage on their own line, over the full width
+      tb.appendChild(el('div', 't-l2 t-labl2 t-labl1', `${SHORT[o.rule] || o.rule} · ${ALIGN_S[o.align] || ''} · ${TIER[o.tier] || ''}${o.lev > 1.05 ? ' · ' + levStep(o.lev) + 'x' : ''}`)).dataset.openl1 = String(o.id);
       r.dataset.open = String(o.id);
       const pc0 = (p) => (p > 0 && o.e > 0 ? ` (${pc(100 * (p / o.e - 1))})` : ''), left = o.max ? o.max - Date.now() : null;
       const l2 = tb.appendChild(el('div', 't-l2 t-labl2', `Stop ${px(o.stop)}${pc0(o.stop)}${o.tgt ? ` · target ${px(o.tgt)}${pc0(o.tgt)}` : o.quick ? ` · out at ${usd2(o.quick)} net` : ' · no target: the stop trails'} · $${Math.round(o.notional).toLocaleString('en-US')} position, ${usd(o.risk)} at risk · ${span(Date.now() - o.t0)} in${left != null && left > 0 ? `, at most ${span(left)} more` : ''}`));
       l2.dataset.openl2 = String(o.id); r.dataset.risk = String(o.risk);
       r.title = (T.rules && T.rules[o.rule]) || '';
     });
-    for (const o of W) { row(tb, `${o.sym} buy at ${px(o.lim)}`, `${SHORT[o.rule] || o.rule} · ${ALIGN_S[o.align] || ''} · waiting order, no fee`, ['', span(Date.now() - o.t), 'waiting'], 't-labwait'); }
+    for (const o of W) { row(tb, `${o.sym} buy at ${px(o.lim)}`, `${SHORT[o.rule] || o.rule} · ${ALIGN_S[o.align] || ''} · waiting order, no fee`, [span(Date.now() - o.t), 'waiting'], 't-labwait'); }
     box.appendChild(el('div', 'g-hint', V.live ? 'Valued here from live prices, as the lab does: the price to close at, minus costs.' : 'Values as of the VM\'s last report.'));
   }
   function statsBox(box, L, D) {
@@ -392,7 +396,7 @@
       b.textContent = usd(v.equity); b.className = 'g-stat-v ' + sign(v.total); s.textContent = `${pc(100 * v.total / Lk.start)}${v.day != null ? ' · today ' + usd2(v.day) : ''} · ${n} trade${n === 1 ? '' : 's'}${v.N.open.length ? ' · ' + v.N.open.length + ' open' : ''}`; }
     const big = R.top.querySelector('[data-live="equity"]'); if (big) { const t = usd(V.equity); if (big.textContent !== t) big.textContent = t; }
     const sub = R.top.querySelectorAll('.t-sub b'); if (sub[0]) { sub[0].textContent = `${usd2(V.total)} (${pc(100 * V.total / L.start)})`; sub[0].className = sign(V.total); } if (sub[1] && V.day != null) { sub[1].textContent = usd2(V.day); sub[1].className = sign(V.day); }
-    V.N.open.forEach((o, i) => { const r = R.body.querySelector(`[data-open="${o.id}"]`); if (!r) return; const cells = r.querySelectorAll(':scope > span'), v = V.rows[i]; if (cells[2]) cells[2].textContent = px(v[1]); if (cells[3]) { cells[3].textContent = usd2(v[0]); cells[3].className = sign(v[0]); } });
+    V.N.open.forEach((o, i) => { const r = R.body.querySelector(`[data-open="${o.id}"]`); if (!r) return; const cells = r.querySelectorAll(':scope > span'), v = V.rows[i]; if (cells[2]) { const t = px(v[1]); cells[2].textContent = t; cells[2].className = t.length > 9 ? 't-long' : ''; } if (cells[3]) { cells[3].textContent = usd2(v[0]); cells[3].className = sign(v[0]); } });
     if (LB.tv && LB.tv.key === key && !LB.tv.host.hidden) chart(R.chart, key, V, 'tick');
     const st = R.status.children[1]; if (st && /^Live/.test(st.textContent)) st.textContent = `Live · ${clock(Date.now())}`;
   }
