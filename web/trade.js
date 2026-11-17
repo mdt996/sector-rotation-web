@@ -482,12 +482,16 @@
       b.appendChild(el('div', 't-l2', `${px(c.entry)} → ${px(c.exit)} (${pc(100 * c.side * (c.exit / c.entry - 1))}) · ended by ${c.how}${isFinite(c.opened) ? ` · held ${span(c.at - c.opened)}` : ''} · closed ${when(c.at)}${c.fees ? ` · fees ${usd2(-c.fees).replace('−', '')}` : ''}`)); }
     // what the program did, look by look
     head(root, 'What the program did');
-    const log = (M.P.log || []).slice().reverse().filter((l) => l.sent || (l.closed || []).length || (l.skipped || []).length || (l.notes || []).length).slice(0, 25);
+    // a dry run that would have sent orders is shown too, with its reason: the page must say when the program is not trading, and why
+    const all = (M.P.log || []).slice().reverse(), log = all.filter((l) => l.sent || l.dry || (l.closed || []).length || (l.skipped || []).length || (l.notes || []).length).slice(0, 25);
+    const lastRun = all[0];
+    if (lastRun && lastRun.mode === 'dry') root.appendChild(el('div', 'g-hint g-warn t-drywhy', `The program is on dry runs: it looks, but sends no order.${lastRun.why ? ' Reason: ' + lastRun.why + '.' : ''}`));
     if (!log.length) root.appendChild(el('div', 'g-hint', 'Nothing recorded yet.'));
     for (const l of log) { const d = root.appendChild(el('div', 't-log')); d.appendChild(el('b', '', when(l.at))); const parts = [];
       if ((l.opened || []).length) parts.push('sent ' + l.opened.map((x) => x.replace(' fast-short', ' (fast short)').replace(' fast-buy', ' (fast buy)').replace(' short', ' (short)').replace(' buy', ' (buy)')).join(', '));
       for (const c of l.closed || []) parts.push(`${c.s} closed by ${c.how}${c.net != null ? ' ' + usd2(c.net) : ''}`);
       for (const s of l.skipped || []) parts.push('skipped ' + s); for (const n of l.notes || []) parts.push(n);
+      if (l.mode === 'dry' && l.dry) parts.push(`dry run: would have sent ${l.dry} order${l.dry === 1 ? '' : 's'}, sent none`);
       d.appendChild(el('span', '', ' ' + parts.join(' · '))); }
     return true;
   }
