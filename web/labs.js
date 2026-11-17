@@ -32,7 +32,7 @@
 
   const KEYS = ['gold', 'etoro', 'crypto'], VENUE = { gold: 'etoro', etoro: 'etoro', crypto: 'revx' };
   const TFS = [['1', '1m'], ['5', '5m'], ['15', '15m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']];
-  const SHORT = { orb: 'Opening range', revert: 'Back to average', squeeze: 'Squeeze', momo: 'Push', breakout: 'Breakout', dip: 'Dip', random: 'Random' };
+  const SHORT = { orb: 'Opening range', revert: 'Back to average', squeeze: 'Squeeze', momo: 'Push', breakout: 'Breakout', dip: 'Dip', random: 'Random', noise: 'Out of range', low: '7-day low', tom: 'Turn of month' };
   // a rule on slower bars carries its speed in its name ("momo15": the push on 15-minute bars)
   const barName = (k) => (+k === 1440 ? 'daily' : +k >= 60 && +k % 60 === 0 ? `${+k / 60}-hour` : `${k}-minute`), barShort = (k) => (+k === 1440 ? 'daily' : +k >= 60 && +k % 60 === 0 ? `${+k / 60} h` : `${k} min`);
   const short = (r) => { const m = /^([a-z]+?)(\d+)$/.exec(r || ''); return m ? `${SHORT[m[1]] || m[1]} · ${barShort(m[2])}` : SHORT[r] || r || ''; }, isRandom = (r) => /^random\d*$/.test(r || '');
@@ -356,6 +356,28 @@
     const first = Math.min(...rules.map((r) => S.rules[r].pts[0][0]));
     box.appendChild(el('div', 'g-hint t-labscanh', `Every bar length from ${lenTxt(first)} to 1 day (${S.lengths} of them), each rule with one standard exit, on the candles the VM keeps, with ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} costs. The line is the result a trade after costs; it stops where a length has under 20 trades (grey dots). With this many lengths tried, the best single one is nearly always luck: only neighbouring lengths that each earn mean something (shaded when three or more do, by more than luck would give). That is why the lab trades a few spaced lengths live, the small marks under each chart, and not all of them. Made ${when(Date.parse(LB.scan.made))}; it reaches further as more candles are kept.`));
   }
+  // how many combinations are under test, whether any stands out from luck, and which splits of the history differ beyond luck
+  const luckN = (x) => (x >= 10 ? String(Math.round(x)) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toFixed(2) : 'under 0.01');
+  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit' };
+  const dimName = (dim, k) => (dim === 'rule' ? SHORT[k] || k : dim === 'speed' ? barShort(k) : dim === 'align' ? ALIGN_S[k] || k : dim === 'asset' ? MARKET[k] || String(k).replace(/-USD$/, '') : dim === 'side' ? (k === 'long' ? 'buys' : 'shorts') : EXIT_S[k] || k);
+  function searchBox(box, key, L, D) {
+    const B = LB.bt && LB.bt.labs && LB.bt.labs[key], S = (D && D.search) || (B && B.search); if (!S || !(S.K >= 0)) return;
+    head(box, 'How many strategies, and is any beyond luck?');
+    const live = !!(D && D.search), need = (e) => Math.ceil(Math.pow(S.z * 1.2 / e, 2) / 10) * 10;
+    const kTxt = `${S.K.toLocaleString('en-US')} combinations in this lab's search${S.J != null && S.J < S.K ? ` (${S.J.toLocaleString('en-US')} with 20 trades${live ? ' on live prices' : ''} so far)` : ''}`;
+    const verdict = S.z == null ? `${kTxt}: too few to compare yet.`
+      : S.beyond > 0 ? `${kTxt}; ${S.beyond} stand${S.beyond === 1 ? 's' : ''} out from luck${S.near > S.beyond ? `, ${S.near - S.beyond} more ${S.near - S.beyond === 1 ? 'is' : 'are'} close` : ''}. About one in ten of those may still be luck.`
+      : `${kTxt}; none stands out from luck yet${S.near > 0 ? ` (${S.near} ${S.near === 1 ? 'is' : 'are'} close)` : ''}. No setup gets more than ${S.near > 0 ? 'the half stake' : 'the test stake'}.`;
+    box.appendChild(el('div', 'g-line t-labsearchv', verdict));
+    if (S.z != null) box.appendChild(el('div', 'g-hint t-labsearchz', `A combination is a rule, on one bar length, in one place against the trend, with one exit. With this many tried, the best one must stand ${S.z.toFixed(1)} standard errors above zero before the full stake: an edge of 0.2 R a trade needs about ${need(0.2).toLocaleString('en-US')} trades of that one combination to show, 0.1 R about ${need(0.1).toLocaleString('en-US')}. More strategies raise that bar; more trades for each are what help.`));
+    if (B && B.was && B.was.n && B.picked) box.appendChild(el('div', 'g-hint t-labsearchwas', `In the history: what the learner promoted before this test went on to make ${rtxt(B.was.mR)} a trade over ${B.was.n.toLocaleString('en-US')}; with the test it ${B.picked.n ? `promotes ${B.picked.n.toLocaleString('en-US')} (${rtxt(B.picked.mR)} a trade)` : 'promotes none'}.`));
+    const sp = (B && B.splits) || [];
+    if (sp.length) {
+      const tb = table(box, ['The history split by', 'Groups', 'Luck explains', 'So'], 't-t4 t-labsplits');
+      for (const x of sp) row(tb, DIM[x.dim] || x.dim, `best ${dimName(x.dim, x.best[0])} ${rtxt(x.best[1])} · worst ${dimName(x.dim, x.worst[0])} ${rtxt(x.worst[1])}`, [String(x.J), pct0(x.luck), x.luck >= 0.8 ? 'luck' : x.luck <= 0.4 ? ['real', 'up'] : 'unclear'], 't-labsplit');
+      box.appendChild(el('div', 'g-hint', '"Luck explains": the share of the spread between the groups that chance alone would give. Near 100%, the groups do not differ in any way that shows yet, so choosing among them is choosing noise. A low figure is where a real difference is, good or bad.'));
+    }
+  }
   // the paper record by the bars the rules read: where the spread and eToro's fee leave something
   function speedsBox(box, key, L, D) {
     const S = D && D.speeds; if (!S || !Object.keys(S).length) return;
@@ -427,9 +449,9 @@
     if (!S.length) { box.appendChild(el('div', 'g-hint', 'No paper trade closed yet under the new learner.')); return; }
     const many = (L.styles || []).length > 1, tb = table(box, ['Setup', 'Stake', 'Chance', 'Expected'], 't-t4 t-labsetups');
     const shown = LB.more['setups' + key] ? S : S.slice(0, 8);
-    for (const s of shown) row(tb, `${short(s.rule)} · ${ALIGN_S[s.align] || s.align}`, `${EXIT_S[s.exit] || s.exit}${many ? (s.style === 'wait' ? ', waiting buy' : ', buys at once') : ''} · ${s.n} trades${s.fresh ? ` · confirming: ${s.fresh.n} of ${s.fresh.need} new trades${s.fresh.n && s.fresh.m != null ? ` (${rtxt(s.fresh.m)})` : ''}` : ''}`, [[TIER[s.tier] || s.tier, s.tier === 'bench' ? 'down' : RANK[s.tier] >= 2 ? 'up' : ''], s.p == null ? '–' : pct0(s.p), [rtxt(s.m), sign(s.m)]], 't-labsetup');
+    for (const s of shown) row(tb, `${short(s.rule)} · ${ALIGN_S[s.align] || s.align}`, `${EXIT_S[s.exit] || s.exit}${many ? (s.style === 'wait' ? ', waiting buy' : ', buys at once') : ''} · ${s.n} trades${s.fresh ? ` · confirming: ${s.fresh.n} of ${s.fresh.need} new trades${s.fresh.n && s.fresh.m != null ? ` (${rtxt(s.fresh.m)})` : ''}` : ''}${s.lucky != null && s.n >= 20 ? ` · luck alone gives ${luckN(s.lucky)} this good` : ''}`, [[TIER[s.tier] || s.tier, s.tier === 'bench' ? 'down' : RANK[s.tier] >= 2 ? 'up' : ''], s.p == null ? '–' : pct0(s.p), [rtxt(s.m), sign(s.m)]], 't-labsetup');
     if (S.length > 8 && !LB.more['setups' + key]) { const b = box.appendChild(el('button', 'btn t-labmore', `Show all ${S.length}`)); b.type = 'button'; b.addEventListener('click', () => { LB.more['setups' + key] = true; LB.bodySig = ''; paint(); }); }
-    box.appendChild(el('div', 'g-hint', 'Chance: how likely the setup earns after costs, from its paper trades (recent ones weigh more; few trades lean on the rule\'s wider record). Expected: R per trade. Test stake until 20 trades; half from 60%; full from 75%, ahead of random entries at the same speed, and only once 10 new trades since the half stake have earned too (a winner picked among many is partly luck); benched under 25%.'));
+    box.appendChild(el('div', 'g-hint', 'Chance: how likely the setup earns after costs, from its paper trades (recent ones weigh more; few trades lean on the rule\'s wider record). Expected: R per trade. Test stake until 20 trades; half from 60%; full from 75%, ahead of random entries at the same speed, and only once 10 new trades since the half stake have earned too; benched under 25%. Since 17 Nov a bigger stake also needs a record that luck alone would rarely give among all the combinations under test ("luck alone gives…": how many as good as this one chance would produce; it must be well under 1).'));
     const V = (D && D.vetoes) || []; if (V.length) box.appendChild(el('div', 'g-hint', 'Blocked on one market: ' + V.map((v) => `${v.sym} ${v.side === 'long' ? 'buys' : 'shorts'} (${short(v.rule)}, ${ALIGN_S[v.align]}: ${rtxt(v.m)})`).join(' · ') + '.'));
   }
   function closedBox(box, key, L, D) {
@@ -469,6 +491,7 @@
     const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). A buy either waits at the bid (no fee) or is made at once (0.09%), whichever has done better for the setup; a stop sells at once (0.09%). ' + (sps.length ? `The rules run on ${ladder(5)}.` : '') : `Long and short, only at eToro's leverage steps (1, 2, 5, 10, 20${key === 'gold' ? '' : '; oil up to 10, currencies up to 30'}). Costs as on a real account: the spread, plus eToro's fee when a trade opens and when it closes (${key === 'gold' ? '0.01% each time' : 'gold 0.01%, indices 0.007%, EUR/USD 0.005%, USD/JPY 0.002%, oil 0.04%'}). The rules run on ${ladder(1)}, all built from eToro's 1-minute prices. Trades of the rules up to 30 minutes are closed by 20:50 UTC, before eToro's nightly fee. Trades of the rules on 1-hour bars or slower may stay open for days: each night they pay eToro's overnight fee (gold bought about 0.022% of the position a night, three nights at once on Wednesday; the indices on Friday).`;
     head(box, 'Rules of this lab');
     box.appendChild(el('div', 'g-line', `${names} at ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} live prices. ${cap}`));
+    if ((L.entries || []).includes('tom1440')) box.appendChild(el('div', 'g-hint t-labextra', 'Three more rules, on the three stock indices only, each with evidence behind it: a move out of the usual range for the time of day (30-minute bars, inside the stock exchange\'s hours); a 7-day low while above the 200-day average (buy the bounce); the turn of the month (bought on the last weekday, held to the third weekday of the next month). Like every rule they trade on paper first and get money only if their record stands out from luck.'));
     box.appendChild(el('div', 'g-hint', 'One trade per market and per group of linked markets, at most 3 open. A trade risks 0.1% to 0.5% of the lab, by its setup\'s record. No new trade after a 3% loss in the day. Below $600 the lab settles and starts again at $2,000, keeping its lessons.'));
     if (L.resets && L.resets.length) { const d = SRApp.disclosure(box, `lab-${key}-resets`, `${L.resets.length} reset${L.resets.length === 1 ? '' : 's'} · all-cycle result ${usd2(L.lifetimeNet)}`); d.classList.add('t-labresets'); d.appendChild(el('div', 'g-hint', `Added paper money: ${usd(L.added)}. This is excluded from the all-cycle result.`)); for (const r of L.resets.slice(-10).reverse()) d.appendChild(el('div', 'g-line', `Cycle ${r.cycle} · ${when(r.at)} · ended ${usd(r.equity)} · result ${usd2(r.net)} · ${r.trades} trades`)); }
     // Matteo's idea: out at +$1 net, against the other exits and random entries
@@ -499,7 +522,7 @@
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); searchBox(f, key, L, D); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
       R.body.replaceChildren(f);
     }
     LB.lastPaint = Date.now();
