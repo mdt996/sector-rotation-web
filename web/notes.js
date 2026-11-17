@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 111, "text": "Paper labs: how long a trade may last is now learned from the paper trades, per bar length and exit; the limits that moved are listed under the lab's rules."};
+window.SR_NOTES = {"build": 112, "text": "Paper labs: each losing trade now says why it lost and what would have won on the same signal (another exit, or the opposite side). The review counts these reasons."};

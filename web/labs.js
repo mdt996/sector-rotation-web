@@ -317,7 +317,7 @@
     if (rv.note) { box.appendChild(el('div', 'g-hint', rv.note)); return; }
     const list = (title, items, cls) => { if (!items.length) return; const w = box.appendChild(el('div', 't-labrev ' + cls)); w.appendChild(el('b', '', title)); const ul = w.appendChild(el('ul')); for (const s of items) ul.appendChild(el('li', '', s)); };
     list('Went well', rv.well || [], 'up'); list('Went wrong', rv.wrong || [], 'down');
-    box.appendChild(el('div', 'g-hint', `On its last ${rv.n} trades. R: the money risked on a trade (+1 R won what it risked).`));
+    box.appendChild(el('div', 'g-hint', `On its last ${rv.n} trades. R: the money risked on a trade (+1 R won what it risked). Each losing trade below says why it lost and what would have won on the same signal; the lab learns from these counts, not from one trade.`));
   }
   function journalBox(box, key, L, D) {
     const J = ((D && D.journal) || L.journal || []).slice().reverse();
@@ -381,7 +381,18 @@
     head(box, `Closed trades${C.length ? ` (last ${Math.min(show, C.length)})` : ''}`);
     if (!C.length) { box.appendChild(el('div', 'g-hint', 'None closed yet.')); return; }
     const tb = table(box, ['Trade', 'Ended by', 'Costs', 'Result'], 't-t4 t-labclosed');
-    for (const c of C.slice(0, show)) row(tb, `${c.sym} ${c.dir > 0 ? 'buy' : 'short'}`, `${when(c.t1)} · ${span(c.t1 - c.t0)} · ${short(c.rule)}${c.align && c.align !== 'unknown' ? ' · ' + ALIGN_S[c.align] : ''}${c.tier ? ' · ' + (TIER[c.tier] || '') : ''}`, [c.how, '$' + (+c.cost).toFixed(2), [`${usd2(c.net)} (${rtxt(c.R)})`, sign(c.net)]]);
+    // the post-mortem of a losing trade: why it lost, and what would have won on the same signal (other exits, the opposite side)
+    const exitName = (k) => { const [x, st] = k.split('/'); return `${EXIT_S[x] || x}${st ? (st === 'wait' ? ', waiting buy' : ', bought at once') : ''}`; };
+    const wouldWin = (c) => {
+      if (!c.alt) return '';
+      const w = Object.entries(c.alt.exits || {}).filter(([k, r]) => r > 0 && k.split('/')[0] !== c.exit).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, r]) => `${exitName(k)} (${rtxt(r)})`);
+      if (c.alt.mirror > 0) w.push(`the opposite side (${rtxt(c.alt.mirror)})`);
+      return w.length ? ` Would have won: ${w.join('; ')}.` : Object.keys(c.alt.exits || {}).length >= 3 ? ' No other exit of this signal won' + (c.alt.mirror != null ? ', nor the opposite side.' : '.') : '';
+    };
+    for (const c of C.slice(0, show)) {
+      row(tb, `${c.sym} ${c.dir > 0 ? 'buy' : 'short'}`, `${when(c.t1)} · ${span(c.t1 - c.t0)} · ${short(c.rule)}${c.align && c.align !== 'unknown' ? ' · ' + ALIGN_S[c.align] : ''}${c.tier ? ' · ' + (TIER[c.tier] || '') : ''}`, [c.how, '$' + (+c.cost).toFixed(2), [`${usd2(c.net)} (${rtxt(c.R)})`, sign(c.net)]]);
+      if (c.net < 0 && c.why) tb.appendChild(el('div', 't-l2 t-labl2 t-labwhy', `Why: ${c.why}.${wouldWin(c)}`));
+    }
     if (C.length > show) { const b = box.appendChild(el('button', 'btn t-labmore', `Show ${Math.min(60, C.length)} trades`)); b.type = 'button'; b.addEventListener('click', () => { LB.more['closed' + key] = true; LB.bodySig = ''; paint(); }); }
   }
   function breakdownBox(box, key, D) {
