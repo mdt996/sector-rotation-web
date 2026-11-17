@@ -33,6 +33,8 @@
   const KEYS = ['gold', 'etoro', 'crypto'], VENUE = { gold: 'etoro', etoro: 'etoro', crypto: 'revx' };
   const TFS = [['1', '1m'], ['5', '5m'], ['15', '15m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']];
   const SHORT = { orb: 'Opening range', revert: 'Back to average', squeeze: 'Squeeze', momo: 'Push', breakout: 'Breakout', dip: 'Dip', random: 'Random' };
+  // a rule on slower bars carries its speed in its name ("momo15": the push on 15-minute bars)
+  const short = (r) => { const m = /^([a-z]+?)(\d+)$/.exec(r || ''); return m ? `${SHORT[m[1]] || m[1]} · ${m[2]} min` : SHORT[r] || r || ''; }, isRandom = (r) => /^random\d*$/.test(r || '');
   const ALIGN = { with: 'with the trend', pullback: 'dip or bounce inside the trend', reversal: 'early reversal', against: 'against the trend', unknown: 'trend not known' };
   const ALIGN_S = { with: 'with trend', pullback: 'dip/bounce', reversal: 'reversal', against: 'against trend', unknown: 'trend unknown' };
   const TIER = { bench: 'Benched', probe: 'Test 0.1%', build: 'Half 0.25%', full: 'Full 0.5%' }, RANK = { bench: 0, probe: 1, build: 2, full: 3 };
@@ -242,14 +244,14 @@
     O.forEach((o, i) => {
       const v = V.rows[i], r = row(tb, `${o.sym} ${o.dir > 0 ? 'buy' : 'short'}`, '', [num(px(o.e)), num(px(v[1])), [`${usd2(v[0])}`, sign(v[0])]]);
       // the rule, its place in the trend, the stake and the leverage on their own line, over the full width
-      tb.appendChild(el('div', 't-l2 t-labl2 t-labl1', `${SHORT[o.rule] || o.rule} · ${ALIGN_S[o.align] || ''} · ${TIER[o.tier] || ''}${o.lev > 1.05 ? ' · ' + levStep(o.lev) + 'x' : ''}`)).dataset.openl1 = String(o.id);
+      tb.appendChild(el('div', 't-l2 t-labl2 t-labl1', `${short(o.rule)} · ${ALIGN_S[o.align] || ''} · ${TIER[o.tier] || ''}${o.lev > 1.05 ? ' · ' + levStep(o.lev) + 'x' : ''}`)).dataset.openl1 = String(o.id);
       r.dataset.open = String(o.id);
       const pc0 = (p) => (p > 0 && o.e > 0 ? ` (${pc(100 * (p / o.e - 1))})` : ''), left = o.max ? o.max - Date.now() : null;
       const l2 = tb.appendChild(el('div', 't-l2 t-labl2', `Stop ${px(o.stop)}${pc0(o.stop)}${o.tgt ? ` · target ${px(o.tgt)}${pc0(o.tgt)}` : o.quick ? ` · out at ${usd2(o.quick)} net` : ' · no target: the stop trails'} · $${Math.round(o.notional).toLocaleString('en-US')} position, ${usd(o.risk)} at risk · ${span(Date.now() - o.t0)} in${left != null && left > 0 ? `, at most ${span(left)} more` : ''}`));
       l2.dataset.openl2 = String(o.id); r.dataset.risk = String(o.risk);
       r.title = (T.rules && T.rules[o.rule]) || '';
     });
-    for (const o of W) { row(tb, `${o.sym} buy at ${px(o.lim)}`, `${SHORT[o.rule] || o.rule} · ${ALIGN_S[o.align] || ''} · waiting order, no fee`, [span(Date.now() - o.t), 'waiting'], 't-labwait'); }
+    for (const o of W) { row(tb, `${o.sym} buy at ${px(o.lim)}`, `${short(o.rule)} · ${ALIGN_S[o.align] || ''} · waiting order, no fee`, [span(Date.now() - o.t), 'waiting'], 't-labwait'); }
     box.appendChild(el('div', 'g-hint', V.live ? 'Valued here from live prices, as the lab does: the price to close at, minus costs.' : 'Values as of the VM\'s last report.'));
   }
   function statsBox(box, L, D) {
@@ -266,6 +268,23 @@
     tile(g, 'Best / worst trade', t.best == null ? '–' : `${usd2(t.best)} / ${usd2(t.worst)}`, t.hold != null ? `${t.hold < 90 ? t.hold + ' min' : (t.hold / 60).toFixed(1) + ' h'} in a trade on average` : '', '');
     tile(g, 'Losses in a row', String(t.streak || 0), `longest run ${t.worstStreak || 0}`, t.streak >= 3 ? 'down' : '');
     tile(g, 'Daily swing', t.volDay == null ? '–' : t.volDay.toFixed(2) + '%', 'how much the value moves in a day', '');
+    // could it be luck, and what if the fills were worse (a VM not updated yet does not send them)
+    if (t.luck !== undefined || t.stress !== undefined) {
+      const lk = t.luck, gain = lk && t.meanR > 0;
+      tile(g, 'Could it be luck?', gain ? (lk.p < 0.01 ? 'under 1%' : pct0(lk.p)) : '–', !lk ? 'needs 5 closed trades' : gain ? `how often luck alone does this well; under 5% starts to count${lk.need ? ` · about ${lk.need.toLocaleString('en-US')} trades to tell` : ''}` : 'no gain to test so far', gain && lk.p < 0.05 ? 'up' : '');
+      tile(g, 'If fills were twice as bad', t.stress == null ? '–' : usd2(t.stress), 'the spread and slippage counted double', t.stress == null ? '' : sign(t.stress));
+    }
+  }
+  // the paper record by the bars the rules read: where the spread and eToro's fee leave something
+  function speedsBox(box, key, L, D) {
+    const S = D && D.speeds; if (!S || !Object.keys(S).length) return;
+    head(box, 'Which speed pays its costs?');
+    const tb = table(box, ['Bars', 'Paper trades', 'Before costs', 'After costs'], 't-t4 t-labspeeds');
+    for (const k of Object.keys(S).sort((a, b) => +a - +b)) {
+      const r = S[k]; if (!r || !(r.rules.n || r.random.n)) continue;
+      row(tb, `${k}-minute`, r.random.n ? `random entries: ${rtxt(r.random.mR)} over ${r.random.n}` : '', [String(r.rules.n), r.rules.n ? rtxt(r.rules.gR) : '–', [r.rules.n ? rtxt(r.rules.mR) : '–', r.rules.n ? sign(r.rules.mR) : '']], 't-labspeed');
+    }
+    box.appendChild(el('div', 'g-hint', L.venue === 'revx' ? 'Every paper trade of the rules, by the bars the rule reads (the lab\'s own rules read 5-minute bars, with stops from 15-minute ones). The gap between the two columns is what the spread and Revolut X\'s 0.09% fee take: it shrinks on slower bars.' : 'Every paper trade of the rules, by the bars the rule reads, all built from eToro\'s 1-minute prices. The gap between the two columns is what the spread and eToro\'s fee take: it shrinks on slower bars, where the same money at risk needs a smaller position.'));
   }
   function reviewBox(box, D) {
     const rv = D && D.report && D.report.review; if (!rv) return;
@@ -327,17 +346,17 @@
     if (!S.length) { box.appendChild(el('div', 'g-hint', 'No paper trade closed yet under the new learner.')); return; }
     const many = (L.styles || []).length > 1, tb = table(box, ['Setup', 'Stake', 'Chance', 'Expected'], 't-t4 t-labsetups');
     const shown = LB.more['setups' + key] ? S : S.slice(0, 8);
-    for (const s of shown) row(tb, `${SHORT[s.rule] || s.rule} · ${ALIGN_S[s.align] || s.align}`, `${EXIT_S[s.exit] || s.exit}${many ? (s.style === 'wait' ? ', waiting buy' : ', buys at once') : ''} · ${s.n} trades`, [[TIER[s.tier] || s.tier, s.tier === 'bench' ? 'down' : RANK[s.tier] >= 2 ? 'up' : ''], s.p == null ? '–' : pct0(s.p), [rtxt(s.m), sign(s.m)]], 't-labsetup');
+    for (const s of shown) row(tb, `${short(s.rule)} · ${ALIGN_S[s.align] || s.align}`, `${EXIT_S[s.exit] || s.exit}${many ? (s.style === 'wait' ? ', waiting buy' : ', buys at once') : ''} · ${s.n} trades${s.fresh ? ` · confirming: ${s.fresh.n} of ${s.fresh.need} new trades${s.fresh.n && s.fresh.m != null ? ` (${rtxt(s.fresh.m)})` : ''}` : ''}`, [[TIER[s.tier] || s.tier, s.tier === 'bench' ? 'down' : RANK[s.tier] >= 2 ? 'up' : ''], s.p == null ? '–' : pct0(s.p), [rtxt(s.m), sign(s.m)]], 't-labsetup');
     if (S.length > 8 && !LB.more['setups' + key]) { const b = box.appendChild(el('button', 'btn t-labmore', `Show all ${S.length}`)); b.type = 'button'; b.addEventListener('click', () => { LB.more['setups' + key] = true; LB.bodySig = ''; paint(); }); }
-    box.appendChild(el('div', 'g-hint', 'Chance: how likely the setup earns after costs, from its paper trades (recent ones weigh more; few trades lean on the rule\'s wider record). Expected: R per trade. Test stake until 20 trades; half from 60%; full from 75% and ahead of random entries; benched under 25%.'));
-    const V = (D && D.vetoes) || []; if (V.length) box.appendChild(el('div', 'g-hint', 'Blocked on one market: ' + V.map((v) => `${v.sym} ${v.side === 'long' ? 'buys' : 'shorts'} (${SHORT[v.rule] || v.rule}, ${ALIGN_S[v.align]}: ${rtxt(v.m)})`).join(' · ') + '.'));
+    box.appendChild(el('div', 'g-hint', 'Chance: how likely the setup earns after costs, from its paper trades (recent ones weigh more; few trades lean on the rule\'s wider record). Expected: R per trade. Test stake until 20 trades; half from 60%; full from 75%, ahead of random entries at the same speed, and only once 10 new trades since the half stake have earned too (a winner picked among many is partly luck); benched under 25%.'));
+    const V = (D && D.vetoes) || []; if (V.length) box.appendChild(el('div', 'g-hint', 'Blocked on one market: ' + V.map((v) => `${v.sym} ${v.side === 'long' ? 'buys' : 'shorts'} (${short(v.rule)}, ${ALIGN_S[v.align]}: ${rtxt(v.m)})`).join(' · ') + '.'));
   }
   function closedBox(box, key, L, D) {
     const C = ((D && D.closed) || L.closed || []).slice().reverse(), show = LB.more['closed' + key] ? 60 : 10;
     head(box, `Closed trades${C.length ? ` (last ${Math.min(show, C.length)})` : ''}`);
     if (!C.length) { box.appendChild(el('div', 'g-hint', 'None closed yet.')); return; }
     const tb = table(box, ['Trade', 'Ended by', 'Costs', 'Result'], 't-t4 t-labclosed');
-    for (const c of C.slice(0, show)) row(tb, `${c.sym} ${c.dir > 0 ? 'buy' : 'short'}`, `${when(c.t1)} · ${span(c.t1 - c.t0)} · ${SHORT[c.rule] || c.rule}${c.align && c.align !== 'unknown' ? ' · ' + ALIGN_S[c.align] : ''}${c.tier ? ' · ' + (TIER[c.tier] || '') : ''}`, [c.how, '$' + (+c.cost).toFixed(2), [`${usd2(c.net)} (${rtxt(c.R)})`, sign(c.net)]]);
+    for (const c of C.slice(0, show)) row(tb, `${c.sym} ${c.dir > 0 ? 'buy' : 'short'}`, `${when(c.t1)} · ${span(c.t1 - c.t0)} · ${short(c.rule)}${c.align && c.align !== 'unknown' ? ' · ' + ALIGN_S[c.align] : ''}${c.tier ? ' · ' + (TIER[c.tier] || '') : ''}`, [c.how, '$' + (+c.cost).toFixed(2), [`${usd2(c.net)} (${rtxt(c.R)})`, sign(c.net)]]);
     if (C.length > show) { const b = box.appendChild(el('button', 'btn t-labmore', `Show ${Math.min(60, C.length)} trades`)); b.type = 'button'; b.addEventListener('click', () => { LB.more['closed' + key] = true; LB.bodySig = ''; paint(); }); }
   }
   function breakdownBox(box, key, D) {
@@ -349,21 +368,25 @@
       const tb = table(d, [title, 'Trades', 'Won', 'Result'], 't-t4');
       for (const [k, r] of rows) row(tb, name ? name(k) : k, rtxt(r.R) + ' a trade', [String(r.n), pct0(r.w / r.n), [usd2(r.net), sign(r.net)]]);
     };
-    one('Market', 'asset'); one('Rule', 'rule', (k) => SHORT[k] || k); one('Place in the trend', 'align', (k) => ALIGN[k] || k); one('Side', 'side', (k) => (k === 'long' ? 'Buys' : 'Shorts'));
+    one('Market', 'asset'); one('Rule', 'rule', short); one('Bars of the rule', 'speed', (k) => `${k}-minute`, (a, b) => +a[0] - +b[0]); one('Place in the trend', 'align', (k) => ALIGN[k] || k); one('Side', 'side', (k) => (k === 'long' ? 'Buys' : 'Shorts'));
     one('Stake', 'tier', (k) => TIER[k] || k); one('Ended by', 'how');
     one('Hour it opened', 'hour', (k) => { const t = new Date(); t.setUTCHours(+k, 0, 0, 0); return hm(t.getTime()); }, (a, b) => +a[0] - +b[0]);
   }
   function restBox(box, key, L, D) {
-    const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). A buy either waits at the bid (no fee) or is made at once (0.09%), whichever has done better for the setup; a stop sells at once (0.09%).' : `Long and short, only at eToro's leverage steps (1, 2, 5, 10, 20${key === 'gold' ? '' : '; oil up to 10, currencies up to 30'}). Costs as on a real account: the spread, plus eToro's fee when a trade opens and when it closes (${key === 'gold' ? '0.01% each time' : 'gold 0.01%, indices 0.007%, EUR/USD 0.005%, USD/JPY 0.002%, oil 0.04%'}). Everything closed by 20:50 UTC, before eToro's nightly fee.`;
+    const sps = [...new Set((L.entries || []).map((r) => +((/(\d+)$/.exec(r) || [])[1] || 0)).filter(Boolean))].sort((a, b) => a - b), ladder = (own) => { const all = [own, ...sps.filter((x) => x !== own)]; return all.length > 1 ? `${all.slice(0, -1).join('-, ')}- and ${all[all.length - 1]}-minute bars` : `${own}-minute bars`; };
+    const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). A buy either waits at the bid (no fee) or is made at once (0.09%), whichever has done better for the setup; a stop sells at once (0.09%). ' + (sps.length ? `The rules run on ${ladder(5)}.` : '') : `Long and short, only at eToro's leverage steps (1, 2, 5, 10, 20${key === 'gold' ? '' : '; oil up to 10, currencies up to 30'}). Costs as on a real account: the spread, plus eToro's fee when a trade opens and when it closes (${key === 'gold' ? '0.01% each time' : 'gold 0.01%, indices 0.007%, EUR/USD 0.005%, USD/JPY 0.002%, oil 0.04%'}). The rules run on ${ladder(1)}, all built from eToro's 1-minute prices. Everything closed by 20:50 UTC, before eToro's nightly fee.`;
     head(box, 'Rules of this lab');
     box.appendChild(el('div', 'g-line', `${names} at ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} live prices. ${cap}`));
     box.appendChild(el('div', 'g-hint', 'One trade per market and per group of linked markets, at most 3 open. A trade risks 0.1% to 0.5% of the lab, by its setup\'s record. No new trade after a 3% loss in the day. Below $600 the lab settles and starts again at $2,000, keeping its lessons.'));
     if (L.resets && L.resets.length) { const d = SRApp.disclosure(box, `lab-${key}-resets`, `${L.resets.length} reset${L.resets.length === 1 ? '' : 's'} · all-cycle result ${usd2(L.lifetimeNet)}`); d.classList.add('t-labresets'); d.appendChild(el('div', 'g-hint', `Added paper money: ${usd(L.added)}. This is excluded from the all-cycle result.`)); for (const r of L.resets.slice(-10).reverse()) d.appendChild(el('div', 'g-line', `Cycle ${r.cycle} · ${when(r.at)} · ended ${usd(r.equity)} · result ${usd2(r.net)} · ${r.trades} trades`)); }
     // Matteo's idea: out at +$1 net, against the other exits and random entries
-    const st = L.stats || {}, rules = L.entries.filter((r) => r !== 'random'), mean = (rows, k) => { const n = rows.reduce((a, r) => a + r.n, 0); return n ? rows.reduce((a, r) => a + (r[k] || 0) * r.n, 0) / n : null; };
+    if (D && D.latency > 0) box.appendChild(el('div', 'g-hint t-lablag', `An order "at once" is filled at the first price at least ${D.latency / 1000} seconds after its signal, as a real order would be.${D.lag ? ` So far the delay has ${D.lag.atr > 0 ? 'cost' : 'gained'} ${Math.abs(D.lag.atr).toFixed(3)} ATR a signal (${D.lag.n.toLocaleString('en-US')} signals).` : ''}`));
+    const st = L.stats || {}, rules = L.entries.filter((r) => !isRandom(r)), mean = (rows, k) => { const n = rows.reduce((a, r) => a + r.n, 0); return n ? rows.reduce((a, r) => a + (r[k] || 0) * r.n, 0) / n : null; };
     const qs = rules.map((r) => (st[r] || {}).quick).filter(Boolean), qn = qs.reduce((a, q) => a + q.n, 0), qw = qs.reduce((a, q) => a + q.w, 0), others = ['tight', 'base', 'trail', 'wide'].map((x) => rules.map((r) => (st[r] || {})[x]).filter(Boolean)).flat(), rnd = (st.random || {}).quick;
     head(box, 'Your idea: out at +$1 net');
-    box.appendChild(el('div', 'g-line', qn ? `${qn} paper trades: ${pct0(qw / qn)} won, ${rtxt(mean(qs, 'mR'))} per trade after costs (${rtxt(mean(qs, 'mG'))} before). The other exits: ${rtxt(mean(others, 'mR'))}. Random entries with this exit: ${rtxt(rnd ? rnd.mR : null)}.${qn < 100 ? ' Too early: fewer than 100 trades.' : ''}` : 'Every signal is also followed with this exit: out as soon as the trade has made $1 after all costs (for each $10 risked), or at its stop.'));
+    const I = L.idea;
+    if (I && I.quick) box.appendChild(el('div', 'g-line', I.quick.n ? `${I.quick.n.toLocaleString('en-US')} paper trades: ${pct0(I.quick.w / I.quick.n)} won, ${rtxt(I.quick.mR)} per trade after costs (${rtxt(I.quick.mG)} before). The other exits: ${rtxt(I.others.mR)}. Random entries with this exit: ${rtxt(I.random.mR)}.${I.quick.n < 100 ? ' Too early: fewer than 100 trades.' : ''}` : 'Every signal is also followed with this exit: out as soon as the trade has made $1 after all costs (for each $10 risked), or at its stop.'));
+    else box.appendChild(el('div', 'g-line', qn ? `${qn} paper trades: ${pct0(qw / qn)} won, ${rtxt(mean(qs, 'mR'))} per trade after costs (${rtxt(mean(qs, 'mG'))} before). The other exits: ${rtxt(mean(others, 'mR'))}. Random entries with this exit: ${rtxt(rnd ? rnd.mR : null)}.${qn < 100 ? ' Too early: fewer than 100 trades.' : ''}` : 'Every signal is also followed with this exit: out as soon as the trade has made $1 after all costs (for each $10 risked), or at its stop.'));
     const sk = Object.entries(L.skipped || {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
     if (sk.length) { const d = SRApp.disclosure(box, `lab-${key}-skipped`, `Signals the money did not take (${L.signals} signals so far)`); for (const [k, v] of sk) d.appendChild(el('div', 'g-line', `${k}: ${v}`)); }
     const errs = ((LB.sum.health || {}).errors || []).slice(-3); if (errs.length && Date.now() - errs[errs.length - 1][0] < 3600000) box.appendChild(el('div', 'g-hint', 'Last problems on the VM: ' + errs.map((e) => `${clock(e[0])} ${e[1]}`).join(' · ')));
@@ -382,7 +405,7 @@
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
       R.body.replaceChildren(f);
     }
     LB.lastPaint = Date.now();
