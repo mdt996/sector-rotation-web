@@ -858,6 +858,17 @@ div.av-pick { max-width: none; }
 .t-labchart svg { display: block; width: 100%; height: 90px; } .t-labline { fill: none; stroke-width: 2; stroke: var(--color-ok); vector-effect: non-scaling-stroke; } .t-labline.down { stroke: var(--color-bad); }
 .t-labbase { stroke: var(--color-fg-muted); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; vector-effect: non-scaling-stroke; } .t-labaxis { font-size: 12px; color: var(--color-fg-muted); margin: 2px 0 8px; }
 .t-labrow { cursor: pointer; } .t-labsub { background: color-mix(in srgb, var(--color-fg) 4%, transparent); } .t-labsub .t-name { font-weight: 500; padding-left: 10px; }
+/* Trading → Labs, version 2: the markets' chart, live figures, statistics, review, journal */
+.t-labstatus .t-labrefresh { margin-left: auto; padding: 4px 10px; font-size: 12.5px; }
+.t-labchartbox { margin: 4px 0 6px; } .t-labl2 { padding: 0 10px 8px; margin: -2px 0 0; border-top: 0; }
+.t-labbrake { font-size: 13px; margin: 2px 0 8px; } .t-labwait { opacity: .75; } .t-labmore { margin: 8px 0 2px; font-size: 13px; padding: 5px 12px; }
+.t-labrev { border: 1px solid var(--color-border-line); border-left: 3px solid var(--color-ok); border-radius: 10px; padding: 9px 12px; margin: 0 0 8px; font-size: 13.5px; line-height: 1.4; }
+.t-labrev.down { border-left-color: var(--color-bad); } .t-labrev b { display: block; margin-bottom: 3px; color: var(--color-fg); } .t-labrev ul { margin: 0; padding-left: 18px; } .t-labrev li { margin: 3px 0; color: var(--color-fg); }
+.t-labjournal { display: grid; gap: 6px; margin: 0 0 8px; } .t-labj { display: grid; grid-template-columns: 86px 1fr; gap: 8px; font-size: 13px; line-height: 1.35; padding-left: 8px; border-left: 3px solid var(--color-border-line); color: var(--color-fg); }
+.t-labj.up { border-left-color: var(--color-ok); } .t-labj.down { border-left-color: var(--color-bad); } .t-labj.risk { border-left-color: var(--color-warn, #b45309); } .t-labjt { color: var(--color-fg-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.t-labphases { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; } .t-labphase { font-size: 12.5px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--color-border-line); color: var(--color-fg); }
+.t-labphase.up b { color: var(--color-ok); } .t-labphase.down b { color: var(--color-bad); } .t-labphase.turn b { color: var(--color-warn, #b45309); } .t-labturn { font-size: 13px; margin: 2px 0 6px; }
+.t-labstats .g-stat-v { font-size: 16.5px; } .t-labclosed .t-tr span:nth-child(2), .t-labtrend .t-tr span:nth-child(2) { white-space: normal; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

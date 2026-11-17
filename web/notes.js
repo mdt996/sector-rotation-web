@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 105, "text": "Paper labs test entries, exits and direction together by trend. The charts keep past losses visible after a reset."};
+window.SR_NOTES = {"build": 106, "text": "Paper labs: each portfolio on a real chart, live values, full statistics with the Sharpe ratio, what went well and wrong, with or against the trend. The eToro labs now pay a real account's fees and use only eToro's leverage steps."};

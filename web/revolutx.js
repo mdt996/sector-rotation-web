@@ -121,10 +121,18 @@
     if (rate > 0) for (const [b, v] of Object.entries(usd)) if (!eur[b]) eur[b] = { p: v.p / rate, chg: v.chg };
     return eur;
   }
+  // the dollar markets' bid and ask, as read: the paper labs' crypto trades (Trading → Labs) are valued with them between two reports of the VM
+  let book = null;   // { at, usd: { BTC: { bid, ask } } }
+  function usdBook(j) {
+    const out = {}, rows = (j && j.data) || [], eea = rows.some((t) => t.region === 'EEA');
+    for (const t of rows) { if (eea && t.region && t.region !== 'EEA') continue; const [b, q] = String(t.symbol || '').toUpperCase().split(/[/-]/), bid = parseFloat(t.bid), ask = parseFloat(t.ask); if (b && q === 'USD' && bid > 0 && ask >= bid) out[b] = { bid, ask }; }
+    return out;
+  }
   async function readTickers(r) {
     const res = await SRApp.request('GET', BASE + TICKERS, await signedHeaders(r, String(Date.now()), TICKERS));
     if (res.status !== 200) return false;
-    const eur = parseTickers(JSON.parse(res.body));
+    const raw = JSON.parse(res.body); book = { at: Date.now(), usd: usdBook(raw) };
+    const eur = parseTickers(raw);
     if (!Object.keys(eur).length) return false;
     px = { at: Date.now(), eur };
     if (window.SR && window.SR.liveNow) { try { window.SR.liveNow(); } catch (e) { /* the next tick */ } }
@@ -345,7 +353,7 @@
       readTickers(r).catch(() => false).then(() => { pxBusy = false; });
     }
   };
-  window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, values, parseTickers, parseRewards, staking, keepStaking, query, PATH, BASE, TX };
+  window.SRRevx = { read, merge, rebase, signedHeaders, makeKey, values, parseTickers, parseRewards, staking, keepStaking, query, PATH, BASE, TX, usdBook, book: () => book };
   wire();
   setTimeout(tick, 4000);
   setInterval(tick, PX_EVERY);
