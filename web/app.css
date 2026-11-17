@@ -732,6 +732,24 @@ div.av-pick { max-width: none; }
 .t-go { font: inherit; font-size: 14px; font-weight: 600; width: 100%; padding: 10px 12px; margin: 0 0 10px; border-radius: 10px; border: 1px solid var(--sr-c1); background: color-mix(in srgb, var(--sr-c1) 10%, transparent); color: var(--sr-c1); cursor: pointer; text-align: left; }
 
 .t-t4 .t-tr { grid-template-columns: minmax(104px, 2fr) repeat(3, minmax(54px, 1fr)); min-width: 0; }
+/* Labs: the scan of every bar length. One series a chart, so no legend; the shaded band is a run of lengths that earn. */
+.t-labscan { margin: 12px 0 14px; }
+.t-labscan-t { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.t-labscan svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.t-labscan .ax { stroke: var(--color-border-line); stroke-width: 1; }
+.t-labscan .zero { stroke: var(--color-fg-muted); stroke-width: 1; opacity: .7; }
+.t-labscan .lad { stroke: var(--color-fg-muted); stroke-width: 1.5; }
+.t-labscan .band { fill: var(--av-up); opacity: .16; }
+.t-labscan .thin { fill: var(--color-fg-muted); opacity: .45; }
+.t-labscan .ln { fill: none; stroke: var(--sr-c1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.t-labscan .dot { fill: var(--sr-c1); stroke: var(--color-bg); stroke-width: 2; }
+.t-labscan .pt { fill: var(--sr-c1); }
+.t-labscan .cross { stroke: var(--color-fg-muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.t-labscan .hit { fill: transparent; cursor: crosshair; }
+.t-labscan text { font-size: 10px; fill: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+.t-labscan-r { font-size: 12px; color: var(--color-fg-muted); min-height: 32px; margin-top: 2px; }
+.t-labscan-r.on { color: var(--color-fg); }
+.t-labscant .t-dim { color: var(--color-fg-muted); opacity: .75; }
 .t-sub { display: block; font-weight: 400; font-size: 12px; color: var(--color-fg-muted); margin-top: 1px; } .t-sub.up { color: var(--color-ok); } .t-sub.down { color: var(--color-bad); }
 .subtabs[data-tab="trading"] { gap: 5px; } .subtabs[data-tab="trading"] button { padding: 7px 9px; font-size: 13px; }
 .t-alarm { margin: 6px 0 2px; padding: 8px 10px; border: 1px solid currentColor; border-radius: 10px; }

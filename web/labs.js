@@ -34,7 +34,7 @@
   const TFS = [['1', '1m'], ['5', '5m'], ['15', '15m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']];
   const SHORT = { orb: 'Opening range', revert: 'Back to average', squeeze: 'Squeeze', momo: 'Push', breakout: 'Breakout', dip: 'Dip', random: 'Random' };
   // a rule on slower bars carries its speed in its name ("momo15": the push on 15-minute bars)
-  const barName = (k) => (+k === 60 ? '1-hour' : +k === 240 ? '4-hour' : +k === 1440 ? 'daily' : `${k}-minute`), barShort = (k) => (+k === 60 ? '1 h' : +k === 240 ? '4 h' : +k === 1440 ? 'daily' : `${k} min`);
+  const barName = (k) => (+k === 1440 ? 'daily' : +k >= 60 && +k % 60 === 0 ? `${+k / 60}-hour` : `${k}-minute`), barShort = (k) => (+k === 1440 ? 'daily' : +k >= 60 && +k % 60 === 0 ? `${+k / 60} h` : `${k} min`);
   const short = (r) => { const m = /^([a-z]+?)(\d+)$/.exec(r || ''); return m ? `${SHORT[m[1]] || m[1]} · ${barShort(m[2])}` : SHORT[r] || r || ''; }, isRandom = (r) => /^random\d*$/.test(r || '');
   const ALIGN = { with: 'with the trend', pullback: 'dip or bounce inside the trend', reversal: 'early reversal', against: 'against the trend', unknown: 'trend not known' };
   const ALIGN_S = { with: 'with trend', pullback: 'dip/bounce', reversal: 'reversal', against: 'against trend', unknown: 'trend unknown' };
@@ -69,6 +69,8 @@
       // the backtest: read once, then when the live file says a new one was made (once a day)
       const btMade = LB.bt ? Date.parse(LB.bt.made) : 0; now = Date.now();
       if (rev.bt > 0 && (rev.bt > btMade + 500 || force) && now - (LB.btAt || 0) >= (force ? 5000 : 600000)) { const j = await read('lab-backtest.json'); LB.btAt = Date.now(); got = true; if (j && j.labs && Number.isFinite(Date.parse(j.made))) LB.bt = j; }
+      // the scan of every bar length is made with the backtest: read when that one is newer (a VM not updated yet has none)
+      if (LB.bt && (!LB.scan || LB.scan.made !== LB.bt.made) && Date.now() - (LB.scanAt || 0) >= (force ? 5000 : 600000)) { const j = await read('lab-scan.json'); LB.scanAt = Date.now(); got = true; if (j && j.labs && Number.isFinite(Date.parse(j.made))) LB.scan = j; }
     } finally { LB.loading = false; }
     if (got) paint();
   }
@@ -301,6 +303,59 @@
     if (B.best && B.best.length) box.appendChild(el('div', 'g-hint', 'Best in this history: ' + B.best.slice(0, 3).map((b) => `${short(b.rule)} ${ALIGN_S[b.align] || b.align} (${rtxt(b.m)} over ${b.n})`).join(' · ') + '.'));
     box.appendChild(el('div', 'g-hint', `${B.days} day${B.days === 1 ? '' : 's'} of history replayed ${when(Date.parse(LB.bt.made))}: ${B.n.toLocaleString('en-US')} paper trades with this lab's own rules, fees and sizes. Each trade is counted under the stake its setup had when it opened, from what was known until then: no hindsight. The venues give only a few days of candles; the VM now keeps them, so this gets deeper every day. Each rule starts live from what it made here; live trades confirm it or overturn it.`));
   }
+  // every bar length tried on the history: one small chart a rule, the same scale on all three. A shape to read, not a winner to pick.
+  const lenTxt = (m) => (m === 1440 ? '1 day' : m >= 60 && m % 60 === 0 ? `${m / 60} h` : `${m} min`), SOLID = 20, NS = 'http://www.w3.org/2000/svg';
+  const svg = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+  function scanBox(box, key, L) {
+    const S = LB.scan && LB.scan.labs && LB.scan.labs[key]; if (!S || !S.rules) return;
+    const rules = ['momo', 'revert', 'squeeze'].filter((r) => S.rules[r] && Array.isArray(S.rules[r].pts) && S.rules[r].pts.length); if (!rules.length) return;
+    head(box, 'Every bar length, tried');
+    const solid = (r) => S.rules[r].pts.filter((p) => p[1] >= SOLID), all = rules.flatMap(solid), ladder = [...new Set([L.venue === 'revx' ? 5 : 1, ...(L.entries || []).map((r) => +((/(\d+)$/.exec(r) || [])[1] || 0)).filter(Boolean)])].sort((a, b) => a - b);
+    // a plateau: three or more neighbouring lengths that each earn; firm when by more than luck would give (the VM's verdict)
+    const firm = (r) => (S.rules[r].plateau && S.rules[r].plateau.firm === true ? S.rules[r].plateau : null), flat = rules.filter(firm), inside = (pl) => ladder.filter((x) => x >= pl.from && x <= pl.to);
+    const verdict = !all.length ? 'Too little history yet: no bar length has 20 trades of a rule.'
+      : !flat.length ? 'No bar length earns after costs in this history: no rule has three neighbouring lengths that each earn by more than luck would give.'
+      : flat.map((r) => { const pl = firm(r), own = inside(pl); return `${SHORT[r]} earns after costs on bars from ${lenTxt(pl.from)} to ${lenTxt(pl.to)}: ${rtxt(pl.mR)} a trade over ${pl.n.toLocaleString('en-US')}, ${pl.lengths} neighbouring lengths that each earn.${own.length ? ` The lab trades ${own.map(lenTxt).join(', ')} inside it.` : ''}`; }).join(' ') + ' Worth watching, not proof yet: neighbouring lengths share the same moves.';
+    box.appendChild(el('div', 'g-line t-labscanv', verdict));
+    if (all.length) {
+      const step = (v) => (Math.abs(v) > 1 ? 0.5 : 0.25), nice = (v) => (v === 0 ? 0 : Math.sign(v) * Math.ceil(Math.abs(v) / step(v) - 1e-9) * step(v));   // the scale ends on quarters or halves
+      const x0 = Math.log(Math.min(...rules.map((r) => S.rules[r].pts[0][0]))), x1 = Math.log(1440), lo = nice(Math.max(-2, Math.min(0, ...all.map((p) => p[3])))), hi = nice(Math.min(2, Math.max(0, ...all.map((p) => p[3])))), pad = Math.max(0.05, (hi - lo) * 0.06);
+      const W = 340, H = 118, PL = 44, PR = 8, PT = 8, PB = 24, X = (m) => PL + (W - PL - PR) * (Math.log(m) - x0) / Math.max(1e-9, x1 - x0), Y = (v) => PT + (H - PT - PB) * (hi + pad - Math.max(lo, Math.min(hi, v))) / (hi - lo + 2 * pad);
+      for (const r of rules) {
+        const R = S.rules[r], pts = solid(r), thin = R.pts.filter((p) => p[1] < SOLID && p[1] >= 5), pl = firm(r), weak = pl ? null : R.plateau, best = R.best;
+        const reading = !pts.length ? 'Too few trades at any length yet.'
+          : pl ? `Earns from ${lenTxt(pl.from)} to ${lenTxt(pl.to)}: ${rtxt(pl.mR)} a trade over ${pl.n.toLocaleString('en-US')}.`
+          : weak ? `A little above zero from ${lenTxt(weak.from)} to ${lenTxt(weak.to)} (${rtxt(weak.mR)} over ${weak.n.toLocaleString('en-US')} trades): not told from luck yet.`
+          : best && best[3] > 0 ? `No run of lengths earns. Best single length: ${lenTxt(best[0])} (${rtxt(best[3])} over ${best[1]} trades); no neighbour confirms it, so it may be luck.`
+          : `Loses at every length${best ? `; the least bad is ${lenTxt(best[0])} (${rtxt(best[3])})` : ''}.`;
+        const wrap = box.appendChild(el('div', 't-labscan')); wrap.dataset.rule = r;
+        wrap.appendChild(el('div', 't-labscan-t', SHORT[r] || r));
+        const g = wrap.appendChild(svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${SHORT[r] || r}: result a trade after costs, by bar length. ${reading}` }));
+        for (const v of [...new Set([hi, 0, lo])]) { g.appendChild(svg('line', { class: v === 0 ? 'zero' : 'ax', x1: PL, x2: W - PR, y1: Y(v), y2: Y(v) })); g.appendChild(svg('text', { x: PL - 5, y: Y(v) + 3, 'text-anchor': 'end' }, v === 0 ? '0' : rtxt(v))); }
+        for (const m of [1, 5, 15, 60, 240, 1440]) if (Math.log(m) >= x0 - 1e-9) g.appendChild(svg('text', { x: X(m), y: H - 3, 'text-anchor': m === 1440 ? 'end' : Math.log(m) <= x0 + 1e-9 ? 'start' : 'middle' }, lenTxt(m)));
+        for (const m of ladder) if (Math.log(m) >= x0 - 1e-9) g.appendChild(svg('line', { class: 'lad', x1: X(m), x2: X(m), y1: H - PB + 2, y2: H - PB + 7 }));
+        if (pl) g.appendChild(svg('rect', { class: 'band', x: X(pl.from) - 2, y: PT, width: Math.max(4, X(pl.to) - X(pl.from) + 4), height: H - PT - PB, rx: 3 }));
+        for (const p of thin) if (p[3] >= lo && p[3] <= hi) g.appendChild(svg('circle', { class: 'thin', cx: X(p[0]), cy: Y(p[3]), r: 1.6 }));
+        // the line joins neighbouring lengths only: it stops where a length has too few trades, and a length alone is a point
+        const runs = []; let run = null; for (const p of R.pts) { if (p[1] >= SOLID) { if (!run) runs.push(run = []); run.push(p); } else run = null; }
+        for (const q of runs) g.appendChild(q.length > 1 ? svg('polyline', { class: 'ln', points: q.map((p) => `${X(p[0]).toFixed(1)},${Y(p[3]).toFixed(1)}`).join(' ') }) : svg('circle', { class: 'pt', cx: X(q[0][0]), cy: Y(q[0][3]), r: 2.5 }));
+        const cross = g.appendChild(svg('line', { class: 'cross', y1: PT, y2: H - PB, visibility: 'hidden' })), dot = g.appendChild(svg('circle', { class: 'dot', r: 4, visibility: 'hidden' }));
+        const out = wrap.appendChild(el('div', 't-labscan-r', reading)), hit = g.appendChild(svg('rect', { class: 'hit', x: PL - 6, y: 0, width: W - PL - PR + 12, height: H }));
+        if (pts.length) {
+          const show = (ev) => { const b = g.getBoundingClientRect(), xv = (ev.clientX - b.left) * W / Math.max(1, b.width); let p = pts[0]; for (const q of pts) if (Math.abs(X(q[0]) - xv) < Math.abs(X(p[0]) - xv)) p = q;
+            for (const [n, a] of [[cross, { x1: X(p[0]), x2: X(p[0]) }], [dot, { cx: X(p[0]), cy: Y(p[3]) }]]) { for (const k in a) n.setAttribute(k, a[k]); n.setAttribute('visibility', 'visible'); }
+            out.textContent = `${lenTxt(p[0])} bars: ${rtxt(p[3])} a trade after costs (${rtxt(p[2])} before), ${p[1].toLocaleString('en-US')} trades`; out.classList.add('on'); };
+          const hide = () => { cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); out.textContent = reading; out.classList.remove('on'); };
+          hit.addEventListener('pointerdown', show); hit.addEventListener('pointermove', show); hit.addEventListener('pointerleave', hide); hit.addEventListener('pointercancel', hide);
+        }
+      }
+      const d = SRApp.disclosure(box, `lab-${key}-scan`, 'The numbers'), tb = table(d, ['Bars', ...rules.map((r) => SHORT[r] || r)], rules.length === 3 ? 't-t4 t-labscant' : 't-labscant'), at = (r, m) => S.rules[r].pts.find((p) => p[0] === m);
+      for (const m of [...new Set([...ladder, 60, 240, 1440])].sort((a, b) => a - b)) { if (!rules.some((r) => at(r, m))) continue; row(tb, lenTxt(m), '', rules.map((r) => { const p = at(r, m); return p ? [`${rtxt(p[3])} · ${p[1]}`, p[1] >= SOLID ? sign(p[3]) : 't-dim'] : '–'; }), 't-labscanrow'); }
+      d.appendChild(el('div', 'g-hint', 'After costs, a trade, then the number of trades. Grey: under 20 trades, too few to read.'));
+    }
+    const first = Math.min(...rules.map((r) => S.rules[r].pts[0][0]));
+    box.appendChild(el('div', 'g-hint t-labscanh', `Every bar length from ${lenTxt(first)} to 1 day (${S.lengths} of them), each rule with one standard exit, on the candles the VM keeps, with ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} costs. The line is the result a trade after costs; it stops where a length has under 20 trades (grey dots). With this many lengths tried, the best single one is nearly always luck: only neighbouring lengths that each earn mean something (shaded when three or more do, by more than luck would give). That is why the lab trades a few spaced lengths live, the small marks under each chart, and not all of them. Made ${when(Date.parse(LB.scan.made))}; it reaches further as more candles are kept.`));
+  }
   // the paper record by the bars the rules read: where the spread and eToro's fee leave something
   function speedsBox(box, key, L, D) {
     const S = D && D.speeds; if (!S || !Object.keys(S).length) return;
@@ -411,7 +466,7 @@
   }
   function restBox(box, key, L, D) {
     const sps = [...new Set((L.entries || []).map((r) => +((/(\d+)$/.exec(r) || [])[1] || 0)).filter(Boolean))].sort((a, b) => a - b), ladder = (own) => { const all = [own, ...sps.filter((x) => x !== own)], min = all.filter((x) => x < 60), slow = all.filter((x) => x >= 60).map(barName); return `${min.join('-, ')}-minute${slow.length ? `, ${slow.join(', ')}` : ''} bars`; };
-    const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). A buy either waits at the bid (no fee) or is made at once (0.09%), whichever has done better for the setup; a stop sells at once (0.09%). ' + (sps.length ? `The rules run on ${ladder(5)}.` : '') : `Long and short, only at eToro's leverage steps (1, 2, 5, 10, 20${key === 'gold' ? '' : '; oil up to 10, currencies up to 30'}). Costs as on a real account: the spread, plus eToro's fee when a trade opens and when it closes (${key === 'gold' ? '0.01% each time' : 'gold 0.01%, indices 0.007%, EUR/USD 0.005%, USD/JPY 0.002%, oil 0.04%'}). The rules run on ${ladder(1)}, all built from eToro's 1-minute prices. Trades of the rules up to 30 minutes are closed by 20:50 UTC, before eToro's nightly fee. Trades of the 1-hour, 4-hour and daily rules may stay open for days: each night they pay eToro's overnight fee (gold bought about 0.022% of the position a night, three nights at once on Wednesday; the indices on Friday).`;
+    const names = L.assets.join(', '), cap = L.venue === 'revx' ? 'Buys only, no leverage (Revolut X lends nothing). A buy either waits at the bid (no fee) or is made at once (0.09%), whichever has done better for the setup; a stop sells at once (0.09%). ' + (sps.length ? `The rules run on ${ladder(5)}.` : '') : `Long and short, only at eToro's leverage steps (1, 2, 5, 10, 20${key === 'gold' ? '' : '; oil up to 10, currencies up to 30'}). Costs as on a real account: the spread, plus eToro's fee when a trade opens and when it closes (${key === 'gold' ? '0.01% each time' : 'gold 0.01%, indices 0.007%, EUR/USD 0.005%, USD/JPY 0.002%, oil 0.04%'}). The rules run on ${ladder(1)}, all built from eToro's 1-minute prices. Trades of the rules up to 30 minutes are closed by 20:50 UTC, before eToro's nightly fee. Trades of the rules on 1-hour bars or slower may stay open for days: each night they pay eToro's overnight fee (gold bought about 0.022% of the position a night, three nights at once on Wednesday; the indices on Friday).`;
     head(box, 'Rules of this lab');
     box.appendChild(el('div', 'g-line', `${names} at ${L.venue === 'revx' ? "Revolut X's" : "eToro's"} live prices. ${cap}`));
     box.appendChild(el('div', 'g-hint', 'One trade per market and per group of linked markets, at most 3 open. A trade risks 0.1% to 0.5% of the lab, by its setup\'s record. No new trade after a 3% loss in the day. Below $600 the lab settles and starts again at $2,000, keeping its lessons.'));
@@ -441,10 +496,10 @@
     const R = LB.R && root.contains(LB.R.body) ? LB.R : skeleton(root), key = LB.sel, L = sumLab(key), V = valued(key), D = LB.det[key];
     want(); status(R); cards(R); top(R, L, V);
     const cf = key + '|' + LB.sum.made + '|' + (D ? D.made : '') + '|' + V.N.open.length; chart(R.chart, key, V, R.chart.dataset.for === cf ? 'tick' : 'data'); R.chart.dataset.for = cf;
-    const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', JSON.stringify(LB.more)].join('|');
+    const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
       R.body.replaceChildren(f);
     }
     LB.lastPaint = Date.now();
