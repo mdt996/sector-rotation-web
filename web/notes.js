@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 109, "text": "Paper labs: every rule now also runs on slower bars built from 1-minute prices (eToro 2 to 30 minutes, Revolut X 15 to 60), with a table of which speed pays its costs. New figures: could the result be luck, and what if fills were twice as bad. Orders are filled 2 seconds late, as real ones would be."};
+window.SR_NOTES = {"build": 110, "text": "Paper labs: a backtest of each lab's own rules on the history the VM keeps, with a walk-forward that shows whether what the learner picked went on to earn. It gets deeper every day."};

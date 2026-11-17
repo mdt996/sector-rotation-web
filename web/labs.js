@@ -65,6 +65,9 @@
       const k = LB.sel, d = LB.det[k], dMade = d ? Date.parse(d.made) : 0; now = Date.now();
       const wantDet = LB.sum && LB.sum.format === 2 && (!d || force || (rev.det && rev.det[k] > dMade + 500) || now - (LB.detAt[k] || 0) >= 300000);
       if (wantDet && (force || now - (LB.detAt[k] || 0) >= 5000)) { const j = await read(`lab-${k}.json`); LB.detAt[k] = Date.now(); got = true; if (j && j.key === k && Array.isArray(j.eq60) && Number.isFinite(Date.parse(j.made))) LB.det[k] = j; }
+      // the backtest: read once, then when the live file says a new one was made (once a day)
+      const btMade = LB.bt ? Date.parse(LB.bt.made) : 0; now = Date.now();
+      if (rev.bt > 0 && (rev.bt > btMade + 500 || force) && now - (LB.btAt || 0) >= (force ? 5000 : 600000)) { const j = await read('lab-backtest.json'); LB.btAt = Date.now(); got = true; if (j && j.labs && Number.isFinite(Date.parse(j.made))) LB.bt = j; }
     } finally { LB.loading = false; }
     if (got) paint();
   }
@@ -275,6 +278,28 @@
       tile(g, 'If fills were twice as bad', t.stress == null ? '–' : usd2(t.stress), 'the spread and slippage counted double', t.stress == null ? '' : sign(t.stress));
     }
   }
+  // the backtest and its walk-forward: did what the learner picked go on to earn?
+  function backtestBox(box, key, L) {
+    const B = LB.bt && LB.bt.labs && LB.bt.labs[key]; if (!B) return;
+    head(box, 'Backtest and walk-forward');
+    if (!B.n) { box.appendChild(el('div', 'g-hint', 'No history replayed yet for this lab.')); return; }
+    const t = B.tiers || {}, r = (c) => (c && c.n ? `${rtxt(c.mR)} a trade over ${c.n.toLocaleString('en-US')}` : 'none yet');
+    const pick = B.picked || {}, rest = { n: (t.probe ? t.probe.n : 0) + (t.bench ? t.bench.n : 0), s: (t.probe && t.probe.n ? t.probe.mR * t.probe.n : 0) + (t.bench && t.bench.n ? t.bench.mR * t.bench.n : 0) };
+    const restM = rest.n ? rest.s / rest.n : null, rnd = B.random || {};
+    const verdict = !pick.n ? 'Nothing was promoted in this history yet: too little of it, or nothing earned enough.'
+      : pick.n < 30 ? `Too early to say: only ${pick.n} trades of promoted setups in this history.`
+      : pick.mR > 0 && (restM == null || pick.mR > restM) ? `So far, picking works here: what the learner had promoted went on to make ${rtxt(pick.mR)} a trade, against ${rtxt(restM)} for what it had not.`
+      : pick.mR > (restM == null ? -9 : restM) ? `Picking helped but did not pay: what the learner had promoted went on to make ${rtxt(pick.mR)} a trade, against ${rtxt(restM)} for the rest.`
+      : `So far, picking does not work here: what the learner had promoted went on to make ${rtxt(pick.mR)} a trade, no better than the rest (${rtxt(restM)}).`;
+    box.appendChild(el('div', 'g-line t-labbtv', verdict));
+    const tb = table(box, ['Stake when the trade opened', 'Trades', 'Won', 'Per trade'], 't-t4 t-labbt');
+    for (const [k, name] of [['full', 'Full 0.5%'], ['build', 'Half 0.25%'], ['probe', 'Test 0.1%'], ['bench', 'Benched (not taken)']]) { const c = t[k]; if (c && c.n) row(tb, name, '', [String(c.n), pct0(c.won), [rtxt(c.mR), sign(c.mR)]], 't-labbtrow'); }
+    if (rnd.n) row(tb, 'Random entries', 'the yardstick', [String(rnd.n), pct0(rnd.won), [rtxt(rnd.mR), sign(rnd.mR)]], 't-labbtrow');
+    const sp = B.speeds || {}, keys = Object.keys(sp).sort((a, b) => +a - +b).filter((k) => sp[k].rules.n);
+    if (keys.length) { const d = SRApp.disclosure(box, `lab-${key}-btspeeds`, 'The history by bar length'), tb2 = table(d, ['Bars', 'Paper trades', 'Before costs', 'After costs'], 't-t4'); for (const k of keys) row(tb2, `${k}-minute`, sp[k].random.n ? `random entries: ${rtxt(sp[k].random.mR)}` : '', [String(sp[k].rules.n), rtxt(sp[k].rules.gR), [rtxt(sp[k].rules.mR), sign(sp[k].rules.mR)]]); }
+    if (B.best && B.best.length) box.appendChild(el('div', 'g-hint', 'Best in this history: ' + B.best.slice(0, 3).map((b) => `${short(b.rule)} ${ALIGN_S[b.align] || b.align} (${rtxt(b.m)} over ${b.n})`).join(' · ') + '.'));
+    box.appendChild(el('div', 'g-hint', `${B.days} day${B.days === 1 ? '' : 's'} of history replayed ${when(Date.parse(LB.bt.made))}: ${B.n.toLocaleString('en-US')} paper trades with this lab's own rules, fees and sizes. Each trade is counted under the stake its setup had when it opened, from what was known until then: no hindsight. The venues give only a few days of candles; the VM now keeps them, so this gets deeper every day. Each rule starts live from what it made here; live trades confirm it or overturn it.`));
+  }
   // the paper record by the bars the rules read: where the spread and eToro's fee leave something
   function speedsBox(box, key, L, D) {
     const S = D && D.speeds; if (!S || !Object.keys(S).length) return;
@@ -402,10 +427,10 @@
     const R = LB.R && root.contains(LB.R.body) ? LB.R : skeleton(root), key = LB.sel, L = sumLab(key), V = valued(key), D = LB.det[key];
     want(); status(R); cards(R); top(R, L, V);
     const cf = key + '|' + LB.sum.made + '|' + (D ? D.made : '') + '|' + V.N.open.length; chart(R.chart, key, V, R.chart.dataset.for === cf ? 'tick' : 'data'); R.chart.dataset.for = cf;
-    const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', JSON.stringify(LB.more)].join('|');
+    const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
       R.body.replaceChildren(f);
     }
     LB.lastPaint = Date.now();
