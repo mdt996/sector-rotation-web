@@ -358,8 +358,29 @@
   }
   // how many combinations are under test, whether any stands out from luck, and which splits of the history differ beyond luck
   const luckN = (x) => (x >= 10 ? String(Math.round(x)) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toFixed(2) : 'under 0.01');
-  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit' };
-  const dimName = (dim, k) => (dim === 'rule' ? SHORT[k] || k : dim === 'speed' ? barShort(k) : dim === 'align' ? ALIGN_S[k] || k : dim === 'asset' ? MARKET[k] || String(k).replace(/-USD$/, '') : dim === 'side' ? (k === 'long' ? 'buys' : 'shorts') : EXIT_S[k] || k);
+  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit', higher: 'Higher trend', pace: 'Market pace', hour: 'Time of day' };
+  const CXV = { higher: { with: 'with it', against: 'against it', flat: 'flat' }, pace: { calm: 'calm', usual: 'usual', busy: 'busy' }, hour: { morning: '07-12', midday: '12-16', late: '16-21', asia: '00-07', europe: '07-13', us: '13-21', night: '21-24' } };
+  const dimName = (dim, k) => (CXV[dim] ? CXV[dim][k] || k : dim === 'rule' ? SHORT[k] || k : dim === 'speed' ? barShort(k) : dim === 'align' ? ALIGN_S[k] || k : dim === 'asset' ? MARKET[k] || String(k).replace(/-USD$/, '') : dim === 'side' ? (k === 'long' ? 'buys' : 'shorts') : EXIT_S[k] || k);
+  // the lessons the lab has learned by itself: circumstances in which a setup loses clearly more than luck would give (learn.js)
+  function lessonsBox(box, key, L, D) {
+    const live = (D && D.lessons) || [], B = LB.bt && LB.bt.labs && LB.bt.labs[key], bl = B && B.lessons;
+    if (!(D && D.lessonK != null) && !bl) return;
+    head(box, 'Lessons learned');
+    const K = (D && D.lessonK) || (bl && bl.K) || 0;
+    box.appendChild(el('div', 'g-line t-lablessonv', live.length ? `${live.length} lesson${live.length === 1 ? '' : 's'} in force: the money stays out of these signals, and paper keeps following them so a lesson that stops being true is dropped.`
+      : `No lesson in force: among ${K.toLocaleString('en-US')} circumstances tested (the higher trend, the market's pace, the time of day), none loses clearly more than luck would give.`));
+    for (const l of live) {
+      const r = box.appendChild(el('div', 't-lablesson'));
+      r.appendChild(el('div', 't-lablesson-t', `${l.who}: no money when ${l.when}`));
+      r.appendChild(el('div', 't-lablesson-s', `${rtxt(l.m)} a signal over ${Number(l.n).toLocaleString('en-US')}, against ${rtxt(l.mr)} over ${Number(l.nr).toLocaleString('en-US')} otherwise${l.since ? ` · since ${when(l.since)}` : ''}`));
+    }
+    if (bl && bl.kept && bl.kept.n) box.appendChild(el('div', 'g-hint t-lablessonbt', bl.skipped && bl.skipped.n
+      ? `In the history, walked forward: the lessons known at each signal kept the money out of ${bl.skipped.n.toLocaleString('en-US')} signals that went on to make ${rtxt(bl.skipped.mR)} each; the ones let through made ${rtxt(bl.kept.mR)}.`
+      : `In the history, walked forward, no lesson was found that kept the money out of anything: ${bl.kept.n.toLocaleString('en-US')} signals, ${rtxt(bl.kept.mR)} each.`));
+    const hg = B && (B.splits || []).find((x) => x.dim === 'higher');
+    if (hg) box.appendChild(el('div', 'g-hint t-lablessonhg', `By the higher trend in the history: best ${dimName('higher', hg.best[0])} (${rtxt(hg.best[1])} a signal over ${hg.best[2].toLocaleString('en-US')}), worst ${dimName('higher', hg.worst[0])} (${rtxt(hg.worst[1])} over ${hg.worst[2].toLocaleString('en-US')}); luck explains ${pct0(hg.luck)} of the difference.`));
+    box.appendChild(el('div', 'g-hint', 'The lab learns and drops lessons by itself, from its paper trades and its history, with no new version of the app: each one appears here and in the journal. A lesson must lose after costs, 0.15 R a signal worse than the rest, and stand out from luck among every circumstance tested.'));
+  }
   function searchBox(box, key, L, D) {
     const B = LB.bt && LB.bt.labs && LB.bt.labs[key], S = (D && D.search) || (B && B.search); if (!S || !(S.K >= 0)) return;
     head(box, 'How many strategies, and is any beyond luck?');
@@ -402,7 +423,7 @@
     head(box, 'How it corrects itself');
     box.appendChild(el('div', 'g-line', 'After every closed paper trade each setup (a rule, in one place in the trend) is scored again. Its stake moves between benched, a test stake, half and full; the exit changes when another does clearly better; losses in a row and a falling value cut all stakes.'));
     if (!J.length) { box.appendChild(el('div', 'g-hint', 'No change yet: every setup starts at the test stake until it has 20 paper trades.')); return; }
-    const line = (w, j) => { const r = w.appendChild(el('div', 't-labj ' + (j.k === 'up' ? 'up' : j.k === 'down' ? 'down' : j.k === 'risk' ? 'risk' : ''))); r.appendChild(el('span', 't-labjt', when(j.t))); r.appendChild(el('span', '', j.s)); };
+    const line = (w, j) => { const r = w.appendChild(el('div', 't-labj ' + (j.k === 'up' ? 'up' : j.k === 'down' ? 'down' : j.k === 'risk' ? 'risk' : j.k === 'lesson' ? 'lesson' : ''))); r.appendChild(el('span', 't-labjt', when(j.t))); r.appendChild(el('span', '', j.s)); };
     const w = box.appendChild(el('div', 't-labjournal')); for (const j of J.slice(0, 6)) line(w, j);
     if (J.length > 6) { const d = SRApp.disclosure(box, `lab-${key}-journal`, `${J.length - 6} earlier changes`); const w2 = d.appendChild(el('div', 't-labjournal')); for (const j of J.slice(6, 80)) line(w2, j); }
   }
@@ -522,7 +543,7 @@
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); searchBox(f, key, L, D); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); lessonsBox(f, key, L, D); searchBox(f, key, L, D); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
       R.body.replaceChildren(f);
     }
     LB.lastPaint = Date.now();
