@@ -733,6 +733,9 @@ div.av-pick { max-width: none; }
 
 .t-t4 .t-tr { grid-template-columns: minmax(104px, 2fr) repeat(3, minmax(54px, 1fr)); min-width: 0; }
 /* Labs: the scan of every bar length. One series a chart, so no legend; the shaded band is a run of lengths that earn. */
+/* Labs: proof so far, under the lab's value */
+.t-labproof { margin-top: 6px; font-size: 13px; }
+.t-labproofk { margin-top: 2px; }
 /* Labs: the lessons the lab learned by itself */
 .t-lablesson { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--color-bg-subtle, rgba(127,127,127,.08)); }
 .t-lablesson-t { font-size: 13px; font-weight: 600; }

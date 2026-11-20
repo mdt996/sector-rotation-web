@@ -235,6 +235,18 @@
     const sub = box.appendChild(el('div', 't-sub'));
     sub.appendChild(el('b', sign(V.total), `${usd2(V.total)} (${pc(100 * V.total / L.start)})`)); sub.appendChild(document.createTextNode(L.cycle > 1 ? ` in cycle ${L.cycle}` : ' since the start'));
     if (V.day != null) { sub.appendChild(el('span', 't-sep', '·')); sub.appendChild(el('b', sign(V.day), usd2(V.day))); sub.appendChild(document.createTextNode(V.N.day && V.N.day.stopped ? ' today (down 3%: no new trade until midnight UTC)' : ' today')); }
+    // proof so far: where the lab stands on the road to "more than luck" (the VM's verdict: trades, luck, kinds of market)
+    const P = L.top && L.top.proof;
+    if (P && P.bar) {
+      const txt = P.verdict === 'few' ? `too early to say anything: ${P.n} closed trade${P.n === 1 ? '' : 's'}.`
+        : P.verdict === 'losing' ? `losing by more than luck would give, over ${P.n.toLocaleString('en-US')} trades.`
+        : P.verdict === 'luck' ? (P.mR > 0 ? `not proven. ${P.n.toLocaleString('en-US')} trades so far of about ${(P.need || P.bar.n).toLocaleString('en-US')} needed, and the result is still within what luck gives.` : `not proven. ${P.n.toLocaleString('en-US')} trades, a result below zero but within what luck gives.`)
+        : P.verdict === 'ahead' ? `ahead of luck so far, not proven. ${P.n.toLocaleString('en-US')} of ${P.bar.n} trades, a gain in ${P.earned} of the ${P.bar.kinds} kinds of market needed.`
+        : `holding up: beyond luck over ${P.n.toLocaleString('en-US')} trades, in ${P.earned} kinds of market. The next proof is real fills on the demo account.`;
+      const d = T.appendChild(el('div', 'g-line t-labproof')); d.dataset.verdict = P.verdict; d.appendChild(el('b', '', 'Proof so far: ')); d.appendChild(document.createTextNode(txt));
+      const kinds = ['falling', 'rising', 'flat'].filter((k) => P.kinds && P.kinds[k] && P.kinds[k].n).map((k) => `${k} ${usd2(P.kinds[k].net)} over ${P.kinds[k].n}`);
+      if (P.verdict !== 'few' && (kinds.length || L.short)) T.appendChild(el('div', 'g-hint t-labproofk', `${kinds.length ? `By what the market did the day before each trade: ${kinds.join(' · ')}. ` : ''}${L.short && P.sides ? `Shorts ${usd2(P.sides.short.net)} over ${P.sides.short.n}, buys ${usd2(P.sides.long.net)} over ${P.sides.long.n}.` : ''}`.trim()));
+    }
     const sc = V.N.scale == null ? L.scale : V.N.scale;
     if (sc != null && sc < 1) T.appendChild(el('div', 'g-warn t-labbrake', `Stakes at ${Math.round(sc * 100)}% of normal${L.streak >= 3 ? `: ${L.streak} losses in a row` : ': a fall from the 3-day high'}.${L.coolUntil > Date.now() ? ` No new trade before ${hm(L.coolUntil)}.` : ''}`));
     if (L.resetPending) T.appendChild(el('div', 'g-warn', 'Reset pending: waiting for fresh prices to settle the remaining paper trades. No new entries.'));
@@ -358,8 +370,8 @@
   }
   // how many combinations are under test, whether any stands out from luck, and which splits of the history differ beyond luck
   const luckN = (x) => (x >= 10 ? String(Math.round(x)) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toFixed(2) : 'under 0.01');
-  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit', higher: 'Higher trend', pace: 'Market pace', hour: 'Time of day' };
-  const CXV = { higher: { with: 'with it', against: 'against it', flat: 'flat' }, pace: { calm: 'calm', usual: 'usual', busy: 'busy' }, hour: { morning: '07-12', midday: '12-16', late: '16-21', asia: '00-07', europe: '07-13', us: '13-21', night: '21-24' } };
+  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit', higher: 'Higher trend', pace: 'Market pace', hour: 'Time of day', move: 'Trending or choppy' };
+  const CXV = { higher: { with: 'with it', against: 'against it', flat: 'flat' }, pace: { calm: 'calm', usual: 'usual', busy: 'busy' }, move: { trending: 'trending', mixed: 'mixed', choppy: 'choppy' }, hour: { morning: '07-12', midday: '12-16', late: '16-21', asia: '00-07', europe: '07-13', us: '13-21', night: '21-24' } };
   const dimName = (dim, k) => (CXV[dim] ? CXV[dim][k] || k : dim === 'rule' ? SHORT[k] || k : dim === 'speed' ? barShort(k) : dim === 'align' ? ALIGN_S[k] || k : dim === 'asset' ? MARKET[k] || String(k).replace(/-USD$/, '') : dim === 'side' ? (k === 'long' ? 'buys' : 'shorts') : EXIT_S[k] || k);
   // the lessons the lab has learned by itself: circumstances in which a setup loses clearly more than luck would give (learn.js)
   function lessonsBox(box, key, L, D) {
@@ -368,7 +380,7 @@
     head(box, 'Lessons learned');
     const K = (D && D.lessonK) || (bl && bl.K) || 0;
     box.appendChild(el('div', 'g-line t-lablessonv', live.length ? `${live.length} lesson${live.length === 1 ? '' : 's'} in force: the money stays out of these signals, and paper keeps following them so a lesson that stops being true is dropped.`
-      : `No lesson in force: among ${K.toLocaleString('en-US')} circumstances tested (the higher trend, the market's pace, the time of day), none loses clearly more than luck would give.`));
+      : `No lesson in force: among ${K.toLocaleString('en-US')} circumstances tested (the higher trend, trending or choppy markets, the market's pace, the time of day), none loses clearly more than luck would give.`));
     for (const l of live) {
       const r = box.appendChild(el('div', 't-lablesson'));
       r.appendChild(el('div', 't-lablesson-t', `${l.who}: no money when ${l.when}`));
@@ -377,8 +389,10 @@
     if (bl && bl.kept && bl.kept.n) box.appendChild(el('div', 'g-hint t-lablessonbt', bl.skipped && bl.skipped.n
       ? `In the history, walked forward: the lessons known at each signal kept the money out of ${bl.skipped.n.toLocaleString('en-US')} signals that went on to make ${rtxt(bl.skipped.mR)} each; the ones let through made ${rtxt(bl.kept.mR)}.`
       : `In the history, walked forward, no lesson was found that kept the money out of anything: ${bl.kept.n.toLocaleString('en-US')} signals, ${rtxt(bl.kept.mR)} each.`));
-    const hg = B && (B.splits || []).find((x) => x.dim === 'higher');
-    if (hg) box.appendChild(el('div', 'g-hint t-lablessonhg', `By the higher trend in the history: best ${dimName('higher', hg.best[0])} (${rtxt(hg.best[1])} a signal over ${hg.best[2].toLocaleString('en-US')}), worst ${dimName('higher', hg.worst[0])} (${rtxt(hg.worst[1])} over ${hg.worst[2].toLocaleString('en-US')}); luck explains ${pct0(hg.luck)} of the difference.`));
+    for (const [dim, name] of [['higher', 'By the higher trend'], ['move', 'By trending or choppy markets']]) {
+      const hg = B && (B.splits || []).find((x) => x.dim === dim); if (!hg) continue;
+      const d = box.appendChild(el('div', 'g-hint t-lablessonhg', `${name} in the history: best ${dimName(dim, hg.best[0])} (${rtxt(hg.best[1])} a signal over ${hg.best[2].toLocaleString('en-US')}), worst ${dimName(dim, hg.worst[0])} (${rtxt(hg.worst[1])} over ${hg.worst[2].toLocaleString('en-US')}); luck explains ${pct0(hg.luck)} of the difference.`)); d.dataset.dim = dim;
+    }
     box.appendChild(el('div', 'g-hint', 'The lab learns and drops lessons by itself, from its paper trades and its history, with no new version of the app: each one appears here and in the journal. A lesson must lose after costs, 0.15 R a signal worse than the rest, and stand out from luck among every circumstance tested.'));
   }
   function searchBox(box, key, L, D) {

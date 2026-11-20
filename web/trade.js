@@ -486,7 +486,8 @@
     const all = (M.P.log || []).slice().reverse(), log = all.filter((l) => l.sent || l.dry || (l.closed || []).length || (l.skipped || []).length || (l.notes || []).length).slice(0, 25);
     const lastRun = all[0];
     if (lastRun && lastRun.mode === 'dry') root.appendChild(el('div', 'g-hint g-warn t-drywhy', `The program is on dry runs: it looks, but sends no order.${lastRun.why ? ' Reason: ' + lastRun.why + '.' : ''}`));
-    if (!log.length) root.appendChild(el('div', 'g-hint', 'Nothing recorded yet.'));
+    // looks with nothing to do are not listed; when that is all there is, say so (20 Nov 2026: 40 quiet looks read "Nothing recorded yet")
+    if (!log.length) root.appendChild(el('div', 'g-hint t-logquiet', all.length ? `Nothing to do in its last ${all.length} look${all.length === 1 ? '' : 's'} (since ${when(all[all.length - 1].at)}): no order sent, no trade closed.` : 'Nothing recorded yet.'));
     for (const l of log) { const d = root.appendChild(el('div', 't-log')); d.appendChild(el('b', '', when(l.at))); const parts = [];
       if ((l.opened || []).length) parts.push('sent ' + l.opened.map((x) => x.replace(' fast-short', ' (fast short)').replace(' fast-buy', ' (fast buy)').replace(' short', ' (short)').replace(' buy', ' (buy)')).join(', '));
       for (const c of l.closed || []) parts.push(`${c.s} closed by ${c.how}${c.net != null ? ' ' + usd2(c.net) : ''}`);
