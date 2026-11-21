@@ -63,7 +63,10 @@ cat > "$BASE/nightly.sh" <<'RUN'
 #   nightly.sh tick = stops and targets, then the fast part (1-hour signals).
 BASE="$HOME/sector-rotation"; CONF="$HOME/.config/sector-rotation"; export PATH="$BASE/node/bin:$PATH"
 export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sector_rotation_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-exec 9> "$CONF/lock"; flock -n 9 || { echo "$(date -u +%FT%TZ) a run is already going: nothing started" >> "$BASE/nightly.log"; exit 0; }
+# At 01:15 UTC the nightly run and a 5-minute look start in the same minute. Until 21 November 2026 whichever came second gave up at
+# once, so a look that won the lock could cost the night its scan and its orders. Now the nightly run (no word) waits for the look to
+# end, up to 10 minutes (a look takes seconds); a look, or any other run, still gives up at once when a run is going.
+exec 9> "$CONF/lock"; if [ -z "$1" ]; then flock -w 600 9; else flock -n 9; fi || { echo "$(date -u +%FT%TZ) a run is already going: nothing started ($1)" >> "$BASE/nightly.log"; exit 0; }
 [ "$(stat -c %s "$BASE/nightly.log" 2>/dev/null || echo 0)" -gt 3000000 ] && { tail -n 3000 "$BASE/nightly.log" > "$BASE/nightly.log.new"; mv "$BASE/nightly.log.new" "$BASE/nightly.log"; }   # the log is kept short
 exec >> "$BASE/nightly.log" 2>&1; echo; echo "=== $(date -u +%FT%TZ) start ($1)"
 . "$CONF/etoro.env"; cd "$BASE/sync" || exit 1
