@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 118, "text": "Paper labs: under each lab's value, a plain line now says how far its result is from being more than luck: trades so far of those needed, and what it made while its market was rising, falling or flat. The labs also learn whether their rules work in trending or choppy markets."};
+window.SR_NOTES = {"build": 119, "text": "Paper labs: under each lab's value, a new line sets it against simply holding its market over the same days (gold, the S&P 500, bitcoin), with how much of its money was in the market and what that position alone explains. In the labs themselves, a setup now gets a test stake only once its paper record leans its way."};

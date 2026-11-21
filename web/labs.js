@@ -247,6 +247,15 @@
       const kinds = ['falling', 'rising', 'flat'].filter((k) => P.kinds && P.kinds[k] && P.kinds[k].n).map((k) => `${k} ${usd2(P.kinds[k].net)} over ${P.kinds[k].n}`);
       if (P.verdict !== 'few' && (kinds.length || L.short)) T.appendChild(el('div', 'g-hint t-labproofk', `${kinds.length ? `By what the market did the day before each trade: ${kinds.join(' · ')}. ` : ''}${L.short && P.sides ? `Shorts ${usd2(P.sides.short.net)} over ${P.sides.short.n}, buys ${usd2(P.sides.long.net)} over ${P.sides.long.n}.` : ''}`.trim()));
     }
+    // against simply holding the lab's market over the same days, and what the lab's own average position explains (the VM's figures)
+    const H = L.top && L.top.vs;
+    if (H && Number.isFinite(H.ret) && Number.isFinite(H.lab)) {
+      const d = T.appendChild(el('div', 'g-line t-labvs')); d.appendChild(el('b', '', 'Against holding: '));
+      d.appendChild(document.createTextNode(`this lab ${usd2(H.lab)} (${pc(100 * H.lab / L.start)}), holding ${H.name} over the same days ${usd2(H.usd)} (${pc(100 * H.ret)}).`));
+      const side = !L.short ? '' : Math.abs(H.side) < 0.2 * H.share ? ', long and short about equally' : H.side < 0 ? ', short on balance' : ', long on balance';
+      const split = !H.n ? ' No trade closed yet.' : H.pos != null && H.timing != null ? ` Before costs ${usd2(H.gross)}: its average position alone would have made ${usd2(H.pos)}, timing the rest (${usd2(H.timing)}). Costs ${usd2(-H.cost)}.` : ` Before costs ${usd2(H.gross)}, costs ${usd2(-H.cost)}.`;
+      T.appendChild(el('div', 'g-hint t-labvsk', `Average position open: ${usd(H.share * L.start)}${side}.${split} A lab mostly out of the market beats holding when prices fall and trails it when they rise.`));
+    }
     const sc = V.N.scale == null ? L.scale : V.N.scale;
     if (sc != null && sc < 1) T.appendChild(el('div', 'g-warn t-labbrake', `Stakes at ${Math.round(sc * 100)}% of normal${L.streak >= 3 ? `: ${L.streak} losses in a row` : ': a fall from the 3-day high'}.${L.coolUntil > Date.now() ? ` No new trade before ${hm(L.coolUntil)}.` : ''}`));
     if (L.resetPending) T.appendChild(el('div', 'g-warn', 'Reset pending: waiting for fresh prices to settle the remaining paper trades. No new entries.'));
@@ -308,10 +317,14 @@
       : `So far, picking does not work here: what the learner had promoted went on to make ${rtxt(pick.mR)} a trade, no better than the rest (${rtxt(restM)}).`;
     box.appendChild(el('div', 'g-line t-labbtv', verdict));
     const tb = table(box, ['Stake when the trade opened', 'Trades', 'Won', 'Per trade'], 't-t4 t-labbt');
-    for (const [k, name] of [['full', 'Full 0.5%'], ['build', 'Half 0.25%'], ['probe', 'Test 0.1%'], ['bench', 'Benched (not taken)']]) { const c = t[k]; if (c && c.n) row(tb, name, '', [String(c.n), pct0(c.won), [rtxt(c.mR), sign(c.mR)]], 't-labbtrow'); }
+    for (const [k, name] of [['full', 'Full 0.5%'], ['build', 'Half 0.25%'], ['probe', 'Test 0.1%'], ['bench', 'No money (not taken)']]) { const c = t[k]; if (c && c.n) row(tb, name, '', [String(c.n), pct0(c.won), [rtxt(c.mR), sign(c.mR)]], 't-labbtrow'); }
     if (rnd.n) row(tb, 'Random entries', 'the yardstick', [String(rnd.n), pct0(rnd.won), [rtxt(rnd.mR), sign(rnd.mR)]], 't-labbtrow');
     const sp = B.speeds || {}, keys = Object.keys(sp).sort((a, b) => +a - +b).filter((k) => sp[k].rules.n);
     if (keys.length) { const d = SRApp.disclosure(box, `lab-${key}-btspeeds`, 'The history by bar length'), tb2 = table(d, ['Bars', 'Paper trades', 'Before costs', 'After costs'], 't-t4'); for (const k of keys) row(tb2, barName(k), sp[k].random.n ? `random entries: ${rtxt(sp[k].random.mR)}` : '', [String(sp[k].rules.n), rtxt(sp[k].rules.gR), [rtxt(sp[k].rules.mR), sign(sp[k].rules.mR)]]); }
+    const CO = B.costs || {}, ck = [['<0.05', 'under 0.05 R'], ['0.05-0.1', '0.05 to 0.1 R'], ['0.1-0.2', '0.1 to 0.2 R'], ['0.2-0.4', '0.2 to 0.4 R'], ['0.4+', 'over 0.4 R']].filter(([k]) => CO[k] && CO[k].n);
+    if (ck.length) { const d = SRApp.disclosure(box, `lab-${key}-btcosts`, 'What the costs decide'), tb3 = table(d, ['Costs of the trade', 'Signals', 'Before costs', 'After costs'], 't-t4 t-labbtcosts'); for (const [k, name] of ck) row(tb3, name, k === '0.4+' ? 'the money does not take these' : '', [CO[k].n.toLocaleString('en-US'), rtxt(CO[k].gR), [rtxt(CO[k].mR), sign(CO[k].mR)]], 't-labbtcrow'); d.appendChild(el('div', 'g-hint', 'Every signal of the history by what its spread and fees were going to take, known before it opened, in R (1 R: what the trade risks). Where the result before costs is about nothing, the result is the costs.')); }
+    const CH = B.chance || {}, hk = [['75+', 'over 75%'], ['55-75', '55 to 75%'], ['45-55', '45 to 55%'], ['25-45', '25 to 45%'], ['<25', 'under 25%'], ['new', 'not scored yet']].filter(([k]) => CH[k] && CH[k].n);
+    if (hk.length) { const d = SRApp.disclosure(box, `lab-${key}-btchance`, 'What the learner\'s own confidence was worth'), tb4 = table(d, ['Chance to earn it gave', 'Trades', 'Won', 'Per trade'], 't-t4 t-labbtchance'); for (const [k, name] of hk) row(tb4, name, '', [CH[k].n.toLocaleString('en-US'), pct0(CH[k].won), [rtxt(CH[k].mR), sign(CH[k].mR)]], 't-labbthrow'); d.appendChild(el('div', 'g-hint', 'Each trade of the history by the chance to earn the learner gave its setup before it opened. A setup gets a test stake above 55% and loses it under 45%: the top rows must go on to do better than the bottom ones for that to be worth anything.')); }
     if (B.best && B.best.length) box.appendChild(el('div', 'g-hint', 'Best in this history: ' + B.best.slice(0, 3).map((b) => `${short(b.rule)} ${ALIGN_S[b.align] || b.align} (${rtxt(b.m)} over ${b.n})`).join(' · ') + '.'));
     box.appendChild(el('div', 'g-hint', `${B.days} day${B.days === 1 ? '' : 's'} of history replayed ${when(Date.parse(LB.bt.made))}: ${B.n.toLocaleString('en-US')} paper trades with this lab's own rules, fees and sizes. Each trade is counted under the stake its setup had when it opened, from what was known until then: no hindsight. The venues give only a few days of candles; the VM now keeps them, so this gets deeper every day. Each rule starts live from what it made here; live trades confirm it or overturn it.`));
   }
@@ -435,8 +448,8 @@
   function journalBox(box, key, L, D) {
     const J = ((D && D.journal) || L.journal || []).slice().reverse();
     head(box, 'How it corrects itself');
-    box.appendChild(el('div', 'g-line', 'After every closed paper trade each setup (a rule, in one place in the trend) is scored again. Its stake moves between benched, a test stake, half and full; the exit changes when another does clearly better; losses in a row and a falling value cut all stakes.'));
-    if (!J.length) { box.appendChild(el('div', 'g-hint', 'No change yet: every setup starts at the test stake until it has 20 paper trades.')); return; }
+    box.appendChild(el('div', 'g-line', 'After every closed paper trade each setup (a rule, in one place in the trend) is scored again. A setup has no money until its paper record leans its way; then its stake moves between a test stake, half and full. The exit changes only when another clearly does better; losses in a row and a falling value cut all stakes.'));
+    if (!J.length) { box.appendChild(el('div', 'g-hint', 'No change yet: a setup gets its test stake once its paper record leans its way.')); return; }
     const line = (w, j) => { const r = w.appendChild(el('div', 't-labj ' + (j.k === 'up' ? 'up' : j.k === 'down' ? 'down' : j.k === 'risk' ? 'risk' : j.k === 'lesson' ? 'lesson' : ''))); r.appendChild(el('span', 't-labjt', when(j.t))); r.appendChild(el('span', '', j.s)); };
     const w = box.appendChild(el('div', 't-labjournal')); for (const j of J.slice(0, 6)) line(w, j);
     if (J.length > 6) { const d = SRApp.disclosure(box, `lab-${key}-journal`, `${J.length - 6} earlier changes`); const w2 = d.appendChild(el('div', 't-labjournal')); for (const j of J.slice(6, 80)) line(w2, j); }
