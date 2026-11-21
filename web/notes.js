@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 121, "text": "Charts: trendlines are now drawn as a hand draws them, major lines first and broken ones dashed. Three views above each chart: Clean, Levels, Full. More lines appear as you zoom in."};
+window.SR_NOTES = {"build": 122, "text": "New look. Charts: Clean is now the price alone; one button beside Dates picks Clean, Levels or Full. Trade labels appear only where there is room. Labs in parts: Now, Trades, History, Learning."};

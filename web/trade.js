@@ -236,14 +236,14 @@
     B.textContent = '';
     const hdr = B.appendChild(el('div', 't-chhdr')), host = B.appendChild(el('div', 't-tv')), note = B.appendChild(el('div', 'g-hint t-chnote'));
     const T = { B, hdr, host, note, sig: '', n: 0, bars: [], hover: null, startLine: null, startAt: null, tf: 36e5 };
-    T.api = SRChart.create(host, { id: 'demo-account', rangeLabel: 'Value change', priceFormat: (v) => '$' + Math.round(v).toLocaleString('en-US'), height: () => (window.innerWidth >= 900 ? Math.max(420, Math.min(620, window.innerHeight - 380)) : 0),
+    T.api = SRChart.create(host, { id: 'demo-account', account: true, rangeLabel: 'Value change', priceFormat: (v) => '$' + Math.round(v).toLocaleString('en-US'), height: () => (window.innerWidth >= 900 ? Math.max(420, Math.min(620, window.innerHeight - 380)) : 0),
       onFull: (on) => { if (on) T.api.slot.replaceChildren(hdr); else B.insertBefore(hdr, host); },   // in full view the time frames and the figures move above the chart, as on an asset
       onHover: (b) => { T.hover = b ? T.bars.find((k) => k.time === b.time) || null : null; T.say(); } });
     const L = window.LightweightCharts, { chart: ch, candles } = T.api.lw(), blue = cssVar('--sr-c1', '#2563eb');
     T.candles = candles;
     T.line = ch.addSeries(L.AreaSeries || L.LineSeries, { lineColor: blue, topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: blue, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, visible: false }, 0);
     T.bench = ch.addSeries(L.LineSeries, { color: '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false }, 0);
-    T.marks = L.createSeriesMarkers ? L.createSeriesMarkers(candles, []) : null;
+    T.marks = !!(L.createSeriesMarkers && T.api.setMarks);   // the chart draws them: none, dots, or dots with their figures, by its view and the room there is
     T.offBack = window.SRLive && SRLive.onBack ? SRLive.onBack(() => T.host.isConnected && T.api.back()) : null;   // Back leaves the full view or a drawing tool first
     T.destroy = () => { if (T.offBack) T.offBack(); try { T.api.destroy(); } catch (e) { /* gone */ } };
     T.say = () => { const lg = T.legend, k = T.hover || T.bars[T.bars.length - 1]; if (!lg || !k) return; const d = k.close - k.open, f = (v) => Math.round(v).toLocaleString('en-US');
@@ -258,7 +258,7 @@
     if (!tv || tv.B !== B || !B.contains(tv.host)) { if (tv) tv.destroy(); tv = makeChart(B); }
     // what is drawn again at each reading: the time frames, the figures of the candle, the line under the chart
     const H = tv.hdr; H.textContent = '';
-    const fv = H.appendChild(el('div', 't-fullval')), fb = fv.appendChild(el('b', '', 'Demo account ')); showValue(fb.appendChild(el('span', 't-fullv')), tv.liveV > 0 && Math.abs(tv.liveV - M.value) < M.value * 0.01 ? tv.liveV : M.value, true); if (M.perf.total != null) fv.appendChild(el('span', sign(M.perf.total), ` ${usd2(M.perf.total)} (${pc(M.perf.totalPct)}) since the start`));
+    const fv = H.appendChild(el('div', 't-fullval')), fb = fv.appendChild(el('b', '', 'Demo account ')); showValue(fb.appendChild(el('span', 't-fullv')), tv.liveV > 0 && Math.abs(tv.liveV - M.value) < M.value * 0.01 ? tv.liveV : M.value, true); if (M.perf.total != null) { fv.appendChild(el('span', sign(M.perf.total), ` ${usd2(M.perf.total)} (${pc(M.perf.totalPct)})`)); fv.appendChild(el('span', 't-since', ' since the start')); }
     const bar = H.appendChild(el('div', 't-chips t-tfs')), chip = (key, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (ui[key] === val ? ' on' : ''), label)); b.type = 'button'; b.addEventListener('click', () => { ui[key] = key === 'bench' ? !ui.bench : val; keepUi(); SRApp.renderDraw('trade'); }); return b; };
     for (const [k, l] of [['1', '1m'], ['5', '5m'], ['15', '15m'], ['30', '30m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']]) chip('tf', k, l);
     bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
@@ -301,7 +301,7 @@
     if (tv.marks) { const have = new Set(bars.map((k) => k.time)), at = (ms) => Math.floor(ms / tf) * tf / 1000, mk = [];
       for (const p of M.positions) if (p.t && isFinite(p.opened) && have.has(at(p.opened))) mk.push({ time: at(p.opened), position: 'belowBar', color: p.side > 0 ? up : down, shape: p.side > 0 ? 'arrowUp' : 'arrowDown', text: p.sym });
       for (const c of M.closed) if (c.t && isFinite(c.at) && have.has(at(c.at))) mk.push({ time: at(c.at), position: 'aboveBar', color: c.net >= 0 ? up : down, shape: 'circle', text: `${c.sym} ${c.net >= 0 ? '+' : '−'}$${Math.round(Math.abs(c.net))}` });
-      mk.sort((x, y) => x.time - y.time); tv.marks.setMarkers(mk.slice(-80)); tv.host.dataset.marks = String(mk.length); }
+      mk.sort((x, y) => x.time - y.time); tv.api.setMarks(mk.slice(-80)); tv.host.dataset.marks = String(mk.length); }
     tv.host.dataset.bars = String(bars.length); tv.host.dataset.wicks = String(bars.filter((k) => k.high > Math.max(k.open, k.close) + 0.005 || k.low < Math.min(k.open, k.close) - 0.005).length); tv.host.dataset.bench = String(ui.bench ? bp.size : 0); tv.say();
     const lo0 = Math.min(...bars.map((k) => k.low)), hi0 = Math.max(...bars.map((k) => k.high));
     const how = rebuilt ? `Candles worked out from eToro's own ${({ 1: '1-minute', 5: '5-minute', 15: '15-minute', 30: '30-minute', 60: '1-hour', 240: '4-hour', 1440: 'daily' })[step]} candles of the ${RBk.assets || ''} assets the account held, set on ${RBk.n} real readings of the account; the last one moves with the live value.${RBk.err ? ' ' + RBk.err + ': asked again in 10 s.' : ''} `

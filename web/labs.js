@@ -43,9 +43,13 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', tf: '5', style: 'candles', more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
   try { const k = localStorage.getItem('sr.labSel'); if (KEYS.includes(k)) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; } catch (e) { /* the gold lab, 5-minute candles */ }
-  const keep = () => { try { localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style })); } catch (e) { /* not kept */ } };
+  // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
+  // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
+  const PANES = [['now', 'Now'], ['trades', 'Trades'], ['history', 'History'], ['learning', 'Learning'], ['all', 'All']];
+  try { const q = JSON.parse(localStorage.getItem('sr.labPane') || 'null'); if (PANES.some((x) => x[0] === q)) LB.pane = q; } catch (e) { /* the first part */ }
+  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style })); } catch (e) { /* not kept */ } };
 
   // ---- reading ----
   const read = async (name) => { try { return window.SRSync && window.SRSync.getFile ? await window.SRSync.getFile(name) : null; } catch (e) { return null; } };
@@ -133,14 +137,14 @@
     B.textContent = '';
     const hdr = B.appendChild(el('div', 't-chhdr')), host = B.appendChild(el('div', 't-tv')), note = B.appendChild(el('div', 'g-hint t-chnote'));
     const T = { B, key, hdr, host, note, sig: '', n: 0, bars: [], hover: null, startLine: null };
-    T.api = SRChart.create(host, { id: 'lab-' + key, rangeLabel: 'Value change', priceFormat: (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    T.api = SRChart.create(host, { id: 'lab-' + key, account: true, rangeLabel: 'Value change', priceFormat: (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       height: () => (window.innerWidth >= 900 ? Math.max(380, Math.min(560, window.innerHeight - 420)) : 0),
       onFull: (on) => { if (on) T.api.slot.replaceChildren(hdr); else B.insertBefore(hdr, host); },
       onHover: (b) => { T.hover = b ? T.bars.find((k) => k.time === b.time) || null : null; say(T); } });
     const Lw = window.LightweightCharts, { chart: ch, candles } = T.api.lw(), blue = cssVar('--sr-c1', '#2563eb');
     T.candles = candles;
     T.line = ch.addSeries(Lw.AreaSeries || Lw.LineSeries, { lineColor: blue, topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: blue, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, visible: false }, 0);
-    T.marks = Lw.createSeriesMarkers ? Lw.createSeriesMarkers(candles, []) : null;
+    T.marks = !!(Lw.createSeriesMarkers && T.api.setMarks);   // the chart draws them, by its view and the room there is
     T.offBack = window.SRLive && SRLive.onBack ? SRLive.onBack(() => T.host.isConnected && T.api.back()) : null;
     T.destroy = () => { if (T.offBack) T.offBack(); try { T.api.destroy(); } catch (e) { /* gone */ } };
     return T;
@@ -187,11 +191,11 @@
         const by = new Map(); for (const c of C) { const t = at(c.t1); if (!have.has(t)) continue; const g = by.get(t) || { n: 0, net: 0 }; g.n++; g.net += c.net; by.set(t, g); }
         for (const [t, g] of by) mk.push({ time: t, position: 'aboveBar', color: g.net >= 0 ? up : down, shape: 'circle', text: `${g.net >= 0 ? '+' : '−'}$${Math.abs(g.net).toFixed(0)} (${g.n})` });
       }
-      // readable marks: a lab with one market does not repeat its name on every arrow, and when many trades are in view only the
-      // arrows and dots stay (the closed trades' list below has every figure)
-      const one = Array.isArray(L.assets) && L.assets.length === 1, crowded = mk.length > 14;
-      for (const m of mk) if (m.shape !== 'circle' ? one || crowded : crowded) m.text = '';
-      mk.sort((a, b) => a.time - b.time); tv.marks.setMarkers(mk.slice(-90)); tv.host.dataset.marks = String(mk.length);
+      // readable marks: a lab with one market does not repeat its name on every arrow; the chart itself writes a figure only
+      // where it has room, by its view (the closed trades' list below has every figure)
+      const one = Array.isArray(L.assets) && L.assets.length === 1;
+      if (one) for (const m of mk) if (m.shape !== 'circle') m.text = '';
+      mk.sort((a, b) => a.time - b.time); tv.api.setMarks(mk.slice(-90)); tv.host.dataset.marks = String(mk.length);
     }
     tv.host.dataset.bars = String(bars.length); tv.host.dataset.tf = LB.tf; say(tv);
     const lo = Math.min(...bars.map((k) => k.low)), hi = Math.max(...bars.map((k) => k.high)), first = bars[0];
@@ -201,16 +205,25 @@
   // ---- the page ----
   function skeleton(root) {
     root.textContent = '';
-    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), verdicts: root.appendChild(el('div', 't-labverdicts')), top: root.appendChild(el('div', 't-labtop')),
-      chart: root.appendChild(el('div', 't-labchartbox')), body: root.appendChild(el('div', 't-labbody')) };
+    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), top: root.appendChild(el('div', 't-labtop')),
+      tabs: root.appendChild(el('div', 't-labtabs')), chart: root.appendChild(el('div', 't-labchartbox')), body: root.appendChild(el('div', 't-labbody')) };
+    R.tabs.setAttribute('role', 'tablist'); R.tabs.setAttribute('aria-label', 'Parts of this lab');
+    for (const [k, name] of PANES) { const b = R.tabs.appendChild(el('button', 't-labtab', name)); b.type = 'button'; b.dataset.pane = k; b.setAttribute('role', 'tab'); b.addEventListener('click', () => { if (LB.pane === k) return; LB.pane = k; keep(); panes(R); }); }
     LB.R = R; LB.bodySig = ''; return R;
+  }
+  // one part on screen at a time; the chart belongs to "Now"
+  function panes(R) {
+    for (const b of R.tabs.children) b.setAttribute('aria-selected', String(b.dataset.pane === LB.pane));
+    for (const p of R.body.children) if (p.dataset.pane) p.hidden = !(LB.pane === 'all' || p.dataset.pane === LB.pane);
+    const withChart = LB.pane === 'now' || LB.pane === 'all'; if (R.chart.hidden === withChart) { R.chart.hidden = !withChart; if (withChart && LB.tv && LB.tv.fit) try { LB.tv.fit(); } catch (e) { /* drawn at the next paint */ } }
+    R.body.dataset.pane = LB.pane;
   }
   function status(R) {
     const S = R.status, made = LB.live ? Date.parse(LB.live.made) : LB.sum ? Date.parse(LB.sum.made) : 0, age = made ? Date.now() - made : null, slow = age == null || age > 6 * 60000;
     const stream = window.SRLive && SRLive.streamState ? SRLive.streamState() : null, any = KEYS.some((k) => { const v = valued(k); return v && v.live; });
     S.textContent = ''; S.appendChild(el('span', 't-dot ' + (slow ? 'off' : 'on')));
     S.appendChild(el('span', '', slow ? (age == null ? 'No report yet' : `VM report ${span(age)} ago: check the lab runner`) : any && stream && stream.ok ? `Live · ${clock(Date.now())}` : `VM report ${span(age)} ago`));
-    S.appendChild(el('span', 't-sep', '·')); S.appendChild(el('span', '', 'Paper only: no order is ever sent'));
+    S.appendChild(el('span', 't-labpaper', 'Paper only: no order is ever sent'));   // on its own line: the age of the report changes length and must not rewrap the page
     const b = S.appendChild(el('button', 'btn t-labrefresh', LB.loading ? 'Reading…' : 'Refresh')); b.type = 'button'; b.disabled = LB.loading; b.addEventListener('click', () => { load(true); });
     R.warn.textContent = '';
     if (LB.failed && LB.sum) R.warn.appendChild(el('div', 'g-warn', 'Could not read a new lab report. Showing the last one.'));
@@ -222,27 +235,22 @@
     R.cards.textContent = '';
     for (const key of KEYS) {
       const L = sumLab(key), V = valued(key); if (!L || !V) continue;
-      const n = L.cycleTrades == null ? L.port.n : L.cycleTrades, d = tile(R.cards, L.name, usd(V.equity), `${pc(100 * V.total / L.start)}${V.day != null ? ' · today ' + usd2(V.day) : ''} · ${n} trade${n === 1 ? '' : 's'}${V.N.open.length ? ' · ' + V.N.open.length + ' open' : ''}`, sign(V.total));
+      const P = L.top && L.top.proof, d = tile(R.cards, L.name, usd(V.equity), ' ', sign(V.total)); tileSub(d.querySelector('.g-stat-s'), L, V);
+      // where it stands, in a word: the VM's own verdict (the "Proof so far" line under the lab's value says why)
+      if (P && P.bar) { const c = d.appendChild(el('span', 't-labword', VERDICT[P.verdict] || VERDICT.holding)); c.dataset.verdict = P.verdict; d.dataset.verdict = P.verdict; }
       d.classList.add('t-labcard'); d.dataset.lab = key; if (key === LB.sel) d.classList.add('on'); d.setAttribute('role', 'button'); d.tabIndex = 0;
       const pick = () => { if (LB.sel === key) return; LB.sel = key; keep(); LB.bodySig = ''; paint(); load(false); };
       d.addEventListener('click', pick); d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') pick(); });
     }
   }
-  // where each lab stands, one plain line a lab: the VM's own verdict (proof so far) on the lab's result. Holding its market is not
-  // named here: that comparison is never shown without the lab's average position (it stands under the lab's value, below).
-  const VERDICT = { few: 'Too early', losing: 'Losing', luck: 'Not proven', ahead: 'Ahead of luck, not proven', holding: 'Holding up' };
-  const verdictWhy = (P) => (P.verdict === 'few' ? ', too few to read' : P.verdict === 'losing' ? ', more than bad luck alone gives' : P.verdict === 'luck' ? ', within what luck gives' : P.verdict === 'ahead' ? ` of about ${(P.need || P.bar.n).toLocaleString('en-US')} needed` : `, beyond luck in ${P.earned} kinds of market`);
-  function verdicts(R) {
-    const B = R.verdicts; B.textContent = ''; let bar = null;
-    for (const key of KEYS) {
-      const L = sumLab(key), V = valued(key), P = L && L.top && L.top.proof; if (!L || !V || !P || !P.bar) continue;
-      const d = B.appendChild(el('div', 'g-line t-labverdict')); d.dataset.lab = key; d.dataset.verdict = P.verdict; bar = P.bar;
-      d.appendChild(el('b', '', L.name)); d.appendChild(document.createTextNode(' · ')); d.appendChild(el('b', 't-labverdictw', VERDICT[P.verdict] || VERDICT.holding)); d.appendChild(document.createTextNode(': '));
-      const m = d.appendChild(el('span', sign(V.total), usd2(V.total))); m.dataset.live = 'total';
-      d.appendChild(document.createTextNode(` over ${P.n.toLocaleString('en-US')} trade${P.n === 1 ? '' : 's'}${verdictWhy(P)}.`));
-    }
-    if (bar) B.appendChild(el('div', 'g-hint t-labverdicth', `Proven needs at least ${bar.n} trades, a result beyond luck and a gain in ${bar.kinds} kinds of market. Paper only.`));
+  // under a tile's value: its return, then its trades, each on one line of its own (the same at every reading and between two:
+  // a line that came and went made the page jump)
+  function tileSub(s, L, V) {
+    const n = L.cycleTrades == null ? L.port.n : L.cycleTrades, a = pc(100 * V.total / L.start), b = `${n} trade${n === 1 ? '' : 's'}${V.N.open.length ? ' · ' + V.N.open.length + ' open' : ''}`;
+    if (s.dataset.t === a + '|' + b) return; s.dataset.t = a + '|' + b; s.textContent = '';
+    s.appendChild(el('b', sign(V.total), a)); s.appendChild(el('span', '', b));
   }
+  const VERDICT = { few: 'Too early', losing: 'Losing', luck: 'Not proven', ahead: 'Ahead so far', holding: 'Holding up' };
   function top(R, L, V) {
     const T = R.top; T.textContent = '';
     head(T, L.name);
@@ -599,14 +607,20 @@
       root.appendChild(el('div', 'g-hint', LB.sumAt ? 'No lab report available. The lab runner must be installed and running on the VM, and this device needs the owner’s GitHub sync key.' : 'Reading the labs…')); return;
     }
     const R = LB.R && root.contains(LB.R.body) ? LB.R : skeleton(root), key = LB.sel, L = sumLab(key), V = valued(key), D = LB.det[key];
-    want(); status(R); cards(R); verdicts(R); top(R, L, V);
+    want(); status(R); cards(R); top(R, L, V);
     const cf = key + '|' + LB.sum.made + '|' + (D ? D.made : '') + '|' + V.N.open.length; chart(R.chart, key, V, R.chart.dataset.for === cf ? 'tick' : 'data'); R.chart.dataset.for = cf;
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
-      LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); weekendBox(f, key, L, D); lessonsBox(f, key, L, D); searchBox(f, key, L, D); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      LB.bodySig = sig; const f = document.createDocumentFragment(), P = {};
+      for (const [k] of PANES) if (k !== 'all') { P[k] = f.appendChild(el('div', 't-labpane')); P[k].dataset.pane = k; }
+      openBox(P.now, key, L, V); statsBox(P.now, L, D); trendBox(P.now, key, L, D);
+      closedBox(P.trades, key, L, D); reviewBox(P.trades, D); breakdownBox(P.trades, key, D);
+      backtestBox(P.history, key, L); weekendBox(P.history, key, L, D); speedsBox(P.history, key, L, D); scanBox(P.history, key, L);
+      lessonsBox(P.learning, key, L, D); searchBox(P.learning, key, L, D); journalBox(P.learning, key, L, D); setupsBox(P.learning, key, L, D); restBox(P.learning, key, L, D);
+      for (const k of Object.keys(P)) if (!P[k].childElementCount) P[k].appendChild(el('div', 'g-hint', 'Nothing here yet.'));
       R.body.replaceChildren(f);
     }
+    panes(R);
     LB.lastPaint = Date.now();
   }
   // between two readings: the figures that follow the prices (cards, the value, the open trades, the last candle)
@@ -614,9 +628,8 @@
     const root = LB.root, R = LB.R; if (!root || !R || !LB.sum || !root.isConnected || root.closest('[hidden]') || document.hidden) return;
     if (Date.now() - LB.lastTick < 250) return; LB.lastTick = Date.now();
     const key = LB.sel, L = sumLab(key), V = valued(key); if (!L || !V) return;
-    for (const k of KEYS) { const c = R.cards.querySelector(`[data-lab="${k}"]`), v = k === key ? V : valued(k), Lk = sumLab(k); if (!c || !v || !Lk) continue; const b = c.querySelector('.g-stat-v'), s = c.querySelector('.g-stat-s'), n = Lk.cycleTrades == null ? Lk.port.n : Lk.cycleTrades;
-      b.textContent = usd(v.equity); b.className = 'g-stat-v ' + sign(v.total); s.textContent = `${pc(100 * v.total / Lk.start)}${v.day != null ? ' · today ' + usd2(v.day) : ''} · ${n} trade${n === 1 ? '' : 's'}${v.N.open.length ? ' · ' + v.N.open.length + ' open' : ''}`; }
-    for (const k of KEYS) { const m = R.verdicts && R.verdicts.querySelector(`[data-lab="${k}"] [data-live="total"]`), v = k === key ? V : valued(k); if (m && v) { const t = usd2(v.total); if (m.textContent !== t) { m.textContent = t; m.className = sign(v.total); } } }
+    for (const k of KEYS) { const c = R.cards.querySelector(`[data-lab="${k}"]`), v = k === key ? V : valued(k), Lk = sumLab(k); if (!c || !v || !Lk) continue; const b = c.querySelector('.g-stat-v'), s = c.querySelector('.g-stat-s');
+      b.textContent = usd(v.equity); b.className = 'g-stat-v ' + sign(v.total); tileSub(s, Lk, v); }
     const big = R.top.querySelector('[data-live="equity"]'); if (big) { const t = usd(V.equity); if (big.textContent !== t) big.textContent = t; }
     const sub = R.top.querySelectorAll('.t-sub b'); if (sub[0]) { sub[0].textContent = `${usd2(V.total)} (${pc(100 * V.total / L.start)})`; sub[0].className = sign(V.total); } if (sub[1] && V.day != null) { sub[1].textContent = usd2(V.day); sub[1].className = sign(V.day); }
     V.N.open.forEach((o, i) => { const r = R.body.querySelector(`[data-open="${o.id}"]`); if (!r) return; const cells = r.querySelectorAll(':scope > span'), v = V.rows[i]; if (cells[2]) { const t = px(v[1]); cells[2].textContent = t; cells[2].className = t.length > 9 ? 't-long' : ''; } if (cells[3]) { cells[3].textContent = usd2(v[0]); cells[3].className = sign(v[0]); } });

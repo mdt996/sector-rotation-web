@@ -98,21 +98,26 @@
     let comparison = null;
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
-    // Three ways to look at the chart, one tap each (Matteo, 21 Nov 2026: "sometimes they are a bit crowded ... especially when I
-    // represent trendlines and horizontal resistances/support zones ... the app should be complete, but adaptable"). Nothing is
-    // removed: a view is a set of layers and how much of each is drawn (tl: trendlines at most, more appear as you zoom in;
-    // lv: levels each side of the price; words: 0 prices only, 1 short names, 2 everything written out). The list of layers stays,
-    // for a mix of your own: ticking one there makes the view "Custom".
-    const VIEW_BASE = { ma20: false, bb: false, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true, pos: true, ev: true };
+    // Three ways to look at the chart (Matteo, 21 Nov 2026: "sometimes they are a bit crowded ... especially when I represent
+    // trendlines and horizontal resistances/support zones ... the app should be complete, but adaptable"; then, the same evening:
+    // "By default clean chart must be actually clean"). Clean is the price alone: no average, line, level, arrow or label. Levels
+    // adds the trendlines and the nearest levels; Full adds the rest. Nothing is removed: a view is a set of layers and how much of
+    // each is drawn (tl: trendlines at most, more appear as you zoom in; lv: levels each side of the price; words: 0 prices only
+    // (tap a line to read what it is), 1 short names, 2 everything written out; marks: the trades on an account's chart, 0 none, 1 dots, 2 dots with their figures
+    // where there is room). The list of layers stays, for a mix of your own: ticking one there makes the view "Custom".
+    const ACCOUNT = !!opts.account;   // the value of an account, not the price of an asset
+    const OFF = { ma20: false, ma50: false, ma200: false, bb: false, rsi: false, macd: false, vol: false, zones: false, fair: false, sr: false, tl: false, sig: false, rs: false, pos: false, ev: false };
     const VIEWS = {
-      clean: { name: 'Clean', ind: Object.assign({}, VIEW_BASE, { ma50: false, ma200: true, rsi: false, rs: false }), tl: 2, lv: 1, words: 0 },
-      levels: { name: 'Levels', ind: Object.assign({}, VIEW_BASE, { ma50: true, ma200: true, rsi: false, rs: false }), tl: 4, lv: 2, words: 1 },
-      full: { name: 'Full', ind: Object.assign({}, VIEW_BASE, { ma50: true, ma200: true, rsi: true, rs: true }), tl: 6, lv: 2, words: 2 },
+      clean: { name: 'Clean', says: ACCOUNT ? 'The value alone' : 'The price alone', ind: OFF, tl: 0, lv: 0, words: 0, marks: 0 },
+      levels: { name: 'Levels', says: ACCOUNT ? 'Where trades opened and closed' : 'Trendlines, support and resistance', ind: Object.assign({}, OFF, ACCOUNT ? {} : { ma200: true, sr: true, tl: true, pos: true }), tl: 3, lv: 1, words: 0, marks: 1 },
+      full: { name: 'Full', says: ACCOUNT ? 'Trades with their results, averages, RSI' : 'Everything: averages, volume, RSI, signals', ind: Object.assign({}, OFF, { ma50: true, ma200: true, vol: true, sr: true, tl: true, sig: true, pos: true, ev: true, rsi: true, rs: true }), tl: 6, lv: 2, words: 2, marks: 2 },
     };
+    // (the views changed meaning on 21 Nov 2026, Clean became the price alone: every device starts again from Clean, once)
+    if (lsGet('sr.chartViewV', 0) !== 2) { lsSet('sr.chartViewV', 2); lsSet('sr.chartView', 'clean'); }
     let view = lsGet('sr.chartView', 'clean'); if (view !== 'custom' && !VIEWS[view]) view = 'clean';
-    const detail = () => VIEWS[view] || { tl: 4, lv: 2, words: 2 };
+    const detail = () => VIEWS[view] || { tl: 4, lv: 2, words: 2, marks: 2 };
     if (VIEWS[view]) ind = Object.assign({}, ind, VIEWS[view].ind);   // (your own trades on Revolut keep their own switch)
-    let trend = null, trendKey = '', trendShown = [], levelsShown = [];   // the trendlines of every size (a function of what is on screen, from live.js), those this zoom shows, and the levels drawn
+    let trend = null, trendKey = '', trendShown = [], levelsShown = [], hostMarks = [], hostMarkApi = null, marksKey = '';   // the trendlines of every size (a function of what is on screen, from live.js), those this zoom shows, and the levels drawn
 
     const root = container.appendChild(el('div', 'ch'));
     const slot = root.appendChild(el('div', 'ch-slot'));   // name, price and timeframes, shown in full view
@@ -143,9 +148,21 @@
     const dateError = dateForm.appendChild(el('span', 'ch-date-error')); dateError.setAttribute('role', 'status');
     const compareSlot = opts.onCompare ? root.appendChild(el('div', 'ch-compare-slot')) : null;
     if (compareSlot) compareSlot.hidden = true;
-    const viewBar = root.appendChild(el('div', 'ch-views')), viewBtn = {}; viewBar.setAttribute('role', 'tablist'); viewBar.setAttribute('aria-label', 'How much the chart shows');
-    for (const k of ['clean', 'levels', 'full', 'custom']) { const b = viewBar.appendChild(el('button', 'ch-view', k === 'custom' ? 'Custom' : VIEWS[k].name)); b.type = 'button'; b.dataset.view = k; b.setAttribute('role', 'tab'); b.addEventListener('click', () => setView(k)); viewBtn[k] = b; }
-    const viewHint = viewBar.appendChild(el('span', 'ch-view-hint', ''));
+    // how much the chart shows: one button beside "Dates" (in the page and in the full view alike, so it never sits on a title),
+    // which opens the three views with what each one draws
+    const viewButton = rangeBar.insertBefore(el('button', 'ch-viewbtn'), dateButton), viewName = viewButton.appendChild(el('span', 'ch-viewname', '')), viewBtn = {};
+    viewButton.type = 'button'; viewButton.setAttribute('aria-haspopup', 'menu'); viewButton.setAttribute('aria-expanded', 'false'); viewButton.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    const viewMenu = root.appendChild(el('div', 'ch-viewmenu')); viewMenu.hidden = true; viewMenu.setAttribute('role', 'menu'); viewMenu.setAttribute('aria-label', 'How much the chart shows');
+    const openViews = (on) => {
+      viewMenu.hidden = !on; viewButton.setAttribute('aria-expanded', String(on)); if (!on) return;
+      const b = viewButton.getBoundingClientRect(), r = root.getBoundingClientRect(); viewMenu.style.top = Math.round(b.bottom - r.top + 4) + 'px'; viewMenu.style.right = Math.max(0, Math.round(r.right - b.right)) + 'px';
+    };
+    for (const k of ['clean', 'levels', 'full', 'custom']) {
+      const b = viewMenu.appendChild(el('button', 'ch-view')); b.type = 'button'; b.dataset.view = k; b.setAttribute('role', 'menuitemradio');
+      b.appendChild(el('b', '', k === 'custom' ? 'Custom' : VIEWS[k].name)); b.appendChild(el('small', '', k === 'custom' ? 'Your own mix of layers' : VIEWS[k].says));
+      b.addEventListener('click', () => { setView(k); openViews(false); }); viewBtn[k] = b;
+    }
+    viewButton.addEventListener('click', () => openViews(viewMenu.hidden));
     const main = root.appendChild(el('div', 'ch-main'));
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
@@ -156,16 +173,15 @@
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
       c.addEventListener('change', () => { ind[k] = c.checked; view = 'custom'; lsSet('sr.chartView', view); lsSet('sr.ind3', ind); syncView(); applyIndicators(); });
     }
-    const VIEW_SAYS = { clean: 'The main lines. Zoom in for more.', levels: 'More lines and levels, with short names.', full: 'Everything, written out.', custom: 'Your own mix of layers.' };
     function syncView() {
-      for (const q of Object.keys(viewBtn)) viewBtn[q].setAttribute('aria-selected', String(q === view));
-      viewBtn.custom.hidden = view !== 'custom'; root.dataset.view = view; viewHint.textContent = VIEW_SAYS[view] || '';
+      for (const q of Object.keys(viewBtn)) viewBtn[q].setAttribute('aria-checked', String(q === view));
+      viewBtn.custom.hidden = view !== 'custom'; root.dataset.view = view; viewName.textContent = VIEWS[view] ? VIEWS[view].name : 'Custom'; viewButton.setAttribute('aria-label', 'How much the chart shows: ' + viewName.textContent);
       for (const c of menu.querySelectorAll('input[data-k]')) c.checked = !!ind[c.dataset.k];
     }
     function setView(k) {
       if (k !== 'custom' && !VIEWS[k]) return;
       view = k; lsSet('sr.chartView', k); ind = Object.assign({}, ind, VIEWS[k] ? VIEWS[k].ind : lsGet('sr.ind3', {}));
-      syncView(); trendKey = ''; applyIndicators();
+      syncView(); trendKey = ''; marksKey = ''; applyIndicators();
     }
     syncView();
 
@@ -182,7 +198,7 @@
     }
     const chart = LW().createChart(main, {
       autoSize: true,
-      layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, attributionLogo: true, panes: { separatorColor: dark() ? '#2a2e39' : '#e0e3eb' } },
+      layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, fontFamily: 'Archivo, system-ui, sans-serif', attributionLogo: true, panes: { separatorColor: dark() ? '#2a2e39' : '#e0e3eb' } },
       grid: { vertLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.2 } },
       timeScale: { borderVisible: false, rightOffset: 6, minBarSpacing: 0.2, timeVisible: true, secondsVisible: false, tickMarkFormatter: (t, type) => tickText(t, type) },
@@ -230,7 +246,7 @@
     function queueRange() {
       if (dead || rangeFrame !== null) return;
       rangeFrame = requestAnimationFrame(() => {
-        rangeFrame = null;
+        rangeFrame = null; drawMarks();
         const range = visiblePrices();
         if (rangeBar.hidden === !!bars.length) { rangeBar.hidden = !bars.length; sizeMain(); }
         const moved = range && range.first.time < range.last.time && range.first.close > 0;
@@ -315,7 +331,7 @@
     function layout(sc) {
       const ctx = sc.context, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio, W = sc.bitmapSize.width / hr, H = sc.bitmapSize.height / r;
       const fs = W < 420 ? 9.5 : W < 700 ? 10 : 10.5, lh = Math.round(fs + 5);
-      ctx.font = `${Math.round(fs * r)}px system-ui, sans-serif`; ctx.textBaseline = 'alphabetic';
+      ctx.font = `${Math.round(fs * r)}px Archivo, system-ui, sans-serif`; ctx.textBaseline = 'alphabetic';
       const taken = [], placed = []; let hidden = 0, short = 0;
       if (legend.textContent) taken.push({ x: 0, y: 0, w: Math.min(W, legend.offsetWidth + 12), h: 17 });   // the figures under the crosshair, top left
       const over = (b, t, p) => b.x < t.x + t.w + p && t.x < b.x + b.w + p && b.y < t.y + t.h + 1 && t.y < b.y + b.h + 1;
@@ -350,7 +366,7 @@
     function drawBands(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       LB = [];
-      ctx.font = `${Math.round(10 * r)}px system-ui, sans-serif`;
+      ctx.font = `${Math.round(10 * r)}px Archivo, system-ui, sans-serif`;
       if (ind.zones && zones) {
         for (const [[lo, hi], color, label] of [[zones.tp, 'rgba(230,140,20,0.10)', 'High part'], [zones.fair, 'rgba(110,120,140,0.07)', 'Middle'], [zones.acc, 'rgba(26,160,70,0.10)', 'Low part']]) {
           const y1 = yOf(hi), y2 = yOf(lo); if (y1 == null || y2 == null) continue;
@@ -412,6 +428,31 @@
         void yb;
       }
     }
+    // the trades a page puts on its chart (an account's value): by the view, none (Clean), the arrows and dots (Levels), or these
+    // with their words (Full) where the words have room; the newest first, and more of them as you zoom in
+    function drawMarks() {
+      if (!hostMarkApi) return;
+      const lvl = detail().marks, ts = chart.timeScale(), vr = ts.getVisibleLogicalRange(), W = ts.width() || main.clientWidth;
+      const key = !hostMarks.length || !lvl ? 'none' : `${lvl}|${hostMarks.length}|${vr ? Math.round(vr.from) + ':' + Math.round(vr.to) : ''}|${W}`;
+      if (key === marksKey) return; marksKey = key;
+      if (key === 'none') { hostMarkApi.setMarkers([]); root.dataset.marksShown = '0'; root.dataset.marksWords = '0'; root.__hostMarks = () => []; return; }
+      const xs = hostMarks.map((m) => ts.timeToCoordinate(m.time)), seen = xs.filter((x) => x != null && x >= 0 && x <= W).length;
+      const size = seen && W / seen < 5 ? 0.5 : seen && W / seen < 11 ? 0.75 : 1;   // many trades on screen: smaller arrows and dots
+      const out = hostMarks.map((m) => Object.assign({}, m, { text: '', size })), lanes = {}; let words = 0;
+      // a trade's words are written only where nothing else is: inside the plot, clear of the other trades' marks on its side of
+      // the candles and of the words already written (the newest first)
+      if (lvl >= 2) for (let i = hostMarks.length - 1; i >= 0; i--) {
+        const m = hostMarks[i], x = xs[i]; if (!m.text || x == null) continue;
+        const w = m.text.length * 6.3 + 6, a = x - w / 2, b = x + w / 2; if (a < 2 || b > W - 2) continue;
+        if (hostMarks.some((o, k) => k !== i && o.position === m.position && xs[k] != null && xs[k] !== x && xs[k] > a - 6 && xs[k] < b + 6)) continue;
+        if (hostMarks.some((o, k) => k > i && o.text && o.position === m.position && xs[k] === x)) continue;   // several on one candle: one speaks, and it is drawn outermost (below)
+        const lane = lanes[m.position] || (lanes[m.position] = []); if (lane.some(([p, q]) => a < q && b > p)) continue;
+        lane.push([a, b]); out[i].text = m.text; words++;
+      }
+      const drawn = out.map((m, i) => ({ x: xs[i], text: m.text, pos: m.position, size: m.size })); root.__hostMarks = () => drawn;   // for the tests
+      out.sort((p, q) => p.time - q.time || (p.text ? 1 : 0) - (q.text ? 1 : 0));   // on one candle the mark that speaks goes last: the library stacks them outwards
+      hostMarkApi.setMarkers(out); root.dataset.marksShown = String(seen); root.dataset.marksWords = String(words);
+    }
     // the trendlines for what is on screen now: asked again when the zoom or the scroll changes (they appear as you zoom in)
     function shownLines() {
       if (!trend || !ind.tl || !bars.length) return (trendShown = []);
@@ -422,7 +463,7 @@
     }
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
-      ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
+      ctx.font = `${Math.round(10.5 * r)}px Archivo, system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
       const WORDS = detail().words;
       if (ind.tl) for (const d of autos.concat(shownLines())) {   // the edges of a wedge or triangle, the trendlines this zoom shows (each runs 40 bars past the last candle) and unfilled gaps
         if (d.type === 'box' && WORDS < 2) continue;   // gaps: in the Full view
@@ -447,7 +488,7 @@
         }
       }
       mineDrawn = 0;
-      if (ind.mine && mine.length && bars.length) {   // your own trades on Revolut: a round B (bought) or S (sold) on the candle you traded in,
+      if (ind.mine && detail().marks && mine.length && bars.length) {   // your own trades on Revolut: a round B (bought) or S (sold) on the candle you traded in,
         const CB = '#2962ff', CS = '#f57c00';          // at your price when the chart is that very asset, at the candle's edge when it is the one your fund or coin follows
         const at = (t) => { let lo = 0, hi = bars.length - 1; if (t < bars[0].time) return null; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (bars[m].time <= t) lo = m; else hi = m - 1; } return bars[lo]; };
         for (const m of mine) {
@@ -457,7 +498,7 @@
           if (y == null) { const yb = yOf(d > 0 ? bar.low : bar.high); if (yb == null) continue; y = yb + d * 13; }
           const col = d > 0 ? CB : CS, rr = 6.5;
           ctx.beginPath(); ctx.arc(x * hr, y * r, rr * r, 0, 7); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = dark() ? '#16181e' : '#fff'; ctx.lineWidth = Math.max(1, 1.2 * r); ctx.stroke();
-          ctx.fillStyle = '#fff'; ctx.font = `600 ${Math.round(8.5 * r)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(m.side, x * hr, y * r + 0.5 * r);
+          ctx.fillStyle = '#fff'; ctx.font = `600 ${Math.round(8.5 * r)}px Archivo, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(m.side, x * hr, y * r + 0.5 * r);
           ask({ text: m.label, short: m.short, x, align: 'center', y: y + d * 15, color: col, pri: 66 });
           mineDrawn++;
         }
@@ -509,7 +550,7 @@
           const days = Math.abs(m.b.t - m.a.t) / 86400;
           const txt = `${dp >= 0 ? '+' : '−'}${fmtP(Math.abs(dp))} (${dp >= 0 ? '+' : '−'}${(Math.abs(pct) * 100).toFixed(2)}%) · ${Math.abs(nb)} bars, ${days >= 1 ? Math.round(days) + 'd' : Math.round(days * 24) + 'h'}`;
           const bx = Math.min(x1, x2) * hr, by = (upm ? Math.min(y1, y2) - 22 : Math.max(y1, y2) + 6) * r;
-          ctx.font = `${Math.round(11 * r)}px system-ui, sans-serif`;
+          ctx.font = `${Math.round(11 * r)}px Archivo, system-ui, sans-serif`;
           const tw = ctx.measureText(txt).width + 12 * hr;
           ctx.fillStyle = col + '0.95)'; roundRect(ctx, bx, by, tw, 18 * r, 4 * r); ctx.fill();
           ctx.fillStyle = '#fff'; ctx.fillText(txt, bx + 6 * hr, by + 13 * r);
@@ -593,8 +634,11 @@
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
     bInd.addEventListener('click', () => { menu.hidden = !menu.hidden; bInd.setAttribute('aria-pressed', String(!menu.hidden)); });
     // the indicators list closes with a tap anywhere outside it (or Escape), as menus do
-    const outside = (e) => { if (menu.hidden || menu.contains(e.target) || bInd.contains(e.target)) return; menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); };
-    const escape = (e) => { if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); e.stopPropagation(); } };
+    const outside = (e) => {
+      if (!viewMenu.hidden && !viewMenu.contains(e.target) && !viewButton.contains(e.target)) openViews(false);
+      if (menu.hidden || menu.contains(e.target) || bInd.contains(e.target)) return; menu.hidden = true; bInd.setAttribute('aria-pressed', 'false');
+    };
+    const escape = (e) => { if (e.key !== 'Escape') return; if (!viewMenu.hidden) { openViews(false); e.stopPropagation(); } if (!menu.hidden) { menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); e.stopPropagation(); } };
     document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', escape, true);
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
     function sizeMain() {
@@ -615,7 +659,8 @@
       if (!want) noteEl.textContent = '';
       bFull.setAttribute('aria-pressed', String(want));
       sizeMain();
-      setTimeout(() => { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* the chart sizes itself */ } redraw(); }, 90);   // fill the window in full view
+      openViews(false);
+      setTimeout(() => { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* the chart sizes itself */ } redraw(); queueRange(); }, 90);   // fill the window in full view (and the trades' words for the new width)
     }
     setTool('cursor');
 
@@ -737,6 +782,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
       lw: () => ({ chart, candles }),   // for a chart of something else than an asset (the account's value): its own lines and markers
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
+      setMarks(list) { hostMarks = Array.isArray(list) ? list : []; if (!hostMarkApi && LW().createSeriesMarkers) hostMarkApi = LW().createSeriesMarkers(candles, []); marksKey = ''; drawMarks(); },   // the trades of an account on its chart
       setTrend(fn) { trend = typeof fn === 'function' ? fn : null; trendKey = ''; trendShown = []; redraw(); },   // fn(from, to, max, full): the lines to draw when bars from..to are on screen (full: the Full view)
       view: () => view,
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
@@ -753,7 +799,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       },
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
-      back() { if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
+      back() { if (!viewMenu.hidden) { openViews(false); return true; } if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true); if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
   }
