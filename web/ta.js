@@ -263,63 +263,128 @@
     }
     return { lines: lines.map(({ at0, score, ...x }) => x), gaps: gaps.slice(-4), pattern };
   }
-  // Elastic trendlines, for display. A line runs through two major pivots and is kept when other points respect it within a
-  // tolerance: major and internal pivots, highs and lows alike (a line can turn from resistance into support), and gap edges.
-  // It may be crossed: a breakout and the retest that follows count as touches; crossings only lower its score. Flat lines
-  // are left to the horizontal levels. Two scales on a long chart: the whole history given, and the last 260 bars.
-  function tlScale(b, tag, near) {
-    const n = b.length; if (n < 80) return [];
-    const P = prep(b), t = n - 1, { c, h, l } = P, px = c[t], atr = P.atr[t] || 0, tolP = Math.max(0.008, 0.6 * atr / px), cap = near ? Math.max(0.12, 4 * atr / px) : Math.max(0.25, 6 * atr / px);
-    const KM = Math.max(8, Math.round(n / 40)), sep = Math.max(5, Math.round(n / 80)), maj = [];
-    for (let i = KM; i < n - 3; i++) {
-      let H = true, L = true;
-      for (let j = i - KM; j <= Math.min(n - 1, i + KM); j++) { if (j === i) continue; if (h[j] > h[i]) H = false; if (l[j] < l[i]) L = false; }
-      if (H) maj.push({ i, p: h[i] });
-      if (L) maj.push({ i, p: l[i] });
+  // ---- Trendlines the way a person draws them (display only) ----
+  // Matteo, 21 Nov 2026: "some major sloping trendlines (for example see QQQ and nasdaq) are not really seen in the daily and weekly
+  // charts, I talk about stuff you can see even by eye." The lines drawn until then were "elastic": two pivots, a third point within
+  // a tolerance, and up to three crossings allowed. So they could cut through the middle of the candles, and the plainest line of
+  // all (QQQ's April 2025 low joined to its March 2026 low, 240 days with nothing under it) was refused for having two touches.
+  // Now a line is what a hand draws:
+  //   - a SUPPORT line joins two swing lows and nothing between them goes under it; a RESISTANCE line joins two swing highs and
+  //     nothing between them goes over it. The swings must be as large as the line is long (a year-long line needs major lows);
+  //   - what happens after the second swing says what the line is today: met again (a touch), broken (and when), met again from
+  //     the other side (a retest), or crossed so often that it is no line at all;
+  //   - a break, a brief return and a second fall are ONE break: short runs of closes on the other side are noise.
+  // trendpool() finds the lines of every size once per chart; trendview() picks those a screen should show. A line's importance is
+  // read at the scale of the screen: zoomed out, only the long lines through major swings; zooming in, the shorter ones appear.
+  function swingOrders(v, n, sign, cap) {   // for each bar: how many bars on each side its low (sign 1) or high (sign -1) dominates
+    const o = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      let L = 0; while (L < cap && i - L - 1 >= 0 && sign * (v[i - L - 1] - v[i]) >= 0) L++;
+      let R = 0; while (R < cap && i + R + 1 < n && sign * (v[i + R + 1] - v[i]) > 0) R++;
+      o[i] = Math.min(L, R);
     }
-    const anc = maj.map((x) => ({ i: x.i, p: x.p, w: 3 }));
-    for (const q of P.ph) anc.push({ i: q, p: h[q], w: 1 });
-    for (const q of P.pl) anc.push({ i: q, p: l[q], w: 1 });
-    for (let g = 1; g < n; g++) {
-      if (l[g] > h[g - 1] * 1.01) anc.push({ i: g, p: h[g - 1], w: 1 }, { i: g, p: l[g], w: 1 });
-      if (h[g] < l[g - 1] * 0.99) anc.push({ i: g, p: l[g - 1], w: 1 }, { i: g, p: h[g], w: 1 });
-    }
-    anc.sort((x, y) => x.i - y.i || y.w - x.w);
-    const minSpan = Math.max(15, Math.round(n / 30)), flat = Math.max(0.04 * px, 2 * atr), out = [];
-    for (let a = 0; a < maj.length; a++) for (let d = a + 1; d < maj.length; d++) {
-      const A = maj[a], B = maj[d]; if (B.i - A.i < minSpan) continue;
-      const m = (B.p - A.p) / (B.i - A.i), at = (x) => A.p + m * (x - A.i), now = at(t), dist = Math.abs(now / px - 1);
-      if (!(now > 0) || dist > cap || Math.abs(m) * n < flat) continue;
-      let w = 0, last = -99; const pts = [];
-      for (const q of anc) { if (q.i < A.i) continue; const v = at(q.i); if (v > 0 && Math.abs(q.p / v - 1) <= tolP) { if (q.i - last >= sep) { pts.push([q.i, q.p]); w += q.w; last = q.i; } else if (q.w > 1) w += 1; } }
-      if (pts.length < 3) continue;
-      let cross = 0, side = 0;
-      for (let x = A.i; x <= t && cross <= 3; x++) { const v = at(x), sd = c[x] > v * (1 + tolP) ? 1 : c[x] < v * (1 - tolP) ? -1 : 0; if (sd && side && sd !== side) cross++; if (sd) side = sd; }
-      if (cross > 3) continue;
-      const score = w - 2 * cross + Math.min(3, (t - A.i) / (n / 8)) + (t - last < n / 5 ? 2 : 0) + 4 * (1 - dist / cap);
-      out.push({ i: A.i, j: B.i, p1: A.p, p2: B.p, m, now, touches: pts.length, cross, pts, score, scale: tag, kind: now >= px ? 'res' : 'sup' });
-    }
-    return out.sort((x, y) => y.score - x.score);
+    return o;
   }
-  // levels: optional [{ p, label }] (averages, pivot zones, Fibonacci, gaps). A line whose value today sits on one of them, or
-  // on another line, scores higher and carries `agree` (what it agrees with). Display only: on history, a line touch that
-  // coincided with a level did no better than a line touch alone (research/ta/bt_conf.js).
-  function trendlines(b, max, levels) {
-    const n = b.length, M = max || 4; if (n < 80) return [];
-    const sets = [tlScale(b, n > 420 ? 'long-term' : '', false)];
-    if (n > 420) { const off = n - 260; sets.push(tlScale(b.slice(off), 'recent', true).map((L) => ({ ...L, i: L.i + off, j: L.j + off, pts: L.pts.map(([x, q]) => [x + off, q]) }))); }
-    const P = prep(b.slice(-60)), px = b[n - 1].close, tolA = Math.max(0.008, 0.3 * (P.atr[P.n - 1] || 0) / px), LV = (levels || []).filter((z) => z && z.p > 0);
-    for (const S of sets) { for (const L of S.slice(0, 40)) { L.agree = LV.filter((z) => Math.abs(z.p / L.now - 1) <= tolA).map((z) => z.label).slice(0, 3); L.score += 2 * Math.min(2, L.agree.length); } for (const L of S.slice(40)) L.agree = []; S.sort((x, y) => y.score - x.score); }
-    // two lines are the same when they sit at about the same price today with about the same slope, or fan out from one pivot
-    const pick = [], same = (q, L) => { const dn = Math.abs(q.now / L.now - 1), dm = Math.abs(q.m - L.m) / px; return (dn < 0.03 && dm < 0.0005) || (dn < 0.02 && q.m * L.m > 0 && dm < 0.0015) || (Math.abs(q.i - L.i) <= 3 && dn < 0.12); };
-    const take = (L) => { if (L && pick.length < M && !pick.some((q) => same(q, L))) pick.push(L); };
-    const all = sets.flat().sort((x, y) => y.score - x.score);
-    take(all.find((x) => x.kind === 'res')); take(all.find((x) => x.kind === 'sup'));   // the best resistance and the best support,
-    for (const S of sets) if (S.length && !pick.some((q) => q.scale === S[0].scale)) take(S.find((x) => !pick.some((q) => same(q, x))));   // one of each scale,
-    for (const L of all) take(L);   // then the best of the rest
-    for (const L of pick) if (pick.some((q) => q !== L && Math.abs(q.now / L.now - 1) <= tolA)) L.agree = L.agree.concat('another trendline');
-    return pick.sort((x, y) => Math.abs(x.now - px) - Math.abs(y.now - px));   // nearest to the price first
+  // levels: optional [{ p, label }] (averages, pivot zones, Fibonacci, gaps): a line whose value today sits on one carries `agree`.
+  // Display only: on history, a line touch that coincided with a level did no better than a line touch alone (research/ta/bt_conf.js).
+  function trendpool(b, levels) {
+    const n = b.length; if (n < 40) return [];
+    const P = prep(b), t = n - 1, { c, h, l } = P, px = c[t], A = P.atr.map((a, x) => (a > 0 ? a : h[x] - l[x] || c[x] * 0.01));
+    const cap = Math.max(10, Math.round(n / 3)), ol = swingOrders(l, n, 1, cap), oh = swingOrders(h, n, -1, cap), out = [];
+    for (const side of [1, -1]) {   // 1: a support line under lows; -1: a resistance line over highs
+      const v = side > 0 ? l : h, ord = side > 0 ? ol : oh, far = side > 0 ? h : l, piv = [];
+      for (let i = 2; i < n - 2; i++) if (ord[i] >= 3) piv.push(i);
+      for (let a = 0; a < piv.length; a++) for (let d = a + 1; d < piv.length; d++) {
+        const i = piv[a], j = piv[d], span = j - i; if (span < 8) continue;
+        if (Math.min(ord[i], ord[j]) < Math.max(3, Math.round(span * 0.07))) continue;   // swings as large as the line is long
+        const m = (v[j] - v[i]) / span, at = (x) => v[i] + m * (x - i); if (!(at(t) > 0)) continue;
+        // tol: how near a swing must come to count as on the line (a long line is read on a wide chart, where a small poke does
+        // not show); thru: a close this far beyond the line is on its other side. Both as shares of the line's own value.
+        const wide = 1 + Math.min(1.5, span / 200), tol = (x) => Math.min(0.015, wide * Math.max(0.004, 0.35 * A[x] / c[x])), thru = (x) => Math.min(0.025, Math.max(0.008, 0.6 * A[x] / c[x]));
+        let ok = true; for (let x = i + 1; x < j; x++) if (side * (v[x] - at(x)) < -tol(x) * at(x)) { ok = false; break; }   // nothing between the two swings goes through it
+        if (!ok) continue;
+        const sep = Math.max(3, Math.round(span / 12)), touch = (x) => ord[x] >= 2 && Math.abs(v[x] / at(x) - 1) <= tol(x) * 1.5, pts = [[i, v[i]], [j, v[j]]];
+        { let lastT = i; for (let x = i + sep; x <= j - sep; x++) if (touch(x) && x - lastT >= sep) { pts.push([x, v[x]]); lastT = x; } }
+        // after the second swing: the closes' side of the line, in runs; a short run between two runs of the other side is absorbed
+        const sideOf = (x) => { const lv = at(x), k = thru(x); return side * (c[x] - lv) < -k * lv ? -1 : side * (c[x] - lv) > k * lv ? 1 : 0; };
+        const minRun = Math.max(3, Math.round(span / 40)), runs = [{ s: 1, from: j + 1, to: j }];
+        for (let x = j + 1; x <= t; x++) { const sd = sideOf(x), r = runs[runs.length - 1]; if (sd && sd !== r.s) runs.push({ s: sd, from: x, to: x }); else r.to = x; }
+        for (let k = 1; k < runs.length - 1; k++) {   // (the run that reaches today always counts: a close beyond the line is a break being made)
+          const r = runs[k]; if (r.to - r.from + 1 >= minRun) continue;
+          runs[k - 1].to = r.to; runs.splice(k, 1); if (k < runs.length && runs[k].s === runs[k - 1].s) { runs[k - 1].to = runs[k].to; runs.splice(k, 1); } k = Math.max(0, k - 1);
+        }
+        const cross = runs.length - 1; if (cross > 2) continue;   // cut through again and again: no line
+        const brk = cross ? runs[1].from : -1; let retest = 0, lastT = j, own = j;
+        for (const r of runs) for (let x = r.from; x <= r.to; x++) {
+          if (r.s > 0 && touch(x) && x - lastT >= sep) { pts.push([x, v[x]]); lastT = x; own = x; }
+          if (r.s < 0 && x > r.from + 1 && Math.abs(far[x] / at(x) - 1) <= tol(x) * 1.5 && x - lastT >= sep) { retest++; lastT = x; }   // a broken line met again from its other side
+        }
+        const now = at(t);
+        out.push({ side, kind: now <= px ? 'sup' : 'res', was: side > 0 ? 'sup' : 'res', i, j, p1: v[i], p2: v[j], m, now, span, ordA: ord[i], ordB: ord[j], touches: pts.length, retest, pts, brk, cross, own });
+      }
+    }
+    // What a line is worth today, whatever the zoom:
+    //   C  intact, or broken: a fresh break is news, an old one fades (a retest keeps it alive);
+    //   F  met lately, in its own length: a line the price left long ago and only now comes back to is an old line;
+    //   R  still in the picture: its value today against the price, on the range the price covered while the line lived.
+    const hiFrom = new Array(n), loFrom = new Array(n); for (let x = t, a = -Infinity, z = Infinity; x >= 0; x--) { a = Math.max(a, h[x]); z = Math.min(z, l[x]); hiFrom[x] = a; loFrom[x] = z; }
+    for (const L of out) {
+      const range = Math.max(hiFrom[L.i] - loFrom[L.i], 6 * A[t]); L.R = Math.max(0, 1 - Math.abs(L.now - px) / (0.9 * range));
+      { let a = -Infinity, z = Infinity; for (let x = L.i; x <= L.j; x++) { if (h[x] > a) a = h[x]; if (l[x] < z) z = l[x]; } L.flat = Math.abs(L.m) * L.span < 0.12 * (a - z); }   // level on a chart framed on its own span: left to the horizontal levels
+      const since = L.brk >= 0 ? t - L.brk : 0, fresh = L.brk >= 0 ? Math.max(0, 1 - since / Math.max(8, 0.35 * L.span)) : 0;
+      L.C = L.brk < 0 ? 1 : L.cross === 1 ? 0.4 + 0.5 * fresh + (L.retest ? 0.1 : 0) : 0.2 + 0.2 * fresh;
+      const age = ((L.brk >= 0 ? L.brk : t) - L.own) / L.span; L.F = age <= 1 ? 1 : Math.max(0.25, 1 - 0.35 * (age - 1));
+      L.T = Math.min(3, L.touches - 2 + L.retest) / 3;
+      const half = L.span / 2; L.q = (0.6 * Math.min(1, (Math.min(L.ordA, half) + Math.min(L.ordB, half)) / L.span) + 0.4 * L.T) * L.C * L.F * Math.sqrt(L.R);   // its quality at its own scale
+    }
+    // the pool: the best lines of each size (8 to 15 bars long, 16 to 31, ...), so that every zoom finds lines of its own scale
+    const same = (q, L) => { const dn = Math.abs(q.now / L.now - 1), dm = Math.abs(q.m - L.m) * Math.min(q.span, L.span) / px; return q.side === L.side && ((dn < 0.02 && dm < 0.03) || (Math.abs(q.i - L.i) <= 2 && Math.abs(q.j - L.j) <= 2)); };
+    const fan = (q, L) => q.side === L.side && (Math.abs(q.i - L.i) <= 2 || Math.abs(q.j - L.j) <= 2), buckets = {}, pool = [];
+    for (const L of out) { if (L.flat || !(L.R > 0) || L.q < 0.08) continue; const k = Math.floor(Math.log2(L.span / 8)); (buckets[k] = buckets[k] || []).push(L); }
+    for (const k of Object.keys(buckets)) { const got = []; for (const L of buckets[k].sort((x, y) => y.q - x.q)) { if (got.length >= 8) break; if (got.some((q) => same(q, L)) || got.filter((q) => fan(q, L)).length >= 2) continue; got.push(L); } for (const L of got) pool.push(L); }
+    const P60 = prep(b.slice(-60)), tolA = Math.max(0.008, 0.3 * (P60.atr[P60.n - 1] || 0) / px), LV = (levels || []).filter((z) => z && z.p > 0);
+    for (const L of pool) { L.agree = LV.filter((z) => Math.abs(z.p / L.now - 1) <= tolA).map((z) => z.label).slice(0, 3); delete L.flat; }
+    return pool;
   }
+  // The lines of the pool a screen shows: bars `from` to `to` are visible (indices into the same candles), at most `max` lines.
+  // Left out: a line too small for the screen (it appears when you zoom in), a line whose value today is off the screen, an old
+  // small line that meets nothing on screen. The rest are ranked at the screen's scale: the size of the swings (the weaker one
+  // counts most), the length, the touches; then what the line is worth today (trendpool's C, F) and how near the price it is.
+  // The best line first, then a line under the lows and one over the highs when there are any; one line of a kind per swing
+  // (`full`: two, and lines broken long ago stay).
+  function trendview(pool, b, from, to, max, full) {
+    const n = b.length; if (!pool || !pool.length || !n) return [];
+    const z = Math.max(0, Math.min(n - 1, Math.round(to == null ? n - 1 : to))), a = Math.max(0, Math.min(z, Math.round(from == null ? 0 : from))), vis = Math.max(20, z - a + 1), px = b[n - 1].close;
+    let hi = -Infinity, lo = Infinity; for (let x = a; x <= z; x++) { if (b[x].high > hi) hi = b[x].high; if (b[x].low < lo) lo = b[x].low; }
+    if (!(hi > lo)) return [];
+    const pad = 0.1 * (hi - lo), cv = Math.max(4, vis / 6), cand = [];
+    for (const L of pool) {
+      if (L.span < Math.max(8, vis * 0.08)) continue;                                   // too small for this screen
+      const y = z >= n - 1 ? L.now : L.p1 + L.m * (z - L.i); if (!(y >= lo - pad && y <= hi + pad)) continue;   // off the screen at its right edge
+      if (L.j < a - vis && L.span < vis * 0.5) continue;                                // an old small line
+      if (!(L.pts.some(([x]) => x >= a && x <= z) || (L.brk >= a && L.brk <= z) || Math.abs(L.now - px) <= 0.25 * (hi - lo))) continue;   // it meets nothing on screen and is not near the price
+      const oa = Math.min(L.ordA, cv), ob = Math.min(L.ordB, cv), Pw = (0.65 * Math.min(oa, ob) + 0.35 * Math.max(oa, ob)) / cv, S = Math.min(1, L.span / (0.4 * vis)), R = Math.max(0, 1 - Math.abs(L.now - px) / (0.6 * (hi - lo)));
+      if (!full && L.brk >= 0 && L.C <= 0.5 && R < 0.3) continue;                       // broken long ago and far from the price now: history (the Full view keeps it, pale)
+      if (Math.abs(L.m) * vis < 0.15 * (hi - lo) && L.span < vis) continue;            // it looks level on this screen: left to the horizontal levels
+      const big = Math.min(1, Math.log2(1 + L.span / vis) / 2.5);                       // a line much longer than the screen is a major one: it counts for more, to a point
+      cand.push(Object.assign({}, L, { major: Pw >= 0.75 && (S >= 0.8 || big >= 0.6), score: 100 * (0.4 * Pw + 0.3 * S + 0.3 * L.T) * (0.7 + 0.3 * big) * L.C * L.F * (0.7 + 0.3 * R) * (1 + 0.1 * Math.min(2, (L.agree || []).length)) }));
+    }
+    cand.sort((x, y) => y.score - x.score);
+    const same = (q, L) => { const dn = Math.abs(q.now / L.now - 1), dm = Math.abs(q.m - L.m) * Math.min(q.span, L.span) / px; return (dn < 0.025 && dm < 0.05) || dn < 0.012; };
+    const shares = (q, L) => q.side === L.side && (Math.abs(q.i - L.i) <= 2 || Math.abs(q.j - L.j) <= 2 || Math.abs(q.i - L.j) <= 2 || Math.abs(q.j - L.i) <= 2);
+    // One line of a kind per swing, so that a fan of lines from one low does not fill the screen. The Full view allows two: after a
+    // line is broken, a hand draws the next one from the same swing and keeps the old one, dashed. (Matteo, 21 Nov 2026: "if there are
+    // other cases of trendlines which were not drawn because broken, you should fix that." Checked that day on 1,259 assets: of 319
+    // major lines broken lately the old code drew 55; a line is never left out for being broken, only for being a second line from
+    // the same swing, level on the screen, off the screen, or crossed three times and more, which is no line.)
+    const out = [], take = (L) => { if (L && out.length < (max || 4) && !out.some((q) => q === L || same(q, L)) && out.filter((q) => shares(q, L)).length < (full ? 2 : 1)) out.push(L); };
+    // the best line; then one drawn under the lows and one drawn over the highs if there are any (the trend's floor and its ceiling,
+    // broken or not); then the best of the rest
+    take(cand[0]); take(cand.find((L) => L.was === 'sup')); take(cand.find((L) => L.was === 'res')); for (const L of cand) take(L);
+    return out;
+  }
+  // the lines of the usual first view (the last 160 candles): what the page lists under the chart
+  function trendlines(b, max, levels) { const n = b.length; return trendview(trendpool(b, levels), b, Math.max(0, n - 160), n - 1, max || 4); }
   // Daily candles grouped into weeks (Monday to Friday): the long-term chart and its signals, with no extra request.
   function weekly(bars) {
     const out = [];
@@ -433,7 +498,7 @@
     }
     return out;
   }
-  const API = { prep, scan, analyze, backtest, geometry, trendlines, openGaps, weekly, trades, feats, mscore, mtrades, setModel, FEATS, model: () => MODEL, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
+  const API = { prep, scan, analyze, backtest, geometry, trendlines, trendpool, trendview, openGaps, weekly, trades, feats, mscore, mtrades, setModel, FEATS, model: () => MODEL, zonesAt, SIDE, NAME, BULL, BEAR, K, LOOK };
   root.SRTA = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -98,6 +98,21 @@
     let comparison = null;
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
+    // Three ways to look at the chart, one tap each (Matteo, 21 Nov 2026: "sometimes they are a bit crowded ... especially when I
+    // represent trendlines and horizontal resistances/support zones ... the app should be complete, but adaptable"). Nothing is
+    // removed: a view is a set of layers and how much of each is drawn (tl: trendlines at most, more appear as you zoom in;
+    // lv: levels each side of the price; words: 0 prices only, 1 short names, 2 everything written out). The list of layers stays,
+    // for a mix of your own: ticking one there makes the view "Custom".
+    const VIEW_BASE = { ma20: false, bb: false, macd: false, vol: true, zones: false, fair: false, sr: true, tl: true, sig: true, pos: true, ev: true };
+    const VIEWS = {
+      clean: { name: 'Clean', ind: Object.assign({}, VIEW_BASE, { ma50: false, ma200: true, rsi: false, rs: false }), tl: 2, lv: 1, words: 0 },
+      levels: { name: 'Levels', ind: Object.assign({}, VIEW_BASE, { ma50: true, ma200: true, rsi: false, rs: false }), tl: 4, lv: 2, words: 1 },
+      full: { name: 'Full', ind: Object.assign({}, VIEW_BASE, { ma50: true, ma200: true, rsi: true, rs: true }), tl: 6, lv: 2, words: 2 },
+    };
+    let view = lsGet('sr.chartView', 'clean'); if (view !== 'custom' && !VIEWS[view]) view = 'clean';
+    const detail = () => VIEWS[view] || { tl: 4, lv: 2, words: 2 };
+    if (VIEWS[view]) ind = Object.assign({}, ind, VIEWS[view].ind);   // (your own trades on Revolut keep their own switch)
+    let trend = null, trendKey = '', trendShown = [], levelsShown = [];   // the trendlines of every size (a function of what is on screen, from live.js), those this zoom shows, and the levels drawn
 
     const root = container.appendChild(el('div', 'ch'));
     const slot = root.appendChild(el('div', 'ch-slot'));   // name, price and timeframes, shown in full view
@@ -128,16 +143,31 @@
     const dateError = dateForm.appendChild(el('span', 'ch-date-error')); dateError.setAttribute('role', 'status');
     const compareSlot = opts.onCompare ? root.appendChild(el('div', 'ch-compare-slot')) : null;
     if (compareSlot) compareSlot.hidden = true;
+    const viewBar = root.appendChild(el('div', 'ch-views')), viewBtn = {}; viewBar.setAttribute('role', 'tablist'); viewBar.setAttribute('aria-label', 'How much the chart shows');
+    for (const k of ['clean', 'levels', 'full', 'custom']) { const b = viewBar.appendChild(el('button', 'ch-view', k === 'custom' ? 'Custom' : VIEWS[k].name)); b.type = 'button'; b.dataset.view = k; b.setAttribute('role', 'tab'); b.addEventListener('click', () => setView(k)); viewBtn[k] = b; }
+    const viewHint = viewBar.appendChild(el('span', 'ch-view-hint', ''));
     const main = root.appendChild(el('div', 'ch-main'));
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
     const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps', sig: 'Buy and sell entries with their outcome', rs: 'Strength against the S&P 500', pos: 'Your demo trade: entry, stop, target', ev: 'Next results date' };
     for (const k of Object.keys(IND_LABEL)) {
-      const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k];
+      const lab = menu.appendChild(el('label', 'ch-opt')); const c = lab.appendChild(el('input')); c.type = 'checkbox'; c.checked = !!ind[k]; c.dataset.k = k;
       lab.appendChild(document.createTextNode(' ' + IND_LABEL[k]));
-      c.addEventListener('change', () => { ind[k] = c.checked; lsSet('sr.ind3', ind); applyIndicators(); });
+      c.addEventListener('change', () => { ind[k] = c.checked; view = 'custom'; lsSet('sr.chartView', view); lsSet('sr.ind3', ind); syncView(); applyIndicators(); });
     }
+    const VIEW_SAYS = { clean: 'The main lines. Zoom in for more.', levels: 'More lines and levels, with short names.', full: 'Everything, written out.', custom: 'Your own mix of layers.' };
+    function syncView() {
+      for (const q of Object.keys(viewBtn)) viewBtn[q].setAttribute('aria-selected', String(q === view));
+      viewBtn.custom.hidden = view !== 'custom'; root.dataset.view = view; viewHint.textContent = VIEW_SAYS[view] || '';
+      for (const c of menu.querySelectorAll('input[data-k]')) c.checked = !!ind[c.dataset.k];
+    }
+    function setView(k) {
+      if (k !== 'custom' && !VIEWS[k]) return;
+      view = k; lsSet('sr.chartView', k); ind = Object.assign({}, ind, VIEWS[k] ? VIEWS[k].ind : lsGet('sr.ind3', {}));
+      syncView(); trendKey = ''; applyIndicators();
+    }
+    syncView();
 
     const up = css('--av-up', '#089981'), down = css('--av-down', '#f23645');
     // the times under the chart in this device's own time (the library writes UTC); daily and weekly candles keep their calendar date, which is a UTC date
@@ -331,13 +361,19 @@
       if (ind.sr && levels.length) {
         const COL = { res: 'rgba(220,60,60,0.85)', sup: 'rgba(22,150,70,0.9)', act: 'rgba(41,98,255,0.95)' };
         const now = bars.length ? bars[bars.length - 1].close : null, near = [...levels].sort((a, b) => (now == null ? 0 : Math.abs(a.p - now) - Math.abs(b.p - now)));
-        for (const lv of levels) {
+        // how many, and how: the nearest ones each side of the price (the action levels always); in the Clean view a short mark at
+        // the right edge with its price, not a line across the candles
+        const D = detail(), nearest = (kind) => near.filter((lv) => lv.kind === kind).slice(0, D.lv);
+        levelsShown = D.words >= 2 ? levels : levels.filter((lv) => lv.kind === 'act').concat(nearest('res'), nearest('sup'));
+        for (const lv of levelsShown) {
           const y = yOf(lv.p); if (y == null) continue;
-          const ly = y, rank = Math.min(12, near.indexOf(lv));   // the nearer to the price, the more important its words
-          ctx.strokeStyle = COL[lv.kind] || COL.act; ctx.lineWidth = Math.max(1, (lv.kind === 'act' ? 1.6 : 1.1) * r);
-          ctx.setLineDash(lv.kind === 'act' ? [] : [3 * hr, 3 * hr]);
-          ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
-          const Wc = W / hr; ask({ text: `${lv.label} ${fmtP(lv.p)}`, short: `${String(lv.label).split(' + ')[0]} ${fmtP(lv.p)}`, tiny: fmtP(lv.p), xs: [[Wc - 8, 'right'], [8, 'left'], [Wc * 0.55, 'center']], y: ly - 8, color: COL[lv.kind] || COL.act, bg: true, narrowShort: true, pri: (lv.kind === 'act' ? 66 : 52) - rank });
+          const ly = y, rank = Math.min(12, near.indexOf(lv)), act = lv.kind === 'act', mark = D.words === 0 && !act;   // the nearer to the price, the more important its words
+          ctx.strokeStyle = COL[lv.kind] || COL.act; ctx.lineWidth = Math.max(1, (act ? 1.6 : mark ? 1.5 : 1.1) * r);
+          ctx.setLineDash(act || mark ? [] : [3 * hr, 3 * hr]);
+          ctx.beginPath(); ctx.moveTo(mark ? Math.round(W * 0.72) : 0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
+          const Wc = W / hr, short = `${String(lv.label).split(' + ')[0]} ${fmtP(lv.p)}`;
+          ask(mark ? { text: fmtP(lv.p), xs: [[Wc - 8, 'right']], y: ly - 8, color: COL[lv.kind], bg: true, pri: 52 - rank }
+            : { text: D.words >= 2 || act ? `${lv.label} ${fmtP(lv.p)}` : short, short, tiny: fmtP(lv.p), xs: [[Wc - 8, 'right'], [8, 'left'], [Wc * 0.55, 'center']], y: ly - 8, color: COL[lv.kind] || COL.act, bg: true, narrowShort: true, pri: (act ? 66 : 52) - rank });
         }
         ctx.setLineDash([]);
       }
@@ -376,21 +412,34 @@
         void yb;
       }
     }
+    // the trendlines for what is on screen now: asked again when the zoom or the scroll changes (they appear as you zoom in)
+    function shownLines() {
+      if (!trend || !ind.tl || !bars.length) return (trendShown = []);
+      const vr = chart.timeScale().getVisibleLogicalRange(), n = bars.length, from = vr ? Math.max(0, Math.floor(vr.from)) : 0, to = vr ? Math.min(n - 1, Math.ceil(vr.to)) : n - 1;
+      const D = detail(), full = D.words >= 2, max = D.tl + (main.clientWidth >= 700 ? 1 : 0), key = `${from}|${to}|${max}|${n}|${full}`;
+      if (key !== trendKey) { trendKey = key; try { trendShown = trend(from, to, max, full) || []; } catch (e) { trendShown = []; } root.dataset.lines = String(trendShown.length); }
+      return trendShown;
+    }
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10.5 * r)}px system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
-      if (ind.tl) for (const d of autos) {   // trendlines through pivots (extended to the right edge) and unfilled gaps
+      const WORDS = detail().words;
+      if (ind.tl) for (const d of autos.concat(shownLines())) {   // the edges of a wedge or triangle, the trendlines this zoom shows (each runs 40 bars past the last candle) and unfilled gaps
+        if (d.type === 'box' && WORDS < 2) continue;   // gaps: in the Full view
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
         const col = d.kind === 'res' ? '#d64545' : d.kind === 'sup' ? '#1f9d55' : '#8a8f98', xEdge = W / hr;
         const xLast = bars.length ? xOf(bars[bars.length - 1].time) : null, sp = chart.timeScale().options().barSpacing || 6;
         const xe = d.type === 'line' && xLast != null ? Math.min(xEdge, xLast + 40 * sp) : xEdge;   // a line runs 40 bars past the last candle, not to infinity
         if (d.type === 'line' && x2 !== x1) {
-          ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, (d.agree ? 2.6 : d.scale === 'long-term' ? 1.8 : 1.3) * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(xe * hr, (y1 + (y2 - y1) * (xe - x1) / (x2 - x1)) * r); ctx.stroke();
-          if (d.agree && xLast != null && xLast > x1) { const yl = y1 + (y2 - y1) * (xLast - x1) / (x2 - x1); ctx.beginPath(); ctx.arc(xLast * hr, yl * r, 6 * r, 0, 7); ctx.lineWidth = Math.max(1, 1.6 * r); ctx.stroke(); }   // ring: where the line meets another level today
-          for (const q of d.pts || []) { const qx = xOf(q.t), qy = yOf(q.p); if (qx == null || qy == null) continue; ctx.beginPath(); ctx.arc(qx * hr, qy * r, 3 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }
-          if (d.tag) {   // what the line is and its value today, at its right end
-            const ye = y1 + (y2 - y1) * (xe - x1) / (x2 - x1), v = priceOf(d.tag), word = String(d.tag).split(' ')[0];
-            ask({ text: d.tag, short: v ? `${word === 'support' ? 'sup.' : word === 'resistance' ? 'res.' : word} ${v}` : null, tiny: v || null, x: xe - 3, align: 'right', y: ye, pill: col, pri: d.agree ? 72 : d.scale === 'long-term' ? 62 : 56 });
+          // a broken line is dashed and paler; a line that meets another level today is heavier (Full view: with a ring where they meet)
+          ctx.strokeStyle = col; ctx.globalAlpha = d.broken ? 0.7 : 1; ctx.setLineDash(d.broken ? [7 * hr, 4 * hr] : []);
+          ctx.lineWidth = Math.max(1, (d.agree && WORDS >= 2 ? 2.4 : d.major ? 1.9 : 1.4) * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(xe * hr, (y1 + (y2 - y1) * (xe - x1) / (x2 - x1)) * r); ctx.stroke(); ctx.setLineDash([]);
+          if (d.agree && WORDS >= 2 && xLast != null && xLast > x1) { const yl = y1 + (y2 - y1) * (xLast - x1) / (x2 - x1); ctx.beginPath(); ctx.arc(xLast * hr, yl * r, 6 * r, 0, 7); ctx.lineWidth = Math.max(1, 1.6 * r); ctx.stroke(); }   // ring: where the line meets another level today
+          if (WORDS >= 1) for (const q of d.pts || []) { const qx = xOf(q.t), qy = yOf(q.p); if (qx == null || qy == null) continue; ctx.beginPath(); ctx.arc(qx * hr, qy * r, 2.6 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }   // where the price met the line
+          ctx.globalAlpha = 1;
+          if (d.tag) {   // what the line is and its value today, at its right end (Clean: the value alone)
+            const ye = y1 + (y2 - y1) * (xe - x1) / (x2 - x1), v = priceOf(d.tag), word = String(d.tag).split(' ')[0], short = v ? `${word === 'support' ? 'sup.' : word === 'resistance' ? 'res.' : word} ${v}` : null;
+            ask({ text: WORDS >= 2 ? d.tag : WORDS === 1 ? short || d.tag : v || d.tag, short: WORDS >= 2 ? short : v || null, tiny: v || null, x: xe - 3, align: 'right', y: ye, pill: col, pri: d.agree ? 72 : d.major ? 62 : 56 });
           }
         } else if (d.type === 'box') {
           ctx.fillStyle = 'rgba(138,143,152,0.18)'; ctx.fillRect(x1 * hr, Math.min(y1, y2) * r, (xe - x1) * hr, Math.max(1, Math.abs(y2 - y1) * r));
@@ -423,7 +472,7 @@
           ctx.beginPath(); ctx.moveTo(x * hr, y0 * r); ctx.lineTo((x - s) * hr, (y0 + d * s * 1.5) * r); ctx.lineTo((x + s) * hr, (y0 + d * s * 1.5) * r); ctx.closePath();
           if (m.tested) { ctx.fillStyle = col; ctx.fill(); } else { ctx.fillStyle = dark() ? '#16181e' : '#fff'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.4 * r); ctx.stroke(); }
           const recent = k >= marks.length - 2 || (lastT && lastT - m.a.t <= 30 * (frame.sec || 86400));   // words only on the latest entries: older ones are explained on tap
-          if (m.tag && recent && sp >= 3) { const res = (String(m.tag).match(/[✓✗✕×]?\s*[+−-][\d.,]+%$/) || [''])[0]; ask({ text: m.tag, short: `${String(m.tag).split(' · ')[0]}${res ? ' ' + res : ''}`, x, align: 'center', y: y0 + d * (s * 1.5 + 11), color: col, bg: true, narrowShort: true, pri: 80 - (marks.length - 1 - k) }); }
+          if (m.tag && recent && sp >= 3 && WORDS >= 1) { const res = (String(m.tag).match(/[✓✗✕×]?\s*[+−-][\d.,]+%$/) || [''])[0]; ask({ text: m.tag, short: `${String(m.tag).split(' · ')[0]}${res ? ' ' + res : ''}`, x, align: 'center', y: y0 + d * (s * 1.5 + 11), color: col, bg: true, narrowShort: true, pri: 80 - (marks.length - 1 - k) }); }
         });
       }
       ctx.lineWidth = Math.max(1, 1.3 * r);
@@ -515,13 +564,13 @@
     chart.subscribeClick((ev) => {
       if (!ev || !ev.point || tool !== 'cursor' || !opts.onPick) return;
       let hit = null, bd = 10;
-      if (ind.sr) for (const lv of levels) { const y = yOf(lv.p); if (y != null && Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: lv.p, label: lv.full || lv.label, kind: lv.kind }; } }
-      if (ind.tl) for (const d of autos) if (d.type === 'line') {
+      if (ind.sr) for (const lv of levelsShown) { const y = yOf(lv.p); if (y != null && Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: lv.p, label: lv.full || lv.label, kind: lv.kind }; } }
+      if (ind.tl) for (const d of autos.concat(trendShown)) if (d.type === 'line') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null || x2 === x1 || ev.point.x < x1) continue;
         const y = y1 + (y2 - y1) * (ev.point.x - x1) / (x2 - x1); if (Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: d.now != null ? d.now : candles.coordinateToPrice(y), label: d.full || 'trendline', kind: d.kind }; }
       }
       if (ind.sig) for (const m of marks) { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); if (x == null || y == null) continue; const yy = y + (m.side > 0 ? 12 : -12); if (Math.abs(x - ev.point.x) < 12 && Math.abs(yy - ev.point.y) < 16) { hit = { p: m.e ? m.e.p : (m.side > 0 ? m.a.lo : m.a.hi), label: m.full, tr: m.tr || null, kind: m.side > 0 ? 'buy' : 'sell' }; break; } }
-      if (!hit && ind.tl) for (const d of autos) if (d.type === 'box') {
+      if (!hit && ind.tl && detail().words >= 2) for (const d of autos) if (d.type === 'box') {
         const x1 = xOf(d.a.t), y1 = yOf(d.a.p), y2 = yOf(d.b.p); if (x1 == null || y1 == null || y2 == null || ev.point.x < x1) continue;
         if (ev.point.y >= Math.min(y1, y2) - 4 && ev.point.y <= Math.max(y1, y2) + 4) hit = { p: (d.a.p + d.b.p) / 2, label: d.full || 'gap', kind: d.kind };
       }
@@ -535,7 +584,10 @@
     root.__mine = () => mineDrawn;   // for the tests: how many of your trades are drawn
     root.__view = () => { const v = chart.timeScale().getVisibleLogicalRange(); return { n: bars.length, from: v ? v.from : null, to: v ? v.to : null }; };   // for the tests: is the newest candle on screen
     root.__future = (ahead) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - 30, to: n + (ahead || 40) }); return new Promise((res) => setTimeout(() => res({ slots: future.length, lastBar: bars[n - 1].time, timeRight: chart.timeScale().coordinateToTime(main.clientWidth - 70), sec: frame.sec }), 300)); };   // for the tests: what the axis shows to the right of the last candle
-    root.__probe = () => autos.filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
+    root.__lines = () => shownLines().map((d) => ({ kind: d.kind, broken: !!d.broken, major: !!d.major, span: d.span, now: d.now, from: d.a.t, to: d.b.t, full: d.full }));   // for the tests: the trendlines this zoom shows
+    root.__setView = (k) => setView(k);
+    root.__zoom = (count) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - count, to: n + 3 }); return new Promise((res) => setTimeout(() => res(root.__lines()), 350)); };   // for the tests: the last `count` candles on screen, and the lines then shown
+    root.__probe = () => autos.concat(shownLines()).filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
     bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
     bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
@@ -685,6 +737,8 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       setLevels(l) { levels = Array.isArray(l) ? l : []; redraw(); },
       lw: () => ({ chart, candles }),   // for a chart of something else than an asset (the account's value): its own lines and markers
       setAuto(x) { autos = Array.isArray(x) ? x : []; redraw(); },
+      setTrend(fn) { trend = typeof fn === 'function' ? fn : null; trendKey = ''; trendShown = []; redraw(); },   // fn(from, to, max, full): the lines to draw when bars from..to are on screen (full: the Full view)
+      view: () => view,
       setTrades(x) { marks = Array.isArray(x) ? x : []; redraw(); },
       setMine(x) { mine = Array.isArray(x) ? x : []; bMine.hidden = !mine.length; root.dataset.mine = String(mine.length); redraw(); },
       setBench(b) { if (b === bench) return; bench = Array.isArray(b) ? b : []; if (bars.length) applyIndicators(); },

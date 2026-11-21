@@ -743,7 +743,14 @@
       }
     }
     let geo = null; // trendlines, gaps and wedge on the timeframe shown
-    const lineText = (x) => `${x.edge ? x.edge.toLowerCase() + ' edge: ' : x.scale ? x.scale + ' ' : ''}${x.m > 0 ? 'rising' : 'falling'} ${x.kind === 'sup' ? 'support' : 'resistance'} line, ${x.touches} touches${x.cross ? ', crossed ' + (x.cross === 1 ? 'once' : x.cross + ' times') : ''}${x.agree && x.agree.length ? '; today it meets ' + x.agree.join(', ') : ''}`;
+    // what a drawn line is, in words: its side when it was drawn, its touches, and what became of it (day: the date of a candle)
+    const lineText = (x, day) => {
+      const dir = x.m > 0 ? 'rising' : 'falling', ag = x.agree && x.agree.length ? '; today it meets ' + x.agree.join(', ') : '', now = x.kind === 'sup' ? 'support' : 'resistance';
+      if (x.edge) return `${x.edge.toLowerCase()} edge: ${dir} ${now} line, ${x.touches} touches${ag}`;
+      const was = x.was === 'sup' ? 'support' : 'resistance', t = `${x.touches} touches`;
+      if (x.brk >= 0) return `${dir} ${was} line (${t}) broken${day ? ' on ' + day(x.brk) : ''}${x.cross > 1 ? ', crossed back since' : ''}: now ${now}${x.retest ? `, met again ${x.retest === 1 ? 'once' : x.retest + ' times'} since` : ''}${ag}`;
+      return `${dir} ${was} line, ${t}${ag}`;
+    };
     const taBars = () => daily.map((r) => ({ date: r.date, open: r.open, high: r.high, low: r.low, close: r.close }));
     function taNow() {
       if (!window.SRTA || daily.length < 80) return null;   // from about four months of daily candles
@@ -761,7 +768,7 @@
       if (geo && (geo.lines.length || geo.gaps.length)) {
         const tl = taBox.appendChild(el('div', 'ta-tl'));
         tl.appendChild(el('div', 'ta-line', `Trendlines and gaps on the ${frame.k} chart` + (geo.pattern ? ` · ${geo.pattern}: the two edges converge; a break out of it is one of the tested signals.` : '')));
-        for (const x of geo.lines) { const r = tl.appendChild(el('div', 'ta-tlr ' + (x.kind === 'sup' ? 'is-sup' : 'is-res') + (x.agree && x.agree.length ? ' is-agree' : ''))); r.appendChild(el('span', 'ta-tlp', fmtP(x.now))); r.appendChild(el('span', 'ta-tld', fmtPct(x.now / px - 1))); r.appendChild(el('span', 'ta-tlt', lineText(x))); }
+        for (const x of geo.lines) { const r = tl.appendChild(el('div', 'ta-tlr ' + (x.kind === 'sup' ? 'is-sup' : 'is-res') + (x.agree && x.agree.length ? ' is-agree' : ''))); r.appendChild(el('span', 'ta-tlp', fmtP(x.now))); r.appendChild(el('span', 'ta-tld', fmtPct(x.now / px - 1))); r.appendChild(el('span', 'ta-tlt', x.text || lineText(x))); }
         for (const g of geo.gaps) { const mid = (g.top + g.bottom) / 2, r = tl.appendChild(el('div', 'ta-tlr ' + (mid < px ? 'is-sup' : 'is-res'))); r.appendChild(el('span', 'ta-tlp', fmtP(mid))); r.appendChild(el('span', 'ta-tld', fmtPct(mid / px - 1))); r.appendChild(el('span', 'ta-tlt', `open gap ${g.dir}, ${fmtP(g.bottom)} to ${fmtP(g.top)}`)); }
       }
       if (geo && geo.lines.some((x) => x.agree && x.agree.length)) taBox.appendChild(el('div', 'ta-line ta-muted', 'Bold = the line meets another level today. Tested on 79 assets: a touch of a rising line worked 52% of the time with such an agreement and 53% without (any day 54%), so agreement is shown but does not raise the ranking.'));
@@ -833,13 +840,21 @@
           geo = window.SRTA.geometry(src);
           const strict = geo.pattern ? geo.lines.map((x) => Object.assign({ edge: geo.pattern }, x)) : [];   // the two edges of a wedge or triangle stay drawn
           const An = taNow(), strong = /^(50|200)-day average|^Fibonacci|^gap|^1-year|^pivots ×([3-9]|\d\d)/, lv = An ? An.levels.map((z) => ({ p: z.p, label: z.kinds.filter((k) => strong.test(k)).join(' + ') })).filter((z) => z.label) : [];   // only the levels that count: the two averages, Fibonacci, gaps, 3+ pivots, the year's extremes
-          const maxL = box.clientWidth < 560 ? 3 : 4, TL = window.SRTA.trendlines ? window.SRTA.trendlines(src, maxL, lv) : [];   // elastic lines, long-term and recent; those that agree with a level come first
-          if (TL.length || strict.length) geo.lines = strict.concat(TL.filter((x) => !strict.some((q) => Math.abs(q.now / x.now - 1) < 0.03 && Math.abs(q.m - x.m) / x.now < 0.0005))).slice(0, maxL);   // the edges of a wedge or triangle count in the total
+          // The trendlines of every size, found once (ta.js, trendpool); the chart asks which of them to draw for what is on screen,
+          // so the major lines show zoomed out and the shorter ones appear as you zoom in (trendview). The edges of a wedge or
+          // triangle stay drawn at any zoom and count in the total.
+          const pool = window.SRTA.trendpool ? window.SRTA.trendpool(src, lv) : [], notEdge = (x) => !strict.some((q) => Math.abs(q.now / x.now - 1) < 0.03 && Math.abs(q.m - x.m) / x.now < 0.0005);
+          const draw = (Ln) => ({ type: 'line', kind: Ln.kind, broken: Ln.brk >= 0, major: !!Ln.major, span: Ln.span, agree: (Ln.agree || []).length, now: Ln.now, tag: `${Ln.kind === 'sup' ? 'support' : 'resistance'} ${fmtP(Ln.now)}`, full: lineText(Ln, day) + `, drawn from ${day(Ln.i)} on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
+          const pick = (from, to, max, full) => window.SRTA.trendview(pool, src, from, to, Math.max(1, max - strict.length), full).filter(notEdge);
+          if (ch.setTrend) ch.setTrend((from, to, max, full) => pick(from, to, max, full).map(draw));
+          const first = pick(Math.max(0, src.length - (frame.show || 160)), src.length - 1, 4);   // listed under the chart: the lines of the chart's first view
+          for (const Ln of first) Ln.text = lineText(Ln, day);
+          if (first.length || strict.length) geo.lines = strict.concat(first);
           if (window.SRTA.openGaps) geo.gaps = window.SRTA.openGaps(src, 5);
-          for (const Ln of geo.lines) A2.push({ type: 'line', kind: Ln.kind, scale: Ln.scale, agree: (Ln.agree || []).length, now: Ln.now, tag: `${Ln.kind === 'sup' ? 'support' : 'resistance'} ${fmtP(Ln.now)}`, full: lineText(Ln) + `, drawn from ${day(Ln.i)} on the ${frame.k} chart`, a: { t: tm(Ln.i), p: Ln.p1 }, b: { t: tm(Ln.j), p: Ln.p2 }, pts: Ln.pts.map(([i, q]) => ({ t: tm(i), p: q })) });
+          for (const Ln of strict) A2.push(draw(Ln));
           for (const g of geo.gaps) A2.push({ type: 'box', kind: g.bottom >= src[src.length - 1].close ? 'res' : 'sup', full: `gap ${g.dir} of ${day(g.i)}, not filled yet: ${fmtP(g.bottom)} to ${fmtP(g.top)}`, a: { t: tm(g.i), p: g.top }, b: { t: tm(g.i), p: g.bottom } });
         }
-        ch.setAuto(A2);
+        ch.setAuto(A2); if (bars.length < 60 && ch.setTrend) ch.setTrend(null);
       }
       // entries on the timeframe shown: day trades on intraday candles, swing trades on daily ones, long-term trades on weekly ones
       TR = [];

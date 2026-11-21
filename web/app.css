@@ -186,6 +186,16 @@ body.sheet-open .tabbar { display: none; }
 .ch { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }   /* minmax(0, …): the chart may shrink again after the full view (its canvas has a fixed width) */
 .ch-tools { display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
 .ch-tools::-webkit-scrollbar { display: none; }
+/* how much the chart shows: Clean, Levels, Full (and Custom once a layer was ticked by hand) */
+.ch-views { display: flex; align-items: center; gap: 6px; padding: 2px 0 2px; min-width: 0; }
+.ch-view { flex: none; font: 600 12px/1 system-ui, sans-serif; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--color-border-line); background: none; color: var(--color-fg-muted); cursor: pointer; }
+.ch-view[aria-selected="true"] { background: #2962ff; border-color: #2962ff; color: #fff; }
+.ch-view[hidden] { display: none; }
+.ch-view-hint { margin-left: 4px; font-size: 11.5px; color: var(--color-fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* in the full view every row counts: the three views sit at the top right, beside the name and the price */
+.ch.is-full .ch-views { position: absolute; top: 4px; right: 8px; z-index: 4; padding: 0; gap: 4px; }
+.ch.is-full .ch-view { padding: 6px 9px; font-size: 11.5px; }
+.ch.is-full .ch-view-hint { display: none; }
 .ch-btn { flex: none; width: 36px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--color-fg-muted); cursor: pointer; }
 .ch-btn svg { width: 19px; height: 19px; }
 .ch-btn[aria-pressed="true"] { background: rgba(41, 98, 255, .12); color: #2962ff; }
@@ -806,7 +816,7 @@ div.av-pick { max-width: none; }
 .ch.is-full .ch-slot .ch-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* the explanation of a tapped marker or line: a small card on the chart, beside the tap */
-.av-pick.av-pop { position: absolute; z-index: 6; margin: 0; width: max-content; max-width: min(340px, calc(100% - 70px)); box-sizing: border-box; padding: 9px 28px 9px 11px; font-size: 13px; line-height: 1.35; border-radius: 12px; background: var(--color-panel, #fff); border: 1px solid var(--color-border-line); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18); pointer-events: auto; }
+.av-pick.av-pop { position: absolute; z-index: 60; /* above the chart library's pane handles (z-index 50): the card's Close could fall under one */ margin: 0; width: max-content; max-width: min(340px, calc(100% - 70px)); box-sizing: border-box; padding: 9px 28px 9px 11px; font-size: 13px; line-height: 1.35; border-radius: 12px; background: var(--color-panel, #fff); border: 1px solid var(--color-border-line); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18); pointer-events: auto; }
 .av-pop[hidden] { display: none; }
 .av-pop-x { position: absolute; top: 2px; right: 4px; width: 26px; height: 26px; border: 0; background: none; color: var(--color-fg-muted); font-size: 19px; line-height: 1; cursor: pointer; }
 .av-pop .tc-grid { gap: 4px; margin-top: 6px; } .av-pop .tc-cell { padding: 5px 7px; } .av-pop .tc-cell b { font-size: 15px; } .av-pop .tc-cell small { font-size: 10px; } .av-pop .tc-foot { display: none; }
