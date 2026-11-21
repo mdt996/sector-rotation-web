@@ -201,7 +201,7 @@
   // ---- the page ----
   function skeleton(root) {
     root.textContent = '';
-    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), top: root.appendChild(el('div', 't-labtop')),
+    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), verdicts: root.appendChild(el('div', 't-labverdicts')), top: root.appendChild(el('div', 't-labtop')),
       chart: root.appendChild(el('div', 't-labchartbox')), body: root.appendChild(el('div', 't-labbody')) };
     LB.R = R; LB.bodySig = ''; return R;
   }
@@ -227,6 +227,21 @@
       const pick = () => { if (LB.sel === key) return; LB.sel = key; keep(); LB.bodySig = ''; paint(); load(false); };
       d.addEventListener('click', pick); d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') pick(); });
     }
+  }
+  // where each lab stands, one plain line a lab: the VM's own verdict (proof so far) on the lab's result. Holding its market is not
+  // named here: that comparison is never shown without the lab's average position (it stands under the lab's value, below).
+  const VERDICT = { few: 'Too early', losing: 'Losing', luck: 'Not proven', ahead: 'Ahead of luck, not proven', holding: 'Holding up' };
+  const verdictWhy = (P) => (P.verdict === 'few' ? ', too few to read' : P.verdict === 'losing' ? ', more than bad luck alone gives' : P.verdict === 'luck' ? ', within what luck gives' : P.verdict === 'ahead' ? ` of about ${(P.need || P.bar.n).toLocaleString('en-US')} needed` : `, beyond luck in ${P.earned} kinds of market`);
+  function verdicts(R) {
+    const B = R.verdicts; B.textContent = ''; let bar = null;
+    for (const key of KEYS) {
+      const L = sumLab(key), V = valued(key), P = L && L.top && L.top.proof; if (!L || !V || !P || !P.bar) continue;
+      const d = B.appendChild(el('div', 'g-line t-labverdict')); d.dataset.lab = key; d.dataset.verdict = P.verdict; bar = P.bar;
+      d.appendChild(el('b', '', L.name)); d.appendChild(document.createTextNode(' · ')); d.appendChild(el('b', 't-labverdictw', VERDICT[P.verdict] || VERDICT.holding)); d.appendChild(document.createTextNode(': '));
+      const m = d.appendChild(el('span', sign(V.total), usd2(V.total))); m.dataset.live = 'total';
+      d.appendChild(document.createTextNode(` over ${P.n.toLocaleString('en-US')} trade${P.n === 1 ? '' : 's'}${verdictWhy(P)}.`));
+    }
+    if (bar) B.appendChild(el('div', 'g-hint t-labverdicth', `Proven needs at least ${bar.n} trades, a result beyond luck and a gain in ${bar.kinds} kinds of market. Paper only.`));
   }
   function top(R, L, V) {
     const T = R.top; T.textContent = '';
@@ -320,13 +335,32 @@
     for (const [k, name] of [['full', 'Full 0.5%'], ['build', 'Half 0.25%'], ['probe', 'Test 0.1%'], ['bench', 'No money (not taken)']]) { const c = t[k]; if (c && c.n) row(tb, name, '', [String(c.n), pct0(c.won), [rtxt(c.mR), sign(c.mR)]], 't-labbtrow'); }
     if (rnd.n) row(tb, 'Random entries', 'the yardstick', [String(rnd.n), pct0(rnd.won), [rtxt(rnd.mR), sign(rnd.mR)]], 't-labbtrow');
     const sp = B.speeds || {}, keys = Object.keys(sp).sort((a, b) => +a - +b).filter((k) => sp[k].rules.n);
-    if (keys.length) { const d = SRApp.disclosure(box, `lab-${key}-btspeeds`, 'The history by bar length'), tb2 = table(d, ['Bars', 'Paper trades', 'Before costs', 'After costs'], 't-t4'); for (const k of keys) row(tb2, barName(k), sp[k].random.n ? `random entries: ${rtxt(sp[k].random.mR)}` : '', [String(sp[k].rules.n), rtxt(sp[k].rules.gR), [rtxt(sp[k].rules.mR), sign(sp[k].rules.mR)]]); }
+    if (keys.length) { const d = SRApp.disclosure(box, `lab-${key}-btspeeds`, 'The history by bar length'), tb2 = table(d, ['Bars', 'Paper trades', 'Before costs', 'After costs'], 't-t4'); for (const k of keys) row(tb2, barName(k), [sp[k].days ? `${sp[k].days.toLocaleString('en-US')} day${sp[k].days === 1 ? '' : 's'}` : '', sp[k].sig ? `${sp[k].sig.toLocaleString('en-US')} signal${sp[k].sig === 1 ? '' : 's'}` : '', sp[k].random.n ? `random ${rtxt(sp[k].random.mR)}` : ''].filter(Boolean).join(' · '), [sp[k].rules.n.toLocaleString('en-US'), rtxt(sp[k].rules.gR), [rtxt(sp[k].rules.mR), sign(sp[k].rules.mR)]], 't-labbtsrow'); if (keys.some((k) => sp[k].days)) d.appendChild(el('div', 'g-hint t-labbtsh', 'Under each bar length: the days of history behind it and its signals (each signal is followed with several exits, so it makes several paper trades). The slow bars reach back much further than the fast ones.')); }
     const CO = B.costs || {}, ck = [['<0.05', 'under 0.05 R'], ['0.05-0.1', '0.05 to 0.1 R'], ['0.1-0.2', '0.1 to 0.2 R'], ['0.2-0.4', '0.2 to 0.4 R'], ['0.4+', 'over 0.4 R']].filter(([k]) => CO[k] && CO[k].n);
     if (ck.length) { const d = SRApp.disclosure(box, `lab-${key}-btcosts`, 'What the costs decide'), tb3 = table(d, ['Costs of the trade', 'Signals', 'Before costs', 'After costs'], 't-t4 t-labbtcosts'); for (const [k, name] of ck) row(tb3, name, k === '0.4+' ? 'the money does not take these' : '', [CO[k].n.toLocaleString('en-US'), rtxt(CO[k].gR), [rtxt(CO[k].mR), sign(CO[k].mR)]], 't-labbtcrow'); d.appendChild(el('div', 'g-hint', 'Every signal of the history by what its spread and fees were going to take, known before it opened, in R (1 R: what the trade risks). Where the result before costs is about nothing, the result is the costs.')); }
     const CH = B.chance || {}, hk = [['75+', 'over 75%'], ['55-75', '55 to 75%'], ['45-55', '45 to 55%'], ['25-45', '25 to 45%'], ['<25', 'under 25%'], ['new', 'not scored yet']].filter(([k]) => CH[k] && CH[k].n);
     if (hk.length) { const d = SRApp.disclosure(box, `lab-${key}-btchance`, 'What the learner\'s own confidence was worth'), tb4 = table(d, ['Chance to earn it gave', 'Trades', 'Won', 'Per trade'], 't-t4 t-labbtchance'); for (const [k, name] of hk) row(tb4, name, '', [CH[k].n.toLocaleString('en-US'), pct0(CH[k].won), [rtxt(CH[k].mR), sign(CH[k].mR)]], 't-labbthrow'); d.appendChild(el('div', 'g-hint', 'Each trade of the history by the chance to earn the learner gave its setup before it opened. A setup gets a test stake above 55% and loses it under 45%: the top rows must go on to do better than the bottom ones for that to be worth anything.')); }
     if (B.best && B.best.length) box.appendChild(el('div', 'g-hint', 'Best in this history: ' + B.best.slice(0, 3).map((b) => `${short(b.rule)} ${ALIGN_S[b.align] || b.align} (${rtxt(b.m)} over ${b.n})`).join(' · ') + '.'));
-    box.appendChild(el('div', 'g-hint', `${B.days} day${B.days === 1 ? '' : 's'} of history replayed ${when(Date.parse(LB.bt.made))}: ${B.n.toLocaleString('en-US')} paper trades with this lab's own rules, fees and sizes. Each trade is counted under the stake its setup had when it opened, from what was known until then: no hindsight. The venues give only a few days of candles; the VM now keeps them, so this gets deeper every day. Each rule starts live from what it made here; live trades confirm it or overturn it.`));
+    box.appendChild(el('div', 'g-hint', `${B.days} day${B.days === 1 ? '' : 's'} of history replayed ${when(Date.parse(LB.bt.made))}: ${B.n.toLocaleString('en-US')} paper trades with this lab's own rules, fees and sizes. Each trade is counted under the stake its setup had when it opened, from what was known until then: no hindsight. ${L.venue === 'revx' ? 'Revolut X gives only a few days of fast candles; the VM keeps them, so this gets deeper every day.' : 'Costs are today\'s spreads and fees, by the hour of the day. The fast bars go back a few weeks (the VM keeps them, deeper every day), the hourly ones two years, the daily ones longer.'} Each rule starts live from what it made here; live trades confirm it or overturn it.`));
+  }
+  // eToro's weekend session: followed on paper only at its own spreads, kept apart from everything the lab learns (the VM's figures)
+  function weekendBox(box, key, L, D) {
+    if (L.venue === 'revx') return;
+    const B = LB.bt && LB.bt.labs && LB.bt.labs[key], BW = B && B.weekend ? B.weekend : null, H = BW && BW.all && BW.all.n ? BW : null, W = D && D.weekend ? D.weekend : null;
+    if (!BW && !W) return;
+    const left = (n) => `${n.toLocaleString('en-US')} more signal${n === 1 ? ' was' : 's were'} not followed: the spread and fees alone were more than the trade risks.`;
+    head(box, 'Weekend session (paper only)');
+    box.appendChild(el('div', 'g-line t-labwk', 'This lab\'s money stays out at the weekend. eToro keeps a few markets open then, at much wider spreads: the rules are followed there on paper only, to see whether anything pays them.'));
+    if (H) {
+      const a = H.all, v = a.n < 30 ? `Too few weekend signals in the history to read: ${a.n}.` : a.mR > 0 ? `In the history the weekend paid its costs: ${rtxt(a.mR)} a trade after costs over ${a.n.toLocaleString('en-US')} signals. To be seen live before any money.` : `In the history nothing paid the weekend's costs: ${rtxt(a.gR)} a trade before costs, ${rtxt(a.mR)} after, over ${a.n.toLocaleString('en-US')} signals.`;
+      box.appendChild(el('div', 'g-line t-labwkv', v));
+      const sp = Object.keys(H.rules || {}).sort((x, y) => +x - +y).filter((k) => H.rules[k].n);
+      if (sp.length) { const tb = table(box, ['Bars', 'Signals', 'Before costs', 'After costs'], 't-t4 t-labwkt'); for (const k of sp) { const c = H.rules[k], r = H.random && H.random[k]; row(tb, barName(k), `costs ${c.c0.toFixed(2)} R${r && r.n ? ` · random ${rtxt(r.mR)}` : ''}`, [c.n.toLocaleString('en-US'), rtxt(c.gR), [rtxt(c.mR), sign(c.mR)]], 't-labwkrow'); } }
+      box.appendChild(el('div', 'g-hint t-labwkh', `Weekend sessions of the history${H.from ? ` since ${new Date(H.from).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}, one trade a signal. Costs: the spread and fees known before the trade, in R (1 R is what the trade risks).${BW.costly ? ' ' + left(BW.costly) : ''}`));
+    } else box.appendChild(el('div', 'g-hint t-labwkh', BW && BW.costly ? `In the history no weekend signal could be followed: for all ${BW.costly.toLocaleString('en-US')}, the spread and fees alone were more than the trade risks.` : 'No weekend session replayed in the history yet.'));
+    const live = W && W.rules && W.rules.n ? `Live since ${when(W.since)}: ${W.rules.n} signal${W.rules.n === 1 ? '' : 's'} followed on paper, ${rtxt(W.rules.gR)} a trade before costs, ${rtxt(W.rules.mR)} after (costs ${W.rules.c0.toFixed(2)} R).` : 'Live: no weekend signal followed on paper yet.';
+    box.appendChild(el('div', 'g-line t-labwklive', live + (W && W.costly ? ' ' + left(W.costly) : '')));
+    box.appendChild(el('div', 'g-hint', 'None of this reaches the learner, the bar-length gates or the lessons. If something ever pays these spreads over many weekends, it shows here first.'));
   }
   // every bar length tried on the history: one small chart a rule, the same scale on all three. A shape to read, not a winner to pick.
   const lenTxt = (m) => (m === 1440 ? '1 day' : m >= 60 && m % 60 === 0 ? `${m / 60} h` : `${m} min`), SOLID = 20, NS = 'http://www.w3.org/2000/svg';
@@ -565,12 +599,12 @@
       root.appendChild(el('div', 'g-hint', LB.sumAt ? 'No lab report available. The lab runner must be installed and running on the VM, and this device needs the owner’s GitHub sync key.' : 'Reading the labs…')); return;
     }
     const R = LB.R && root.contains(LB.R.body) ? LB.R : skeleton(root), key = LB.sel, L = sumLab(key), V = valued(key), D = LB.det[key];
-    want(); status(R); cards(R); top(R, L, V);
+    want(); status(R); cards(R); verdicts(R); top(R, L, V);
     const cf = key + '|' + LB.sum.made + '|' + (D ? D.made : '') + '|' + V.N.open.length; chart(R.chart, key, V, R.chart.dataset.for === cf ? 'tick' : 'data'); R.chart.dataset.for = cf;
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment();
-      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); lessonsBox(f, key, L, D); searchBox(f, key, L, D); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
+      openBox(f, key, L, V); statsBox(f, L, D); reviewBox(f, D); journalBox(f, key, L, D); trendBox(f, key, L, D); speedsBox(f, key, L, D); backtestBox(f, key, L); weekendBox(f, key, L, D); lessonsBox(f, key, L, D); searchBox(f, key, L, D); scanBox(f, key, L); setupsBox(f, key, L, D); closedBox(f, key, L, D); breakdownBox(f, key, D); restBox(f, key, L, D);
       R.body.replaceChildren(f);
     }
     LB.lastPaint = Date.now();
@@ -582,6 +616,7 @@
     const key = LB.sel, L = sumLab(key), V = valued(key); if (!L || !V) return;
     for (const k of KEYS) { const c = R.cards.querySelector(`[data-lab="${k}"]`), v = k === key ? V : valued(k), Lk = sumLab(k); if (!c || !v || !Lk) continue; const b = c.querySelector('.g-stat-v'), s = c.querySelector('.g-stat-s'), n = Lk.cycleTrades == null ? Lk.port.n : Lk.cycleTrades;
       b.textContent = usd(v.equity); b.className = 'g-stat-v ' + sign(v.total); s.textContent = `${pc(100 * v.total / Lk.start)}${v.day != null ? ' · today ' + usd2(v.day) : ''} · ${n} trade${n === 1 ? '' : 's'}${v.N.open.length ? ' · ' + v.N.open.length + ' open' : ''}`; }
+    for (const k of KEYS) { const m = R.verdicts && R.verdicts.querySelector(`[data-lab="${k}"] [data-live="total"]`), v = k === key ? V : valued(k); if (m && v) { const t = usd2(v.total); if (m.textContent !== t) { m.textContent = t; m.className = sign(v.total); } } }
     const big = R.top.querySelector('[data-live="equity"]'); if (big) { const t = usd(V.equity); if (big.textContent !== t) big.textContent = t; }
     const sub = R.top.querySelectorAll('.t-sub b'); if (sub[0]) { sub[0].textContent = `${usd2(V.total)} (${pc(100 * V.total / L.start)})`; sub[0].className = sign(V.total); } if (sub[1] && V.day != null) { sub[1].textContent = usd2(V.day); sub[1].className = sign(V.day); }
     V.N.open.forEach((o, i) => { const r = R.body.querySelector(`[data-open="${o.id}"]`); if (!r) return; const cells = r.querySelectorAll(':scope > span'), v = V.rows[i]; if (cells[2]) { const t = px(v[1]); cells[2].textContent = t; cells[2].className = t.length > 9 ? 't-long' : ''; } if (cells[3]) { cells[3].textContent = usd2(v[0]); cells[3].className = sign(v[0]); } });
