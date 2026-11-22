@@ -208,10 +208,11 @@
   const unpack = (a) => a.map((x) => ({ t: x[0], date: new Date(x[0]).toISOString().slice(0, 10), open: x[1], high: x[2], low: x[3], close: x[4], volume: x[5] || 0 }));
   async function kept(id, interval) {   // what the device has for this series, however old (null when nothing)
     const key = id + '/' + interval; let hit = cache.get(key);
-    if (!hit) { const k = await DB.get(key); if (k && k.rows && k.rows.length) { hit = { at: k.at, fullAt: k.fullAt || 0, all: !!k.all, rows: unpack(k.rows) }; cache.set(key, hit); } }
+    // v 2: kept since build 133 (one kept before may hold a hole, see candles(): it is read again)
+    if (!hit) { const k = await DB.get(key); if (k && k.v === 2 && k.rows && k.rows.length) { hit = { at: k.at, fullAt: k.fullAt || 0, all: !!k.all, rows: unpack(k.rows) }; cache.set(key, hit); } }
     return hit || null;
   }
-  const keep = (key, e) => { cache.set(key, e); DB.set(key, { at: e.at, fullAt: e.fullAt, all: e.all, rows: pack(e.rows) }); };
+  const keep = (key, e) => { cache.set(key, e); DB.set(key, { v: 2, at: e.at, fullAt: e.fullAt, all: e.all, rows: pack(e.rows) }); };
   async function fetchRows(id, interval, count, prio) {
     const j = await getJSON(`/api/v1/market-data/instruments/${id}/history/candles/desc/${interval}/${count}`, prio);
     const list = (j.candles && j.candles[0] && j.candles[0].candles) || [];
@@ -254,11 +255,19 @@
           }
         }
       }
-      const rows = await fetchRows(id, interval, count, prio), cur = cache.get(key); stats.full++;
-      if (cur && cur.rows.length > rows.length) {   // a longer history arrived meanwhile from another request: add to it, never shorten it
-        const byT = new Map(cur.rows.map((r) => [r.t, r])); for (const r of rows) byT.set(r.t, r);
-        keep(key, { at: Date.now(), fullAt: cur.fullAt, all: cur.all || rows.length < count, rows: [...byT.values()].sort((a, b) => a.t - b.t) });
-      } else keep(key, { at: Date.now(), fullAt: Date.now(), all: rows.length < count, rows });
+      // a kept history that ends before this read would start: read back to its last candle (up to eToro's 1,000), so the two join;
+      // if that is not possible the new read replaces it. Joining them across a hole made every chart of that asset lose those
+      // days (Matteo, 22 Nov 2026: gold's line straight from 17 to 20 Nov on a lab's 15-minute chart).
+      const old = hit && hit.rows.length ? hit.rows[hit.rows.length - 1].t : null, gap = old ? Math.ceil((now - old) / ((SEC[interval] || 86400) * 1000)) + 3 : 0;
+      const ask = gap > count && gap <= 1000 ? gap : count;
+      const got = await fetchRows(id, interval, ask, prio), cur = cache.get(key); stats.full++;
+      const rows = ask > count ? got.slice(-count) : got;
+      if (!got.length) return rows;   // nothing came: what is kept stays as it is
+      const joins = cur && cur.rows.length && got[0].t <= cur.rows[cur.rows.length - 1].t;
+      if (joins && cur.rows.length > got.length) {   // a longer history arrived meanwhile from another request: add to it, never shorten it
+        const byT = new Map(cur.rows.map((r) => [r.t, r])); for (const r of got) byT.set(r.t, r);
+        keep(key, { at: Date.now(), fullAt: cur.fullAt, all: cur.all || got.length < ask, rows: [...byT.values()].sort((a, b) => a.t - b.t) });
+      } else keep(key, { at: Date.now(), fullAt: Date.now(), all: got.length < ask, rows: got });
       return rows;
     })();
     flying.set(fkey, job);
@@ -1318,6 +1327,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { _store: { keep, cache }, close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();

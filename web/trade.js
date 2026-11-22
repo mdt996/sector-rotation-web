@@ -174,6 +174,18 @@
   // swings inside the candle, combined as independent moves. One fixed amount (the median gap to the real readings: spreads and fees)
   // brings it onto the readings, and the last candle ends on the live value.
   const IV = { 1: 'OneMinute', 5: 'FiveMinutes', 15: 'FifteenMinutes', 30: 'ThirtyMinutes', 60: 'OneHour', 240: 'FourHours', 1440: 'OneDay' };
+  // the S&P 500's own candles from eToro for the line over the account (the VM's half-hourly readings of it miss nights, weekends
+  // and the hours since its last record, so the line went straight across them: Matteo, 22 Nov 2026). Kept a minute.
+  const SPX = { key: '', rows: null, at: 0, busy: false, err: 0 };
+  function spxRows(id, step, from) {
+    const key = id + '|' + step, now = Date.now();
+    if (!(SPX.key === key && SPX.rows && now - SPX.at < 60000) && !SPX.busy && now - SPX.err > 30000 && window.SRLive && SRLive.candles && IV[step]) {
+      SPX.busy = true; const n = Math.max(5, Math.min(1000, Math.ceil((now - from) / (step * 60e3)) + 3));
+      SRLive.candles(id, IV[step], n, 1.5).then((rows) => { SPX.key = key; SPX.rows = rows || []; SPX.at = Date.now(); SPX.busy = false; SRApp.renderDraw('trade'); })
+        .catch(() => { SPX.busy = false; SPX.err = Date.now(); });
+    }
+    return SPX.key === key ? SPX.rows : null;
+  }
   const RB = new Map(); let rbGen = 0;   // rbGen: a reset leaves the answers of the builds before it unused
   function heldTrades(M) {
     const Q = window.SRLive && SRLive.quotes, cv = (id) => { const q = Q && Q.get(id); return q && q.conv > 0 ? q.conv : 1; }, out = [];
@@ -294,12 +306,15 @@
     tv.sig = sig; tv.n = bars.length; tv.bars = bars; tv.tf = tf; tv.host.__bars = bars.map((k) => [k.time, k.open, k.high, k.low, k.close]);   // for the tests
     tv.candles.applyOptions({ visible: ui.style !== 'line' }); tv.line.applyOptions({ visible: ui.style === 'line' });
     if (M.start > 0 && tv.startAt !== M.start) { if (tv.startLine) tv.candles.removePriceLine(tv.startLine); tv.startAt = M.start; tv.startLine = tv.candles.createPriceLine({ price: M.start, color: muted, lineWidth: 1, lineStyle: L.LineStyle ? L.LineStyle.Dashed : 2, axisLabelVisible: true, title: 'start' }); }
-    // the S&P 500 over the same hours, set to the account's value at the first point they share
-    const Bn = M.P.bench, bp = new Map(); if (Bn && Bn.px > 0 && Bn.value > 0) for (const p of (M.P.curve || [])) if (p[2] > 0) bp.set(Math.floor(p[0] / tf) * tf / 1000, +(Bn.value * p[2] / Bn.px).toFixed(2));
+    // the S&P 500 over the same hours, set to the account's value at the first point they share: eToro's candles of it, else
+    // (until they come) the VM's readings of it
+    const Bn = M.P.bench, bp = new Map(), sp = ui.bench && Bn && Bn.px > 0 && Bn.value > 0 ? spxRows(Bn.id || 27, step, bars[0].b) : null;
+    if (sp && sp.length) { for (const r of sp) if (r.close > 0) bp.set(Math.floor(r.t / tf) * tf / 1000, +(Bn.value * r.close / Bn.px).toFixed(2)); }
+    else if (Bn && Bn.px > 0 && Bn.value > 0) for (const p of (M.P.curve || [])) if (p[2] > 0) bp.set(Math.floor(p[0] / tf) * tf / 1000, +(Bn.value * p[2] / Bn.px).toFixed(2));
     // only at the account's own candles: a point between them would add a slot to the chart's time line and push the candles apart
     const bd = bars.filter((k) => bp.has(k.time)).map((k) => ({ time: k.time, value: bp.get(k.time) }));
     tv.bench.setData(bd); tv.bench.applyOptions({ visible: !!ui.bench && bd.length > 1 });
-    tv.host.__bench = bd.map((p) => p.time);   // for the tests
+    tv.host.__bench = bd.map((p) => p.time); tv.host.dataset.benchFrom = sp && sp.length ? 'candles' : 'vm';   // for the tests
     // where the program's trades opened and closed
     if (tv.marks) { const have = new Set(bars.map((k) => k.time)), at = (ms) => Math.floor(ms / tf) * tf / 1000, mk = [];
       for (const p of M.positions) if (p.t && isFinite(p.opened) && have.has(at(p.opened))) mk.push({ time: at(p.opened), position: 'belowBar', color: p.side > 0 ? up : down, shape: p.side > 0 ? 'arrowUp' : 'arrowDown', text: p.sym });
