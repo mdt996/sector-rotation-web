@@ -109,8 +109,8 @@
     const OFF = { ma20: false, ma50: false, ma200: false, bb: false, rsi: false, macd: false, vol: false, zones: false, fair: false, sr: false, tl: false, sig: false, rs: false, pos: false, ev: false };
     const VIEWS = {
       clean: { name: 'Clean', says: ACCOUNT ? 'The value alone' : 'The price alone', ind: OFF, tl: 0, lv: 0, words: 0, marks: 0 },
-      levels: { name: 'Levels', says: ACCOUNT ? 'Where trades opened and closed' : 'Trendlines, support and resistance', ind: Object.assign({}, OFF, ACCOUNT ? {} : { ma200: true, sr: true, tl: true, pos: true }), tl: 3, lv: 1, words: 0, marks: 1 },
-      full: { name: 'Full', says: ACCOUNT ? 'Trades with their results, averages, RSI' : 'Everything: averages, volume, RSI, signals', ind: Object.assign({}, OFF, { ma50: true, ma200: true, vol: true, sr: true, tl: true, sig: true, pos: true, ev: true, rsi: true, rs: true }), tl: 6, lv: 2, words: 2, marks: 2 },
+      levels: { name: 'Levels', says: ACCOUNT ? 'Where trades opened and closed' : 'Trendlines, support, resistance, fair value', ind: Object.assign({}, OFF, ACCOUNT ? {} : { ma200: true, sr: true, tl: true, pos: true, fair: true }), tl: 3, lv: 1, words: 0, marks: 1 },
+      full: { name: 'Full', says: ACCOUNT ? 'Trades with their results, averages, RSI' : 'Everything: averages, volume, RSI, signals', ind: Object.assign({}, OFF, { ma50: true, ma200: true, vol: true, sr: true, tl: true, sig: true, pos: true, ev: true, rsi: true, rs: true, fair: true }), tl: 6, lv: 2, words: 2, marks: 2 },
     };
     // (the views changed meaning on 21 Nov 2026, Clean became the price alone: every device starts again from Clean, once)
     if (lsGet('sr.chartViewV', 0) !== 2) { lsSet('sr.chartViewV', 2); lsSet('sr.chartView', 'clean'); }
@@ -415,18 +415,24 @@
           ask({ text: e.label, short: e.short || e.label, tiny: e.short || e.label, x: x + 4, y: 14, color: 'rgba(126,87,194,1)', bg: true, pri: 70 });
         }
       }
+      // The fundamental fair value of the few assets that have one (fair.js): the band from bear to bull and the three lines. A
+      // value above or below what the chart shows is said at that edge with an arrow, so the band is never silently missing
+      // (Matteo, 22 Nov 2026: "Fair value does not appear on charts"; since build 121 no view had the layer at all).
       if (ind.fair && fair) {
-        const y1 = yOf(fair.bull), y2 = yOf(fair.bear), yb = yOf(fair.base);
+        const Hc = sc.bitmapSize.height / r, y1 = yOf(fair.bull), y2 = yOf(fair.bear);
         if (y1 != null && y2 != null) { ctx.fillStyle = 'rgba(41,98,255,0.07)'; ctx.fillRect(0, Math.round(y1 * r), W, Math.round((y2 - y1) * r)); }
         ctx.strokeStyle = 'rgba(41,98,255,0.75)'; ctx.lineWidth = Math.max(1, r); ctx.setLineDash([6 * hr, 4 * hr]);
-        for (const [p, t] of [[fair.bear, 'Fair value, bear'], [fair.base, 'Fair value, base'], [fair.bull, 'Fair value, bull']]) {
+        const seen = [];
+        for (const [p, t, k] of [[fair.base, 'Fair value, base', 'base'], [fair.bear, 'Fair value, bear', 'bear'], [fair.bull, 'Fair value, bull', 'bull']]) {
           const y = yOf(p); if (y == null) continue;
-          ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke();
-          ask({ text: `${t} ${fmtP(p)}`, short: `${t.replace('Fair value, ', 'Fair, ')} ${fmtP(p)}`, tiny: fmtP(p), x: 6, y: y - 8, color: 'rgba(41,98,255,0.95)', bg: true, narrowShort: true, pri: 32 });
+          const off = y < 2 ? '↑' : y > Hc - 2 ? '↓' : '', at = off === '↑' ? 9 : off === '↓' ? Hc - 9 : y - 8;
+          if (!off) { ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke(); }
+          seen.push({ k, p, off });
+          ask({ text: `${t} ${fmtP(p)}${off ? ' ' + off : ''}`, short: `${t.replace('Fair value, ', 'Fair, ')} ${fmtP(p)}${off ? ' ' + off : ''}`, tiny: `${k} ${fmtP(p)}${off ? ' ' + off : ''}`, x: 6, y: at, color: 'rgba(41,98,255,0.95)', bg: true, narrowShort: true, pri: k === 'base' || off ? 64 : 32, must: k === 'base' || !!off });   // the base, and a value off the chart, are always written
         }
         ctx.setLineDash([]);
-        void yb;
-      }
+        root.__fair = seen;   // for the tests
+      } else root.__fair = null;
     }
     // the trades a page puts on its chart (an account's value): by the view, none (Clean), the arrows and dots (Levels), or these
     // with their words (Full) where the words have room; the newest first, and more of them as you zoom in
