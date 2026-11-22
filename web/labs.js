@@ -370,6 +370,28 @@
     box.appendChild(el('div', 'g-line t-labwklive', live + (W && W.costly ? ' ' + left(W.costly) : '')));
     box.appendChild(el('div', 'g-hint', 'None of this reaches the learner, the bar-length gates or the lessons. If something ever pays these spreads over many weekends, it shows here first.'));
   }
+  // the shorts a lab cannot take (Revolut X sells nothing short), followed on paper at another venue's costs (Matteo, 22 Nov 2026:
+  // "Yes add the paper only"): do they pay that fee, and do the rules' shorts beat random ones. By bar length: the fee is the same
+  // share of the position everywhere, so it is many times the stop on fast bars and a fraction of it on slow ones.
+  function shortsBox(box, key, L, D) {
+    const B = LB.bt && LB.bt.labs && LB.bt.labs[key], H = B && B.shorts ? B.shorts : null, W = D && D.shorts ? D.shorts : null, I = H || W; if (!I) return;
+    head(box, 'Shorts (paper only)');
+    const num = (n) => n.toLocaleString('en-US'), sp = H ? Object.keys(H.rules || {}).sort((x, y) => +x - +y).filter((k) => H.rules[k].n) : [], solid = sp.filter((k) => H.rules[k].n >= 30);
+    const best = solid.slice().sort((x, y) => H.rules[y].mR - H.rules[x].mR)[0], b = best ? H.rules[best] : null, br = best && H.random && H.random[best] && H.random[best].n >= 30 ? H.random[best] : null;
+    const v = !sp.length ? 'No short replayed in the history yet.' : !b ? 'Too few shorts in the history to read yet.'
+      : b.mR <= 0 ? `In the history no bar length's shorts pay ${I.venue}'s fee. The closest: ${barName(best)} bars, ${rtxt(b.gR)} a trade before costs, ${rtxt(b.mR)} after, over ${num(b.n)}.`
+      : `In the history the shorts on ${barName(best)} bars paid ${I.venue}'s fee: ${rtxt(b.mR)} a trade after costs over ${num(b.n)}${br ? ` (random shorts ${rtxt(br.mR)})` : ''}. The best of ${solid.length} bar length${solid.length === 1 ? '' : 's'}, so partly luck: to be seen live.`;
+    box.appendChild(el('div', 'g-line t-labshv', v));
+    if (sp.length) {
+      const tb = table(box, ['Bars', 'Shorts', 'Before costs', 'After costs'], 't-t4 t-labsht');
+      for (const k of sp) { const c = H.rules[k], r = H.random && H.random[k]; row(tb, barName(k), `${r && r.n ? `random ${rtxt(r.gR)}, then ${rtxt(r.mR)}` : 'no random shorts'}${c.days ? ` · ${num(c.days)} day${c.days === 1 ? '' : 's'}` : ''}`, [num(c.n), rtxt(c.gR), [rtxt(c.mR), sign(c.mR)]], 't-labshrow'); }
+    }
+    const live = W && W.rules && W.rules.n ? `Live since ${when(W.since)}: ${W.rules.n} short${W.rules.n === 1 ? '' : 's'} closed, ${rtxt(W.rules.gR)} a trade before costs, ${rtxt(W.rules.mR)} after${W.open ? `; ${W.open} open` : ''}.`
+      : W && W.since ? `Live since ${when(W.since)}: no short closed yet${W.open ? ` (${W.open} open)` : ''}.` : 'Live: no short signal yet.';
+    box.appendChild(el('div', 'g-line t-labshlive', live));
+    const list = W && Array.isArray(W.coins) ? W.coins : Array.isArray(I.coins) ? I.coins : null, coins = list ? list.length : I.coins;   // the live file names the coins, the history counts them
+    box.appendChild(el('div', 'g-hint t-labshh', `No money follows these: Revolut X sells nothing short. Costs are ${I.venue}'s for a real account: ${(100 * I.fee).toFixed(2)}% of the position in and out, ${(100 * I.night).toFixed(3)}% a night, on the ${coins} coins it sells short${list ? ` (${list.join(', ')})` : ''}. One trade a signal; random shorts beside, since any short earns before costs while coins fall.`));
+  }
   // every bar length tried on the history: one small chart a rule, the same scale on all three. A shape to read, not a winner to pick.
   const lenTxt = (m) => (m === 1440 ? '1 day' : m >= 60 && m % 60 === 0 ? `${m / 60} h` : `${m} min`), SOLID = 20, NS = 'http://www.w3.org/2000/svg';
   const svg = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
@@ -615,7 +637,7 @@
       for (const [k] of PANES) if (k !== 'all') { P[k] = f.appendChild(el('div', 't-labpane')); P[k].dataset.pane = k; }
       openBox(P.now, key, L, V); statsBox(P.now, L, D); trendBox(P.now, key, L, D);
       closedBox(P.trades, key, L, D); reviewBox(P.trades, D); breakdownBox(P.trades, key, D);
-      backtestBox(P.history, key, L); weekendBox(P.history, key, L, D); speedsBox(P.history, key, L, D); scanBox(P.history, key, L);
+      backtestBox(P.history, key, L); weekendBox(P.history, key, L, D); shortsBox(P.history, key, L, D); speedsBox(P.history, key, L, D); scanBox(P.history, key, L);
       lessonsBox(P.learning, key, L, D); searchBox(P.learning, key, L, D); journalBox(P.learning, key, L, D); setupsBox(P.learning, key, L, D); restBox(P.learning, key, L, D);
       for (const k of Object.keys(P)) if (!P[k].childElementCount) P[k].appendChild(el('div', 'g-hint', 'Nothing here yet.'));
       R.body.replaceChildren(f);

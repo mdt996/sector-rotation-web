@@ -765,7 +765,7 @@ div.av-pick { max-width: none; }
 .t-labtab { flex: none; font: inherit; font-size: 14px; font-weight: 600; padding: 9px 11px 8px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--color-fg-muted); cursor: pointer; }
 .t-labtab[aria-selected="true"] { color: var(--color-fg); border-bottom-color: var(--color-fg); }
 .t-labpane > .t-h:first-child { margin-top: 10px; }
-.t-labwkv, .t-labwklive { margin-top: 6px; }
+.t-labwkv, .t-labwklive, .t-labshv, .t-labshlive { margin-top: 6px; }
 /* Labs: the lessons the lab learned by itself */
 .t-lablesson { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--color-bg-subtle, rgba(127,127,127,.08)); }
 .t-lablesson-t { font-size: 13px; font-weight: 600; }
