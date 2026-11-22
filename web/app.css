@@ -838,6 +838,7 @@ div.av-pick { max-width: none; }
 .t-tv { width: 100%; min-width: 0; position: relative; margin: 2px 0 4px; }
 .t-fullval { display: none; } .ch-slot .t-chhdr { flex: 1 1 100%; min-width: 0; } .ch-slot .t-fullval { display: block; font-size: 15px; margin: 0 0 2px; } .ch-slot .t-fullval span { font-size: 13px; font-weight: 600; } .ch-slot .t-chips { margin: 2px 0 4px; }
 .t-legend { display: flex; flex-wrap: wrap; gap: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-fg); min-height: 18px; margin: 2px 0 2px; }
+.t-leg-ref::before { content: ''; display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: middle; background: #f59e0b; border-radius: 1px; } .t-chip-ref::before { content: ''; display: inline-block; width: 10px; height: 2px; margin-right: 5px; vertical-align: middle; background: #f59e0b; border-radius: 1px; }
 .t-leg-t { color: var(--color-fg-muted); margin-right: 4px; } .t-leg-k { color: var(--color-fg-muted); } .t-legend .up { color: var(--av-up); } .t-legend .down { color: var(--av-down); }
 .t-tfs .t-chip { padding: 5px 9px; min-width: 0; }
 .t-since { color: var(--color-fg-muted); font-weight: 400 !important; }

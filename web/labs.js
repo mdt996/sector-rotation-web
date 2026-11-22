@@ -32,6 +32,10 @@
 
   const KEYS = ['gold', 'etoro', 'crypto'], VENUE = { gold: 'etoro', etoro: 'etoro', crypto: 'revx' };
   const TFS = [['1', '1m'], ['5', '5m'], ['15', '15m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']];
+  // the market each lab is measured against, as a line on its chart (Matteo, 22 Nov 2026: "offer the comparison, like you do for
+  // the etoro demo portfolio with the sp500, with the reference asset. For example the gold only portfolio can be compared with
+  // actual gold holding"): the same markets as the VM's "Against holding" figures (engine.js, versus), read as eToro's candles
+  const REF = { gold: { id: 18, name: 'Gold' }, etoro: { id: 27, name: 'S&P 500' }, crypto: { id: 100000, name: 'Bitcoin' } }, IV = { 1: 'OneMinute', 5: 'FiveMinutes', 15: 'FifteenMinutes', 60: 'OneHour', 240: 'FourHours', 1440: 'OneDay' };
   const SHORT = { orb: 'Opening range', revert: 'Back to average', squeeze: 'Squeeze', momo: 'Push', breakout: 'Breakout', dip: 'Dip', random: 'Random', noise: 'Out of range', low: '7-day low', tom: 'Turn of month' };
   // a rule on slower bars carries its speed in its name ("momo15": the push on 15-minute bars)
   const barName = (k) => (+k === 1440 ? 'daily' : +k >= 60 && +k % 60 === 0 ? `${+k / 60}-hour` : `${k}-minute`), barShort = (k) => (+k === 1440 ? 'daily' : +k >= 60 && +k % 60 === 0 ? `${+k / 60} h` : `${k} min`);
@@ -43,13 +47,13 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
-  try { const k = localStorage.getItem('sr.labSel'); if (KEYS.includes(k)) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; } catch (e) { /* the gold lab, 5-minute candles */ }
+  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: false, more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  try { const k = localStorage.getItem('sr.labSel'); if (KEYS.includes(k)) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = !!c.bench; } catch (e) { /* the gold lab, 5-minute candles */ }
   // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
   // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
   const PANES = [['now', 'Now'], ['trades', 'Trades'], ['history', 'History'], ['learning', 'Learning'], ['all', 'All']];
   try { const q = JSON.parse(localStorage.getItem('sr.labPane') || 'null'); if (PANES.some((x) => x[0] === q)) LB.pane = q; } catch (e) { /* the first part */ }
-  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style })); } catch (e) { /* not kept */ } };
+  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style, bench: LB.bench })); } catch (e) { /* not kept */ } };
 
   // ---- reading ----
   const read = async (name) => { try { return window.SRSync && window.SRSync.getFile ? await window.SRSync.getFile(name) : null; } catch (e) { return null; } };
@@ -144,16 +148,34 @@
     const Lw = window.LightweightCharts, { chart: ch, candles } = T.api.lw(), blue = cssVar('--sr-c1', '#2563eb');
     T.candles = candles;
     T.line = ch.addSeries(Lw.AreaSeries || Lw.LineSeries, { lineColor: blue, topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: blue, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, visible: false }, 0);
+    T.bench = ch.addSeries(Lw.LineSeries, { color: '#f59e0b', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: false }, 0);
     T.marks = !!(Lw.createSeriesMarkers && T.api.setMarks);   // the chart draws them, by its view and the room there is
     T.offBack = window.SRLive && SRLive.onBack ? SRLive.onBack(() => T.host.isConnected && T.api.back()) : null;
     T.destroy = () => { if (T.offBack) T.offBack(); try { T.api.destroy(); } catch (e) { /* gone */ } };
     return T;
+  }
+  // the reference market over the lab's own candles, set to the lab's value at the first candle they share (as the demo account's
+  // S&P 500 line): where the two part, the lab did something holding would not have. eToro's candles; kept a minute.
+  function bench(tv, key, bars, tf) {
+    const R = REF[key]; if (!tv.bench) return;
+    if (!LB.bench || !R || !IV[tf] || !window.SRLive || !SRLive.candles) { tv.bench.applyOptions({ visible: false }); tv.host.dataset.bench = '0'; tv.benchAt0 = null; return; }
+    const ms = tf * 60000, want = `${key}|${tf}|${bars[0].b}|${bars.length}`; tv.benchWant = want;
+    const paint = (rows) => {
+      if (tv.benchWant !== want || !tv.host.isConnected) return;
+      const px = new Map(); for (const r of rows || []) if (r && r.close > 0) px.set(Math.floor(r.t / ms) * ms, r.close);
+      let k = null; const out = []; for (const b of bars) { const p = px.get(b.b); if (!(p > 0)) continue; if (k == null) k = b.close / p; out.push({ time: b.time, value: +(p * k).toFixed(2) }); }
+      tv.bench.setData(out); tv.bench.applyOptions({ visible: out.length > 1 }); tv.host.dataset.bench = String(out.length); tv.benchData = out.length > 1 ? new Map(out.map((o) => [o.time, o.value])) : null; tv.benchName = R.name; say(tv);
+    };
+    if (tv.benchRows && tv.benchKey === key + '|' + tf && Date.now() - tv.benchAt < 60000) { paint(tv.benchRows); return; }
+    const n = Math.max(5, Math.min(1000, Math.ceil((bars[bars.length - 1].b - bars[0].b) / ms) + 3));
+    SRLive.candles(R.id, IV[tf], n, 1.5).then((rows) => { tv.benchRows = rows || []; tv.benchKey = key + '|' + tf; tv.benchAt = Date.now(); paint(tv.benchRows); }).catch(() => { /* the line waits for the next reading */ });
   }
   function say(T) {
     const lg = T.legend, k = T.hover || T.bars[T.bars.length - 1]; if (!lg || !k) return; const d = k.close - k.open, f = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     lg.textContent = ''; lg.appendChild(el('span', 't-leg-t', new Date(k.b).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
     for (const [n, v] of [['O', k.open], ['H', k.high], ['L', k.low], ['C', k.close]]) { lg.appendChild(el('span', 't-leg-k', n)); lg.appendChild(el('span', '', f(v))); }
     lg.appendChild(el('span', sign(d), `${usd2(d)} (${pc(k.open ? 100 * d / k.open : 0)})`));
+    const rv = LB.bench && T.benchData ? T.benchData.get(k.time) : null; if (rv != null) { const r = lg.appendChild(el('span', 't-leg-ref', `${T.benchName} ${f(rv)}`)); r.dataset.ref = '1'; }
   }
   // mode: 'full' (the header with the time frames, the candles, the trade marks), 'data' (candles and marks), 'tick' (the last candle only)
   function chart(B, key, V, mode) {
@@ -167,6 +189,8 @@
       const bar = H.appendChild(el('div', 't-chips t-tfs')), chip = (k, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (LB[k] === val ? ' on' : ''), label)); b.type = 'button'; b.dataset.k = k + ':' + val; b.addEventListener('click', () => { LB[k] = val; keep(); chart(B, key, valued(key), 'full'); }); };
       for (const [k, l] of TFS) chip('tf', k, l);
       bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
+      if (REF[key]) { bar.appendChild(el('span', 't-sep', '·')); const bb = bar.appendChild(el('button', 't-chip t-chip-ref' + (LB.bench ? ' on' : ''), 'vs ' + REF[key].name)); bb.type = 'button'; bb.dataset.k = 'bench'; bb.setAttribute('aria-pressed', String(!!LB.bench));
+        bb.title = `Holding ${REF[key].name.toLowerCase() === 'gold' ? 'gold' : REF[key].name} over the same candles, set to the lab's value at the first one they share`; bb.addEventListener('click', () => { LB.bench = !LB.bench; keep(); chart(B, key, valued(key), 'full'); }); }
       tv.legend = H.appendChild(el('div', 't-legend'));
     }
     if (tv.fullV) { tv.fullV.textContent = usd(V.equity); tv.fullS.textContent = ` ${usd2(V.total)} (${pc(100 * V.total / L.start)})`; tv.fullS.className = sign(V.total); }
@@ -197,7 +221,7 @@
       if (one) for (const m of mk) if (m.shape !== 'circle') m.text = '';
       mk.sort((a, b) => a.time - b.time); tv.api.setMarks(mk.slice(-90)); tv.host.dataset.marks = String(mk.length);
     }
-    tv.host.dataset.bars = String(bars.length); tv.host.dataset.tf = LB.tf; say(tv);
+    tv.host.dataset.bars = String(bars.length); tv.host.dataset.tf = LB.tf; if (mode !== 'tick') bench(tv, key, bars, tf); say(tv);
     const lo = Math.min(...bars.map((k) => k.low)), hi = Math.max(...bars.map((k) => k.high)), first = bars[0];
     tv.note.textContent = `Since ${when(first.b)}: low ${usd(lo)}, high ${usd(hi)}. The same chart as the markets: drag, pinch or scroll to zoom, draw and measure, the square for the full view. ${tf <= 15 ? 'Arrows: a trade opened; dots: one closed, with its result.' : 'Dots: the trades closed in that candle, with their result.'} Dashed line: the $${L.start.toLocaleString('en-US')} it started with.${tf < 60 ? ' Minutes with nothing open are not drawn.' : ''}`;
   }

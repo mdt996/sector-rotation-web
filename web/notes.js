@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 128, "text": "Each company's page now draws its financials (sales to cash, cash against debt), a health reading (healthy now, projected healthy or not) and the 1-year return analysts expect. Shares without earnings (Rigetti) get a model value from what they own and sell. Labs: proof and holding as pictures."};
+window.SR_NOTES = {"build": 129, "text": "Labs: a new button on each lab's chart draws its market beside it (vs Gold, vs S&P 500, vs Bitcoin). A company's page draws its financials, a health reading and the 1-year return analysts expect; shares without earnings get a model value from what they own and sell."};
