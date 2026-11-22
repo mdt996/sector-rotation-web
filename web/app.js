@@ -93,6 +93,14 @@
     showUpdateInfo(build > 0 ? `updated to build ${build}` : message);
     if (build > 0) offerReload(build);
   };
+  // The bars at the bottom (a new build to reload, the Mac app updating itself, what changed) share one stack: each has its own
+  // line. Until build 123 each was fixed at the same place, so a second one covered the first (Matteo, 22 Nov 2026, on the Mac:
+  // "I can see the reload button, after an update, hidden on the right": the update's failure lay over the Reload bar).
+  function barStack() {
+    let st = document.getElementById('bar-stack');
+    if (!st) { st = document.createElement('div'); st.id = 'bar-stack'; st.className = 'bar-stack'; document.body.appendChild(st); }
+    return st;
+  }
   // a new build arrived while the app is open: switch at once during start-up, otherwise offer it
   function offerReload(build) {
     if (!N || !N.reloadPage) return;
@@ -102,26 +110,33 @@
       bar = document.createElement('div'); bar.id = 'update-bar'; bar.className = 'update-bar';
       bar.innerHTML = '<span></span><button class="btn" type="button">Reload</button>';
       bar.querySelector('button').addEventListener('click', () => N.reloadPage());
-      document.body.appendChild(bar);
+      barStack().appendChild(bar);
     }
     bar.querySelector('span').textContent = `The app was updated (build ${build}).`;
   }
   window.appUpdated = (build) => offerReload(build);
   // the Mac app updating itself: it builds the new version in the background, then offers the restart
+  let nativeFailed = 0;   // the version whose failed update was already said, once a session
   window.appNativeUpdate = (state, code, msg) => {
+    if (state !== 'building' && state !== 'ready') { if (nativeFailed === code) { showUpdateInfo(nativeFailText(msg)); return; } nativeFailed = code; }
     let bar = document.getElementById('native-bar');
     if (!bar) {
       bar = document.createElement('div'); bar.id = 'native-bar'; bar.className = 'update-bar';
       bar.innerHTML = '<span></span><button class="btn" type="button" hidden>Restart</button>';
       bar.querySelector('button').addEventListener('click', () => { if (N && N.relaunchApp) N.relaunchApp(); });
-      document.body.appendChild(bar);
+      barStack().appendChild(bar);
     }
     const t = bar.querySelector('span'), b = bar.querySelector('button');
     if (state === 'building') { t.textContent = `Updating the app to 1.0.${code} in the background…`; b.hidden = true; }
     else if (state === 'ready') { t.textContent = `App 1.0.${code} is ready.`; b.hidden = false; }
-    else { t.textContent = `The app could not update itself${msg ? ` (${msg})` : ''}. It tries again later.`; b.hidden = true; setTimeout(() => bar.remove(), 15000); }
+    else { t.textContent = nativeFailText(msg); b.hidden = true; setTimeout(() => bar.remove(), 20000); }
     showUpdateInfo(t.textContent);
   };
+  // why the Mac app could not build its new version, in plain words; the screens themselves are up to date either way
+  function nativeFailText(msg) {
+    if (/command not found: gh|gh tool was not found/.test(msg || '')) return 'The Mac app could not update itself: it did not find GitHub\'s gh tool. The screens are up to date. To update the app once by hand: in your home folder, sr-mac, mac, double-click "Update Mac app".';
+    return `The Mac app could not update itself${msg ? ` (${msg})` : ''}. The screens are up to date; it tries again later.`;
+  }
   let shownAt = 0, lastCheck = 0; // when the page was last opened or brought back; when updates were last checked
   // after an update, say once what changed (each build of the screens ships its own notes)
   function whatsNew() {
@@ -134,7 +149,7 @@
     bar.innerHTML = '<span></span><button class="btn" type="button">OK</button>';
     bar.querySelector('span').textContent = `Updated (build ${n.build}): ${n.text}`;
     bar.querySelector('button').addEventListener('click', () => bar.remove());
-    document.body.appendChild(bar);
+    barStack().appendChild(bar);
   }
   let filledHoldings = null;   // the holdings as the sheet showed them when it opened
   function openSettings(focus) {
