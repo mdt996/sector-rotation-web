@@ -420,15 +420,16 @@
       // (Matteo, 22 Nov 2026: "Fair value does not appear on charts"; since build 121 no view had the layer at all).
       if (ind.fair && fair) {
         const Hc = sc.bitmapSize.height / r, y1 = yOf(fair.bull), y2 = yOf(fair.bear);
-        if (y1 != null && y2 != null) { ctx.fillStyle = 'rgba(41,98,255,0.07)'; ctx.fillRect(0, Math.round(y1 * r), W, Math.round((y2 - y1) * r)); }
+        if (y1 != null && y2 != null) { ctx.fillStyle = fair.model ? 'rgba(41,98,255,0.04)' : 'rgba(41,98,255,0.07)'; ctx.fillRect(0, Math.round(y1 * r), W, Math.round((y2 - y1) * r)); }
         ctx.strokeStyle = 'rgba(41,98,255,0.75)'; ctx.lineWidth = Math.max(1, r); ctx.setLineDash([6 * hr, 4 * hr]);
         const seen = [];
-        for (const [p, t, k] of [[fair.base, 'Fair value, base', 'base'], [fair.bear, 'Fair value, bear', 'bear'], [fair.bull, 'Fair value, bull', 'bull']]) {
+        const FV = fair.model ? 'Model value, ' : 'Fair value, ', FS = fair.model ? 'Model, ' : 'Fair, ';   // a model value is never written as a study's
+        for (const [p, t, k] of [[fair.base, FV + 'base', 'base'], [fair.bear, FV + 'bear', 'bear'], [fair.bull, FV + 'bull', 'bull']]) {
           const y = yOf(p); if (y == null) continue;
           const off = y < 2 ? '↑' : y > Hc - 2 ? '↓' : '', at = off === '↑' ? 9 : off === '↓' ? Hc - 9 : y - 8;
           if (!off) { ctx.beginPath(); ctx.moveTo(0, Math.round(y * r) + 0.5); ctx.lineTo(W, Math.round(y * r) + 0.5); ctx.stroke(); }
           seen.push({ k, p, off });
-          ask({ text: `${t} ${fmtP(p)}${off ? ' ' + off : ''}`, short: `${t.replace('Fair value, ', 'Fair, ')} ${fmtP(p)}${off ? ' ' + off : ''}`, tiny: `${k} ${fmtP(p)}${off ? ' ' + off : ''}`, x: 6, y: at, color: 'rgba(41,98,255,0.95)', bg: true, narrowShort: true, pri: k === 'base' || off ? 64 : 32, must: k === 'base' || !!off });   // the base, and a value off the chart, are always written
+          ask({ text: `${t} ${fmtP(p)}${off ? ' ' + off : ''}`, short: `${FS}${k} ${fmtP(p)}${off ? ' ' + off : ''}`, tiny: `${fair.model ? 'model ' : ''}${k} ${fmtP(p)}${off ? ' ' + off : ''}`, x: 6, y: at, color: 'rgba(41,98,255,0.95)', bg: true, narrowShort: true, pri: k === 'base' || off ? 64 : 32, must: k === 'base' || !!off });   // the base, and a value off the chart, are always written
         }
         ctx.setLineDash([]);
         root.__fair = seen;   // for the tests

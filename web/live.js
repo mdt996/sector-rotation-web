@@ -448,8 +448,16 @@
     const aboutBox = side.insertBefore(el('section', 'av-about'), taBox); aboutBox.hidden = true;
     setTimeout(() => { if (dead) return; posSoon(); const tPos = setInterval(() => { if (dead) clearInterval(tPos); else posSoon(); }, 10000); }, 600);
     setTimeout(() => { if (dead) return; try { ch.setMine(myTrades(inst)); } catch (err) { if (window.console) console.warn('my trades', err); } }, 0);   // once the chart exists
-    if (window.SRAbout && window.SRAbout.facts) window.SRAbout.facts(inst.id).then((f) => {   // the next results date, in the empty days after the last candle
-      if (dead || !f || !f.nextearningdate) return; const d = String(f.nextearningdate).slice(0, 10), t = Date.parse(d + 'T13:30:00Z') / 1000; if (!(t * 1000 > Date.now() - 864e5)) return;
+    if (window.SRAbout && window.SRAbout.facts) window.SRAbout.facts(inst.id).then((f) => {
+      if (dead || !f) return;
+      // a share with no study made by hand: the model value, on the chart and beside it
+      if (!(window.SR_FAIR && window.SR_FAIR[inst.symbol]) && window.SRAbout.valuation) {
+        try { modelFair = window.SRAbout.valuation(f, window.SRAbout.sectorPE(f.umbrellasector)); } catch (e) { modelFair = null; }
+        if (!modelFair && /^stocks?$/i.test(String(f.internalassetclassname || ''))) fairWhy = `No fair value for ${inst.symbol}: the model needs earnings over the last twelve months and two price/earnings yardsticks, and eToro's figures do not give them here.`;
+        try { ch.setFair(fairOf()); facts(); } catch (e) { /* the page was closed meanwhile */ }
+      }
+      // the next results date, in the empty days after the last candle
+      if (!f.nextearningdate) return; const d = String(f.nextearningdate).slice(0, 10), t = Date.parse(d + 'T13:30:00Z') / 1000; if (!(t * 1000 > Date.now() - 864e5)) return;
       const lbl = new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); ch.setEvents([{ t, label: `Results ${lbl}`, short: `Results ${lbl}` }]);
     }).catch(() => {});   // what the asset is, and eToro's facts about it (about.js)
     if (window.SRAbout && window.SRAbout.render) { try { window.SRAbout.render(aboutBox, inst); } catch (e) { aboutBox.hidden = true; } }
@@ -462,6 +470,7 @@
     const howText = side.appendChild(el('p', 'av-note', 'Weekly RSI above 70 = overheated, for the US sector funds only: over 1999–2026 the 3 months after such a week averaged +0.6% against +2.5% otherwise, and it also held on the years never used to build it (1999–2010). A reason not to add; trimming is optional. It did not hold for semiconductors, the Nasdaq, the S&P 500 or single stocks, so it is not flagged there. The 2-year range bands only describe where the price sits against its 200-day average over the last 2 years; they did not predict returns. Fundamental fair value (blue, dashed): a bear / base / bull valuation from cash flows, earnings or assets, refreshed by hand.'));
     howText.hidden = true;
     const fvText = side.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
+    const sFvK = sFv.parentElement.querySelector('dt'); let fairWhy = '';   // why there is no value, when there is none
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
 
     // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
@@ -674,7 +683,10 @@
       for (const r of rows) { const time = Math.floor(r.t / 1000); if (isFinite(time) && ok(r.open) && ok(r.high) && ok(r.low) && ok(r.close)) byT.set(time, { time, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume || 0 }); }
       return [...byT.values()].sort((a, b) => a.time - b.time);   // a candle with a missing value, a repeated time or a wrong order would leave the chart empty
     }
-    const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || null;
+    // the fair value: the study made by hand when the asset has one; else, for a share with earnings, the model value from
+    // eToro's figures (about.js, valuation), which arrives a moment after the page
+    let modelFair = null;
+    const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || modelFair || null;
     // support / resistance from the last year's turning points (daily highs and lows that are the extreme of +/-5 days),
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
@@ -899,12 +911,13 @@
       sFair.textContent = L ? `${fmtP(L.fair[0])} – ${fmtP(L.fair[1])}` : '—';
       sTp.textContent = L ? `${fmtP(L.tp[0])} – ${fmtP(L.tp[1])}` : '—';
       const fv = fairOf();
+      sFvK.textContent = fv && fv.model ? 'Model value: bear · base · bull' : 'Fair value: bear · base · bull';
       sFv.textContent = fv ? `${fmtP(fv.bear)} · ${fmtP(fv.base)} · ${fmtP(fv.bull)}` : 'Not valued yet';
       sFv.parentElement.title = fv && fv.method ? fv.method : '';
       const vs = fv && now ? now / fv.base - 1 : null;
       sVs.textContent = vs == null ? '—' : `${Math.abs(vs) < 0.005 ? 'at' : d3.format('.0%')(Math.abs(vs)) + (vs > 0 ? ' above' : ' below')} · ${fv.confidence || 'low'} confidence`;
       sVs.parentElement.hidden = !fv; sFv.parentElement.hidden = !fv;
-      fvText.textContent = fv ? `Fair value for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}.` : '';
+      fvText.textContent = fv ? `${fv.model ? 'Model value' : 'Fair value'} for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}.` : fairWhy;
     }
     // eToro lists some European lines (e.g. SEC0.DE) without serving any prices: say so, and offer the US twin
     function twinOf() {

@@ -62,7 +62,7 @@
   };
 
   // ---- eToro's facts (its search interface, one read per asset, kept 6 hours) ----
-  const FIELDS = 'instrumentId,displayname,internalSymbolFull,internalExchangeName,internalAssetClassName,industry,sector,marketCapInUSD,peRatio-TTM,eps-TTM,dividendYieldDaily-TTM,priceToSales-TTM,tipranksConsensus,tipranksTargetPrice,nextEarningDate,isin,buyHoldingPct,traders7DayChange,weeklyPriceChange,monthlyPriceChange,oneYearPriceChange,currYearPriceChange,longBusinessDescription-TTM,shortBio-en-gb';
+  const FIELDS = 'instrumentId,displayname,internalSymbolFull,internalExchangeName,internalAssetClassName,industry,sector,marketCapInUSD,peRatio-TTM,eps-TTM,dividendYieldDaily-TTM,priceToSales-TTM,tipranksConsensus,tipranksTargetPrice,nextEarningDate,isin,umbrellaSector,internalClosingPrice,annualEPSValue,annualEPSLow,annualEPSHigh,annualEPSEstimates,fiscalPeriod,5YearAveragePERatio-TTM,3YearAnnualRevenueGrowthRate-TTM,5YearAnnualRevenueGrowthRate-TTM,buyHoldingPct,traders7DayChange,weeklyPriceChange,monthlyPriceChange,oneYearPriceChange,currYearPriceChange,longBusinessDescription-TTM,shortBio-en-gb';
   const facts = new Map();
   async function factsOf(id) {
     const c = facts.get(id); if (c && Date.now() - c.at < 6 * 36e5) return c.f;
@@ -72,6 +72,44 @@
     let it = null; try { const j = JSON.parse(r.body); it = (j.items || []).find((x) => +x.instrumentId === id) || null; } catch (e) { it = null; }
     const f = {}; if (it) for (const [k, v] of Object.entries(it)) f[k.toLowerCase()] = v;   // eToro answers some names in another case (epS-TTM)
     facts.set(id, { at: Date.now(), f: it ? f : null }); return it ? f : null;
+  }
+  // ---- a model value for any share with earnings (Matteo, 22 Nov 2026: "All assets need to have fair value"; asked which
+  // coverage, he chose "Model for all stocks": an automatic estimate from earnings, growth and sector multiples, marked low
+  // confidence; the twelve studies made by hand stay and come first). From eToro's figures alone, read when the asset opens:
+  //   earnings   analysts' average for the fiscal year in progress when at least three give one, else the last twelve months;
+  //   multiple   the middle of three price/earnings ratios: the share's own 5-year average (kept between 6 and 45), the
+  //              median of its sector among the shares of the nightly scan, and one from growth (8.5 + 1.5 x the yearly growth
+  //              of its sales over three and five years, growth kept between 0 and 12%: Graham's rule, made more careful);
+  //   bear/bull  the lowest multiple on the analysts' lowest earnings, the highest on their highest, within half and twice
+  //              the base.
+  // The value does not follow the price: it is the price eToro's P/E was computed on, divided by that P/E, times the
+  // multiple. No earnings, fewer than two multiples, or a result under a quarter or over four times the price: no value.
+  // A rough yardstick: against three of the studies made by hand it gave the same base once (MRVL) and was 60 to 70% away
+  // twice (AG above, CCJ below). It is never shown without "model" and "low confidence".
+  function valuation(f, sectorPE) {
+    if (!f) return null;
+    const n = (k) => { const v = +f[k]; return f[k] != null && f[k] !== '' && Number.isFinite(v) ? v : null; };
+    const px = n('internalclosingprice'), pe = n('peratio-ttm'), e0 = n('eps-ttm'), e1 = n('annualepsvalue'), lo = n('annualepslow'), hi = n('annualepshigh'), cnt = n('annualepsestimates') || 0;
+    if (!/^stocks?$/i.test(String(f.internalassetclassname || '')) || !(px > 0) || !(pe > 0) || !(e0 > 0)) return null;
+    const clamp = (x, a, b) => Math.max(a, Math.min(b, x)), med = (a) => { const q = a.slice().sort((x, y) => x - y), h = q.length >> 1; return q.length % 2 ? q[h] : (q[h - 1] + q[h]) / 2; };
+    const fwd = cnt >= 3 && e1 > 0, k1 = fwd ? clamp(e1 / e0, 0.5, 2) : 1, kLo = fwd && lo > 0 ? clamp(lo / e0, 0.4, k1) : k1 * 0.85, kHi = fwd && hi > 0 ? clamp(hi / e0, k1, 2.5) : k1 * 1.15;
+    const g = [n('3yearannualrevenuegrowthrate-ttm'), n('5yearannualrevenuegrowthrate-ttm')].filter((x) => x != null), growth = g.length ? clamp(g.reduce((a, b) => a + b, 0) / g.length, 0, 12) : null;
+    const own = n('5yearaverageperatio-ttm'), M = {};
+    if (own > 4 && own < 100) M.own = clamp(own, 6, 45);
+    if (sectorPE > 4 && sectorPE < 60) M.sector = sectorPE;
+    if (growth != null) M.growth = 8.5 + 1.5 * growth;
+    const ms = Object.values(M); if (ms.length < 2) return null;
+    const mid = med(ms), base = px * (mid / pe) * k1; if (!(base / px > 0.25 && base / px < 4)) return null;
+    const bear = clamp(px * (Math.min(...ms) / pe) * kLo, 0.5 * base, 0.95 * base), bull = clamp(px * (Math.max(...ms) / pe) * kHi, 1.05 * base, 2 * base), r1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
+    const parts = [M.own ? `its own 5-year average ${r1(M.own)}` : null, M.sector ? `its sector's median ${r1(M.sector)}` : null, M.growth ? `${r1(M.growth)} from its sales growth` : null].filter(Boolean);
+    const method = `${fwd ? `analysts' earnings for ${f.fiscalperiod ? String(f.fiscalperiod).replace(/^(\d{4})FY$/, 'fiscal $1') : 'the year in progress'} (${cnt} estimates)` : 'the earnings of the last twelve months'} times a price/earnings ratio of ${r1(mid)}, the middle of ${parts.join(', ')}. A rough yardstick from eToro's figures, not a study`;
+    return { model: true, bear, base, bull, confidence: 'low', as_of: new Date().toISOString().slice(0, 10), method, mult: M, mid, fwd, n: cnt };
+  }
+  // the median price/earnings ratio of a sector, among the shares of the nightly scan that have earnings (at least 15 of them)
+  function sectorPE(sector) {
+    if (!sector || !window.SRScreen || !window.SRScreen.all) return null;
+    let v = []; try { v = window.SRScreen.all().filter((r) => r.cls === 'Stocks' && r.sec === sector && r.pe > 3 && r.pe < 80).map((r) => r.pe).sort((a, b) => a - b); } catch (e) { v = []; }
+    return v.length >= 15 ? v[v.length >> 1] : null;
   }
   // ---- the description of a share (Wikipedia, gathered by the VM), kept 14 days on the device ----
   const shards = new Map();
@@ -205,5 +243,5 @@
   document.addEventListener('keydown', (e) => { if (e.key !== 'Enter' || !e.target || !e.target.closest) return; const a = e.target.closest('.sr-asset'); if (a) { e.preventDefault(); go(a); } }, true);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 
-  window.SRAbout = { facts: factsOf, render, text: (id) => TEXT[id] || null, linked: () => (K ? [...K.keys()] : []) };
+  window.SRAbout = { facts: factsOf, valuation, sectorPE, render, text: (id) => TEXT[id] || null, linked: () => (K ? [...K.keys()] : []) };
 })();
