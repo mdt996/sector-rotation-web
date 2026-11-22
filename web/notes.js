@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 130, "text": "Markets ranks every company on profit, cash flow, debt, growth and outlook each night: the healthiest and least healthy, and each company's place on its page. Labs: make or delete your own paper portfolios; each lab's chart shows its market. A phone's full-screen chart has more room."};
+window.SR_NOTES = {"build": 131, "text": "Fair values reworked: the middle of three yardsticks (the company's own usual P/E, its sector's, analysts' target), so fewer odd values. MSTR's moves with bitcoin. New paper portfolios: silver, platinum, natural gas and more currency pairs on eToro, and a starting amount from $500 to $100,000."};

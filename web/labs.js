@@ -13,6 +13,7 @@
   'use strict';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const usd = (x) => (x < 0 ? '−$' : '$') + Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usd0 = (x) => '$' + Math.round(x).toLocaleString('en-US');
   const usd2 = (x) => (x < 0 ? '−$' : '+$') + Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const pc = (x, d) => (x < 0 ? '−' : '+') + Math.abs(x).toFixed(d == null ? 2 : d) + '%';
   const px = (x) => (!(x > 0) ? '–' : x >= 1000 ? x.toLocaleString('en-US', { maximumFractionDigits: 2 }) : x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3) : x >= 0.01 ? x.toFixed(5) : x.toPrecision(4));
@@ -36,9 +37,14 @@
   const keysOf = () => BASE.concat(LB.sum && Array.isArray(LB.sum.labs) ? LB.sum.labs.filter((l) => l && l.custom && /^u[a-z0-9]{3,10}$/.test(l.key)).map((l) => l.key) : []);
   const venueOf = (k) => VENUE0[k] || ((LB.sum && LB.sum.labs.find((x) => x.key === k)) || {}).venue || 'etoro';
   // the markets a portfolio may hold: those the labs already follow (lab/engine.js ETORO and REVX)
-  const MARKETS = { etoro: [['18', 'Gold'], ['27', 'S&P 500'], ['28', 'Nasdaq 100'], ['32', 'DAX'], ['1', 'EUR/USD'], ['5', 'USD/JPY'], ['17', 'Oil']],
+  // eToro, grouped as the form shows them, with the most leverage eToro gives a retail account in Europe (Matteo, 22 Nov: "add more
+  // options for currencies and commodities (etoro leveraged)")
+  const GROUPS = { etoro: [['Indices', 'up to 20×', [['27', 'S&P 500'], ['28', 'Nasdaq 100'], ['32', 'DAX']]],
+    ['Commodities', 'gold 20×, the others 10×', [['18', 'Gold'], ['19', 'Silver'], ['40', 'Platinum'], ['17', 'Oil'], ['22', 'Natural gas']]],
+    ['Currencies', 'up to 30×', [['1', 'EUR/USD'], ['2', 'GBP/USD'], ['5', 'USD/JPY'], ['4', 'USD/CAD'], ['6', 'USD/CHF'], ['7', 'AUD/USD']]]] };
+  const MARKETS = { etoro: GROUPS.etoro.flatMap((g) => g[2]),
     revx: ['BTC', 'ETH', 'XRP', 'SOL', 'PEPE', 'HYPE', 'NEAR', 'LINK', 'DOGE', 'AAVE', 'JUP', 'ADA', 'XLM', 'AVAX', 'HBAR', 'LTC'].map((c) => [c + '-USD', c]) };
-  const CUSTOM_MAX = 3;
+  const CUSTOM_MAX = 3, START = [500, 100000], STARTS = [1000, 2000, 5000, 10000, 25000];   // the VM keeps a start within START (lab/engine.js)
   const TFS = [['1', '1m'], ['5', '5m'], ['15', '15m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']];
   // the market each lab is measured against, as a line on its chart (Matteo, 22 Nov 2026: "offer the comparison, like you do for
   // the etoro demo portfolio with the sp500, with the reference asset. For example the gold only portfolio can be compared with
@@ -284,10 +290,10 @@
       if (L.custom && LB.cust && !custList().some((c) => c.key === key)) d.appendChild(el('span', 't-labword t-labgone', 'Stopping'));   // deleted here, still running until the VM restarts it
     }
     if (!(window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite())) return;
-    for (const c of custList()) if (!sumLab(c.key)) { const w = R.cards.appendChild(el('div', 'g-stat t-labcard t-labwait')); w.dataset.lab = c.key; w.appendChild(el('span', 'g-stat-k', `${c.name} · ${c.venue === 'revx' ? 'Revolut X' : 'eToro'}`)); w.appendChild(el('span', 'g-stat-v', '$2,000.00')); w.appendChild(el('span', 'g-stat-s', 'Starting on the VM…')); }
+    for (const c of custList()) if (!sumLab(c.key)) { const w = R.cards.appendChild(el('div', 'g-stat t-labcard t-labwait')); w.dataset.lab = c.key; w.appendChild(el('span', 'g-stat-k', `${c.name} · ${c.venue === 'revx' ? 'Revolut X' : 'eToro'}`)); w.appendChild(el('span', 'g-stat-v', usd(c.start > 0 ? c.start : 2000))); w.appendChild(el('span', 'g-stat-s', 'Starting on the VM…')); }
     const full = custList().length >= CUSTOM_MAX, nb = R.cards.appendChild(el('button', 'g-stat t-labnew' + (LB.form ? ' on' : ''))); nb.type = 'button'; nb.disabled = full && !LB.form;
     nb.appendChild(el('span', 't-labnew-p', '+')); nb.appendChild(el('span', '', full ? `Up to ${CUSTOM_MAX} portfolios of your own` : 'New paper portfolio'));
-    nb.addEventListener('click', () => { LB.form = LB.form ? null : { name: '', venue: 'etoro', assets: [], versus: '', msg: '' }; drawForm(R); cards(R); });
+    nb.addEventListener('click', () => { LB.form = LB.form ? null : { name: '', venue: 'etoro', assets: [], versus: '', start: 2000, msg: '' }; drawForm(R); cards(R); });
   }
   const custList = () => (LB.cust && Array.isArray(LB.cust.labs) ? LB.cust.labs.filter((c) => c && /^u[a-z0-9]{3,10}$/.test(c.key)) : []);
   // the form of a new portfolio: a name, eToro or Revolut X, its markets, the market it is set against. Drawn only when something in it
@@ -301,22 +307,34 @@
     const vs = vrow.appendChild(el('div', 't-chips t-labform-v'));
     for (const [v, t] of [['etoro', 'eToro: leveraged, long and short'], ['revx', 'Revolut X: crypto, buy only']]) { const b = vs.appendChild(el('button', 't-chip' + (F.venue === v ? ' on' : ''), t)); b.type = 'button'; b.setAttribute('aria-pressed', String(F.venue === v)); b.addEventListener('click', () => { if (F.venue === v) return; F.venue = v; F.assets = []; F.versus = ''; drawForm(R); }); }
     const mrow = B.appendChild(el('div', 't-labform-f')); mrow.appendChild(el('span', '', 'Markets'));
-    const ms = mrow.appendChild(el('div', 't-chips t-labform-m'));
-    for (const [id, t] of MARKETS[F.venue]) { const on = F.assets.includes(id), b = ms.appendChild(el('button', 't-chip' + (on ? ' on' : ''), t)); b.type = 'button'; b.dataset.id = id; b.setAttribute('aria-pressed', String(on));
-      b.addEventListener('click', () => { F.assets = on ? F.assets.filter((x) => x !== id) : F.assets.concat(id); if (!F.assets.includes(F.versus)) F.versus = F.assets[0] || ''; drawForm(R); }); }
+    const mbox = mrow.appendChild(el('div', 't-labform-mg'));
+    for (const [g, lev, list] of GROUPS[F.venue] || [['', '', MARKETS[F.venue]]]) {
+      if (g) { const h = mbox.appendChild(el('div', 't-labform-g')); h.appendChild(el('b', '', g)); h.appendChild(el('span', 'g-hint', lev)); }
+      const ms = mbox.appendChild(el('div', 't-chips t-labform-m'));
+      for (const [id, t] of list) { const on = F.assets.includes(id), b = ms.appendChild(el('button', 't-chip' + (on ? ' on' : ''), t)); b.type = 'button'; b.dataset.id = id; b.setAttribute('aria-pressed', String(on));
+        b.addEventListener('click', () => { F.assets = on ? F.assets.filter((x) => x !== id) : F.assets.concat(id); if (!F.assets.includes(F.versus)) F.versus = F.assets[0] || ''; drawForm(R); }); }
+    }
     if (F.assets.length) {
       const crow = B.appendChild(el('label', 't-labform-f')); crow.appendChild(el('span', '', 'Compare with')); const sel = crow.appendChild(el('select', 'sc-sel'));
       for (const id of F.assets) sel.appendChild(new Option('Holding ' + MARKETS[F.venue].find((m) => m[0] === id)[1], id)); sel.value = F.versus || F.assets[0]; sel.addEventListener('change', () => { F.versus = sel.value; });
     }
-    B.appendChild(el('p', 'g-hint', `$2,000 of paper money, with the rules, costs and limits of the ${F.venue === 'revx' ? 'Revolut X' : 'eToro'} lab. Paper only: no order is ever sent. It starts on the VM in about 10 to 20 minutes.`));
+    const srow = B.appendChild(el('div', 't-labform-f')); srow.appendChild(el('span', '', 'Start with'));
+    const sbox = srow.appendChild(el('div', 't-labform-s')), sc = sbox.appendChild(el('div', 't-chips'));
+    const amt = sbox.appendChild(el('label', 't-labform-amt')); amt.appendChild(el('span', '', '$')); const sin = amt.appendChild(el('input', ''));
+    sin.type = 'number'; sin.inputMode = 'numeric'; sin.min = String(START[0]); sin.max = String(START[1]); sin.step = '100'; sin.value = String(F.start); sin.setAttribute('aria-label', 'Starting paper money, in dollars');
+    const okStart = (v) => Number.isFinite(v) && v >= START[0] && v <= START[1];
+    for (const v of STARTS) { const b = sc.appendChild(el('button', 't-chip' + (F.start === v ? ' on' : ''), usd0(v))); b.type = 'button'; b.setAttribute('aria-pressed', String(F.start === v)); b.addEventListener('click', () => { F.start = v; drawForm(R); }); }
+    sin.addEventListener('input', () => { const v = Math.round(+sin.value); F.start = okStart(v) ? v : NaN; for (const c of sc.children) { const on = c.textContent === usd0(F.start); c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); } go.disabled = !!F.busy || !F.assets.length || !okStart(F.start); amt.classList.toggle('bad', !okStart(F.start)); });
+    amt.classList.toggle('bad', !okStart(F.start));
+    B.appendChild(el('p', 'g-hint', `Between ${usd0(START[0])} and ${usd0(START[1])}. The ${F.venue === 'revx' ? 'Revolut X' : 'eToro'} lab's rules and costs. Paper only: no order is ever sent. Starts within 20 min.`));
     const act = B.appendChild(el('div', 't-labform-a')), go = act.appendChild(el('button', 'btn btn-primary', F.busy ? 'Saving…' : 'Create')), no = act.appendChild(el('button', 'btn', 'Cancel'));
-    go.type = no.type = 'button'; go.disabled = !!F.busy || !F.assets.length; no.addEventListener('click', () => { LB.form = null; drawForm(R); cards(R); });
+    go.type = no.type = 'button'; go.disabled = !!F.busy || !F.assets.length || !okStart(F.start); no.addEventListener('click', () => { LB.form = null; drawForm(R); cards(R); });
     if (F.msg) act.appendChild(el('span', 'g-hint t-labform-msg', F.msg));
     go.addEventListener('click', async () => {
       F.busy = true; F.msg = ''; drawForm(R);
       const fresh = await read('lab/custom.json'), list = fresh && Array.isArray(fresh.labs) ? fresh.labs : custList();   // another device may have changed it
       if (list.length >= CUSTOM_MAX) { F.busy = false; F.msg = `There are already ${CUSTOM_MAX}: delete one first.`; drawForm(R); return; }
-      const item = { key: 'u' + Date.now().toString(36).slice(-7), name: (F.name.trim() || (F.venue === 'revx' ? 'My crypto' : 'My eToro')).slice(0, 32), venue: F.venue, assets: F.assets.slice(), versus: F.versus || F.assets[0], at: Date.now() };
+      const item = { key: 'u' + Date.now().toString(36).slice(-7), name: (F.name.trim() || (F.venue === 'revx' ? 'My crypto' : 'My eToro')).slice(0, 32), venue: F.venue, assets: F.assets.slice(), versus: F.versus || F.assets[0], start: F.start, at: Date.now() };
       const doc = { v: 1, about: 'Paper portfolios made in the app; lab/engine.js setCustom checks every field. Paper only.', labs: list.concat(item) };
       const r = await window.SRSync.putFile('lab/custom.json', doc, 'Paper portfolio added in the app: ' + item.name);
       if (r.ok) { LB.cust = doc; LB.form = null; drawForm(R); cards(R); } else { F.busy = false; F.msg = 'Not saved: ' + r.why; drawForm(R); }
@@ -391,7 +409,7 @@
       W.open = wordsOpen.get(L.key) === true; W.addEventListener('toggle', () => wordsOpen.set(L.key, W.open));
     }
     if (L.custom) {
-      const C = T.appendChild(el('div', 't-labmine')); C.appendChild(el('span', 'g-hint', `Made in the app · ${(L.assets || []).join(', ')} · set against ${L.versusName || '—'}`));
+      const C = T.appendChild(el('div', 't-labmine')); C.appendChild(el('span', 'g-hint', `Made in the app · ${usd0(L.start)} at the start · ${(L.assets || []).join(', ')} · set against ${L.versusName || '—'}`));
       if (window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite() && custList().some((c) => c.key === L.key)) {
         const sure = LB.del && LB.del.key === L.key, b = C.appendChild(el('button', 'btn t-labdel' + (sure ? ' is-sure' : ''), LB.del && LB.del.busy ? 'Deleting…' : sure ? 'Tap again to delete: its record goes' : 'Delete this portfolio')); b.type = 'button'; b.disabled = !!(LB.del && LB.del.busy);
         b.addEventListener('click', () => remove(L.key));

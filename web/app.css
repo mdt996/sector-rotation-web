@@ -800,7 +800,10 @@ div.av-pick { max-width: none; }
 .t-labform { margin: 10px 0 4px; padding: 12px; border: 1px solid var(--color-border-line); border-radius: 14px; background: var(--color-panel); display: grid; gap: 10px; } .t-labform[hidden] { display: none; }
 .t-labform-h { font-size: 15px; } .t-labform-f { display: grid; gap: 5px; font-size: 13px; } .t-labform-f > span { font-size: 12px; font-weight: 600; color: var(--color-fg-muted); }
 .t-labform-f input { font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--color-border-line); border-radius: 9px; background: var(--color-panel); color: var(--color-fg); }
-.t-labform .t-chips { display: flex; flex-wrap: wrap; gap: 6px; } .t-labform-a { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .t-labform-msg { color: var(--color-bad); }
+.t-labform .t-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.t-labform-mg { display: grid; gap: 4px; } .t-labform-mg .t-chips { margin: 0 0 4px; } .t-labform-g { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; margin-top: 2px; } .t-labform-g .g-hint { font-size: 11.5px; }
+.t-labform-s { display: grid; gap: 6px; } .t-labform-s .t-chips { margin: 0; } .t-labform-amt { display: flex; align-items: center; gap: 4px; max-width: 170px; } .t-labform-amt > span { font-weight: 600; color: var(--color-fg-muted); }
+.t-labform-amt input { width: 100%; } .t-labform-amt.bad input { border-color: var(--color-bad); } .t-labform-a { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .t-labform-msg { color: var(--color-bad); }
 .t-labmine { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-top: 8px; }
 .t-labdel { font-size: 12.5px; padding: 5px 10px; color: var(--color-bad); border-color: var(--color-border-line); } .t-labdel.is-sure { background: var(--color-bad); border-color: var(--color-bad); color: #fff; }
 .t-labcards .g-stat { padding: 9px 9px 8px; } .t-labcards .g-stat-k { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .t-labcards .g-stat-v { font-size: 17px; } .t-labcards .g-stat-s { font-size: 11px; display: grid; gap: 1px; }

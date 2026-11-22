@@ -80,61 +80,71 @@
     const f = {}; if (it) for (const [k, v] of Object.entries(it)) f[k.toLowerCase()] = v;   // eToro answers some names in another case (epS-TTM)
     facts.set(id, { at: Date.now(), f: it ? f : null }); return it ? f : null;
   }
-  // ---- a model value for any share with earnings (Matteo, 22 Nov 2026: "All assets need to have fair value"; asked which
-  // coverage, he chose "Model for all stocks": an automatic estimate from earnings, growth and sector multiples, marked low
-  // confidence; the twelve studies made by hand stay and come first). From eToro's figures alone, read when the asset opens:
-  //   earnings   analysts' average for the fiscal year in progress when at least three give one, else the last twelve months;
-  //   multiple   the middle of three price/earnings ratios: the share's own 5-year average (kept between 6 and 45), the
-  //              median of its sector among the shares of the nightly scan, and one from growth (8.5 + 1.5 x the yearly growth
-  //              of its sales over three and five years, growth kept between 0 and 12%: Graham's rule, made more careful);
-  //   bear/bull  the lowest multiple on the analysts' lowest earnings, the highest on their highest, within half and twice
-  //              the base.
-  // The value does not follow the price: it is the price eToro's P/E was computed on, divided by that P/E, times the
-  // multiple. No earnings, fewer than two multiples, or a result under a quarter or over four times the price: no value.
-  // A rough yardstick: against three of the studies made by hand it gave the same base once (MRVL) and was 60 to 70% away
-  // twice (AG above, CCJ below). It is never shown without "model" and "low confidence".
+  // ---- a model value for any share (Matteo, 22 Nov 2026: "All assets need to have fair value"; asked which coverage, he chose
+  // "Model for all stocks": an automatic estimate, marked low confidence; the twelve studies made by hand stay and come first).
+  // Reworked the same day (Matteo: "I am not sure about how you evaluate the fair values, for some assets they look really
+  // strange"): checked on the 2,864 largest shares, the first model put Walmart at 47 against 128, Costco at 484 against 1,102,
+  // Palantir at 41 against 143 and Novo Nordisk at 91 against 38, because it forced every company toward its sector's multiple
+  // and a growth rule capped at 12%. Now three yardsticks, each a value a share:
+  //   own        its next earnings (analysts' average for the fiscal year in progress with three estimates or more, else the
+  //              last twelve months) at its own usual price/earnings ratio, the average of its last 5 years (between 5 and 80:
+  //              outside that, earnings were too small for the ratio to mean anything)
+  //   sector     the same earnings at its sector's median ratio, among the shares of the nightly scan
+  //   analysts   their average 12-month target (TipRanks, on eToro; three analysts or more)
+  // Base: the middle of three, the geometric mean of two if they are within three times of each other (one alone is no model). Bear and bull: the lowest and the highest, at
+  // least 10% either side. A base under a quarter or over four times the price is not shown: the figures are wrong somewhere.
+  const r1 = (x) => (Math.round(x * 10) / 10).toFixed(1), money = (x) => (x >= 100 ? x.toFixed(0) : x.toFixed(2));
+  function analystsOf(f, px) {   // their average target, when it can be read in the price's own terms
+    const tp = +f.tiprankstargetprice, n = +f.tiprankstotalanalysts || 0;
+    return tp > 0 && px > 0 && n >= 3 && tp / px > 1 / 3 && tp / px < 3 ? { v: tp, n } : null;   // a 12-month target three times away from the price is a figure gone wrong (Seagate's read 97 against 457)
+  }
+  function settle(Y, px) {
+    const q = Y.map((y) => y.v).sort((a, b) => a - b); if (q.length < 2) return null;
+    if (q.length === 2 && q[1] / q[0] > 3) return null;   // two yardsticks three times apart say nothing in between (Tesla: 28 on its sector's P/E, 407 for analysts)
+    const base = q.length === 2 ? Math.sqrt(q[0] * q[1]) : q[(q.length - 1) >> 1]; if (!(base / px > 0.25 && base / px < 4)) return null;
+    return { base, bear: Math.max(Math.min(q[0], 0.9 * base), base / 3), bull: Math.min(Math.max(q[q.length - 1], 1.1 * base), 3 * base) };
+  }
   function valuation(f, sectorPE) {
     if (!f) return null;
     const n = (k) => { const v = +f[k]; return f[k] != null && f[k] !== '' && Number.isFinite(v) ? v : null; };
-    const px = n('internalclosingprice'), pe = n('peratio-ttm'), e0 = n('eps-ttm'), e1 = n('annualepsvalue'), lo = n('annualepslow'), hi = n('annualepshigh'), cnt = n('annualepsestimates') || 0;
-    if (!/^stocks?$/i.test(String(f.internalassetclassname || '')) || !(px > 0) || !(pe > 0) || !(e0 > 0)) return null;
-    const clamp = (x, a, b) => Math.max(a, Math.min(b, x)), med = (a) => { const q = a.slice().sort((x, y) => x - y), h = q.length >> 1; return q.length % 2 ? q[h] : (q[h - 1] + q[h]) / 2; };
-    const fwd = cnt >= 3 && e1 > 0, k1 = fwd ? clamp(e1 / e0, 0.5, 2) : 1, kLo = fwd && lo > 0 ? clamp(lo / e0, 0.4, k1) : k1 * 0.85, kHi = fwd && hi > 0 ? clamp(hi / e0, k1, 2.5) : k1 * 1.15;
-    const g = [n('3yearannualrevenuegrowthrate-ttm'), n('5yearannualrevenuegrowthrate-ttm')].filter((x) => x != null), growth = g.length ? clamp(g.reduce((a, b) => a + b, 0) / g.length, 0, 12) : null;
-    const own = n('5yearaverageperatio-ttm'), M = {};
-    if (own > 4 && own < 100) M.own = clamp(own, 6, 45);
-    if (sectorPE > 4 && sectorPE < 60) M.sector = sectorPE;
-    if (growth != null) M.growth = 8.5 + 1.5 * growth;
-    const ms = Object.values(M); if (ms.length < 2) return null;
-    const mid = med(ms), base = px * (mid / pe) * k1; if (!(base / px > 0.25 && base / px < 4)) return null;
-    const bear = clamp(px * (Math.min(...ms) / pe) * kLo, 0.5 * base, 0.95 * base), bull = clamp(px * (Math.max(...ms) / pe) * kHi, 1.05 * base, 2 * base), r1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
-    const parts = [M.own ? `its own 5-year average ${r1(M.own)}` : null, M.sector ? `its sector's median ${r1(M.sector)}` : null, M.growth ? `${r1(M.growth)} from its sales growth` : null].filter(Boolean);
-    const method = `${fwd ? `analysts' earnings for ${f.fiscalperiod ? String(f.fiscalperiod).replace(/^(\d{4})FY$/, 'fiscal $1') : 'the year in progress'} (${cnt} estimates)` : 'the earnings of the last twelve months'} times a price/earnings ratio of ${r1(mid)}, the middle of ${parts.join(', ')}. A rough yardstick from eToro's figures, not a study`;
-    return { model: true, bear, base, bull, confidence: 'low', as_of: new Date().toISOString().slice(0, 10), method, mult: M, mid, fwd, n: cnt };
+    const px = n('internalclosingprice'), e0 = n('eps-ttm'), e1 = n('annualepsvalue'), cnt = n('annualepsestimates') || 0;
+    if (!/^stocks?$/i.test(String(f.internalassetclassname || '')) || !(px > 0)) return null;
+    const fwd = cnt >= 3 && e1 > 0, E = fwd ? e1 : e0 > 0 ? e0 : null; if (!E) return null;
+    const own = n('5yearaverageperatio-ttm'), A = analystsOf(f, px), Y = [];
+    const on = fwd ? `analysts' earnings for ${f.fiscalperiod ? String(f.fiscalperiod).replace(/^(\d{4})FY$/, 'fiscal $1') : 'the year in progress'} (${money(E)} a share, ${cnt} estimates)` : `the earnings of the last twelve months (${money(E)} a share)`;
+    if (own >= 5 && own <= 80) Y.push({ k: 'own', v: E * own, say: `its own 5-year average P/E of ${r1(own)}: ${money(E * own)}` });
+    if (sectorPE > 4 && sectorPE < 60) Y.push({ k: 'sector', v: E * sectorPE, say: `its sector's median P/E of ${r1(sectorPE)}: ${money(E * sectorPE)}` });
+    if (A) Y.push({ k: 'analysts', v: A.v, say: `analysts' average target (${A.n} analysts): ${money(A.v)}` });
+    const S = settle(Y, px); if (!S) return null;
+    const method = `${Y.length === 3 ? 'the middle of three yardsticks' : 'between two yardsticks'}, on ${on}: ${Y.map((y) => y.say).join('; ')}. A rough yardstick from eToro's figures, not a study`;
+    return { model: true, kind: 'earnings', ...S, confidence: 'low', as_of: new Date().toISOString().slice(0, 10), method, parts: Y.map((y) => [y.k, y.v]), fwd, n: cnt };
   }
-  // a share the earnings cannot value (a loss, or no usable price/earnings yardstick): what the figures can still say is what it
-  // owns and what it sells (Matteo, 22 Nov 2026: "make sure that all assets have the fair value properly calculated and displayed
-  // on the charts. for example ... rigetti ... I see no fair value"). Up to three yardsticks, each in the price's own terms so a
-  // report in another currency cannot bend them: its book value per share (price / price-to-book), its net cash per share (the
-  // share of the book that is cash beyond debt, when there is some), and its sales at its sector's median price/sales (analysts'
-  // sales for the fiscal year under way when three or more give them). Bear the lowest, bull the highest, base the middle one. For
-  // a company priced on a future it has not earned yet the three sit far under the price: that is what the figures say, not an error.
+  // a share with no earnings to value: what analysts expect when three or more give a target, with what it owns (its book value a
+  // share) as the floor; without analysts, its book value, its net cash and its sales at its sector's price/sales. For a company
+  // priced on a future it has not earned, the figures alone sit far under the price: the method says so.
   function assetValue(f, sectorPS) {
     if (!f || !/^stocks?$/i.test(String(f.internalassetclassname || ''))) return null;
     const n = (k) => { const v = +f[k]; return f[k] != null && f[k] !== '' && Number.isFinite(v) ? v : null; }, clamp = (x, a, b) => Math.max(a, Math.min(b, x));
     const px = n('internalclosingprice'), pb = n('pricetobook-ttm'), ps = n('pricetosales-ttm'), rev = n('salesorrevenue-ttm'), sE = +f.annualsalesestimates >= 3 ? n('annualsalesvalue') : null; if (!(px > 0)) return null;
+    const book = pb > 0.05 && pb < 500 ? px / pb : null, A = analystsOf(f, px), loss = !(n('eps-ttm') > 0);
+    const lead = `${loss ? 'No earnings to value' : 'Its earnings give no usable yardstick'}`;
+    if (A) {
+      const hi = n('tiprankshighpricetarget'), bull = hi > A.v && hi / px < 6 ? hi : 1.5 * A.v, bear = book != null && book > 0 && book < 0.9 * A.v ? book : 0.6 * A.v;
+      return { model: true, kind: 'analysts', base: A.v, bear, bull, confidence: 'low', as_of: new Date().toISOString().slice(0, 10), parts: [['analysts', A.v], ['book', book]],
+        method: `${lead}: analysts' average target (${A.n} analysts) as the middle, ${book != null && book < 0.9 * A.v ? `its book value of ${money(book)} a share as the floor` : 'a floor 40% under it'}, their highest target as the top.${book != null && book < 0.5 * px ? ' What it owns is far under the price: the price pays for a future its figures do not show yet.' : ''} A rough yardstick, not a study` };
+    }
     const Y = [], r2 = (x) => (x >= 100 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
-    if (pb > 0.05 && pb < 500) {
-      const book = px / pb, cash = n('cashshortterminvestments-ttm'), debt = n('totaldebt-ttm'), eq = n('totalshareholdersequity-ttm');
+    if (book != null) {
       Y.push({ k: 'book', v: book, say: `its book value per share ${r2(book)}` });
+      const cash = n('cashshortterminvestments-ttm'), debt = n('totaldebt-ttm'), eq = n('totalshareholdersequity-ttm');
       if (cash != null && debt != null && eq > 0 && cash - debt > 0 && (cash - debt) / eq < 1) Y.push({ k: 'cash', v: book * (cash - debt) / eq, say: `its net cash per share ${r2(book * (cash - debt) / eq)}` });
     }
-    const fwd = sE != null && rev > 0 && sE / rev > 0.2 && sE / rev < 5;
-    if (ps > 0 && sectorPS > 0.1 && sectorPS < 50) { const v = px * (sectorPS / ps) * (fwd ? clamp(sE / rev, 0.5, 3) : 1); Y.push({ k: 'sales', v, say: `${fwd ? "analysts' sales for the fiscal year" : 'its sales'} at its sector's median price/sales of ${sectorPS.toFixed(1)}, ${r2(v)} a share` }); }
+    const fw = sE != null && rev > 0 && sE / rev > 0.2 && sE / rev < 5;
+    if (ps > 0 && sectorPS > 0.1 && sectorPS < 50) { const v = px * (sectorPS / ps) * (fw ? clamp(sE / rev, 0.5, 3) : 1); Y.push({ k: 'sales', v, say: `${fw ? "analysts' sales for the fiscal year" : 'its sales'} at its sector's median price/sales of ${sectorPS.toFixed(1)}, ${r2(v)} a share` }); }
     if (!Y.length) return null;
     const q = Y.map((y) => y.v).sort((a, b) => a - b), base = q.length === 1 ? q[0] : q.length === 2 ? (q[0] + q[1]) / 2 : q[1]; if (!(base / px > 0.02 && base / px < 4)) return null;
-    const bear = Math.min(q.length > 1 ? q[0] : 0.6 * base, 0.95 * base), bull = Math.max(q.length > 1 ? q[q.length - 1] : 1.5 * base, 1.05 * base), loss = !(n('eps-ttm') > 0);
-    const method = `${loss ? 'No earnings to value' : 'Its earnings give no usable yardstick'}, so only what it owns and sells: ${q.length === 1 ? Y[0].say : `${q.length === 2 ? 'between' : 'the middle of'} ${Y.map((y) => y.say).join(q.length === 2 ? ' and ' : ', ')}`}.${base < 0.5 * px ? ' The price pays for a future these figures do not show.' : ''} A rough yardstick from eToro's figures, not a study`;
+    const bear = Math.min(q.length > 1 ? q[0] : 0.6 * base, 0.95 * base), bull = Math.max(q.length > 1 ? q[q.length - 1] : 1.5 * base, 1.05 * base);
+    const method = `${lead}, and no analysts' target, so only what it owns and sells: ${q.length === 1 ? Y[0].say : `${q.length === 2 ? 'between' : 'the middle of'} ${Y.map((y) => y.say).join(q.length === 2 ? ' and ' : ', ')}`}.${base < 0.5 * px ? ' The price pays for a future these figures do not show.' : ''} A rough yardstick from eToro's figures, not a study`;
     return { model: true, kind: 'assets', bear, base, bull, confidence: 'low', as_of: new Date().toISOString().slice(0, 10), method, parts: Y.map((y) => [y.k, y.v]) };
   }
   // the median price/sales of a sector (market value over sales), among the shares of the nightly scan that have both (15 or more)

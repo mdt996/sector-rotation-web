@@ -701,7 +701,18 @@
     // the fair value: the study made by hand when the asset has one; else, for a share with earnings, the model value from
     // eToro's figures (about.js, valuation), which arrives a moment after the page
     let modelFair = null;
-    const fairOf = () => (window.SR_FAIR && window.SR_FAIR[inst.symbol]) || modelFair || null;
+    // a study whose value follows a market (Strategy's net asset value follows bitcoin: Matteo, 22 Nov 2026, "for some assets they
+    // look really strange": the study of 9 Nov still said 118 with bitcoin a fifth lower) is moved with that market's live price
+    const study = window.SR_FAIR && window.SR_FAIR[inst.symbol], studyLive = study && study.live && study.live.ref > 0 ? study.live : null;
+    if (studyLive) want('fairref-' + inst.id, [studyLive.ref]);
+    const fairOf = () => {
+      if (!study) return modelFair || null; if (!studyLive) return study;
+      const q = quotes.get(studyLive.ref), p = q && q.price > 0 ? q.price : null; if (!p) return study;
+      const base = Math.max(study.base + studyLive.per * (p - studyLive.at), 0.05 * study.base);
+      return { ...study, base, bear: base * studyLive.bear, bull: base * studyLive.bull, as_of: `${study.as_of}, moved with ${studyLive.name} to ${fmtP(p)}`,
+        method: `${study.method}. Moved with ${studyLive.name}: ${fmtP(p)} now against ${fmtP(studyLive.at)} when the study was made (${study.as_of}), ${studyLive.per * 10000 >= 1 ? '$' + Math.round(studyLive.per * 10000) : studyLive.per * 10000} a share for every $10,000` };
+    };
+    let fairKey = '';
     // support / resistance from the last year's turning points (daily highs and lows that are the extreme of +/-5 days),
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
@@ -925,7 +936,7 @@
       sAcc.textContent = L ? `${fmtP(L.acc[0])} – ${fmtP(L.acc[1])}` : 'Not enough history';
       sFair.textContent = L ? `${fmtP(L.fair[0])} – ${fmtP(L.fair[1])}` : '—';
       sTp.textContent = L ? `${fmtP(L.tp[0])} – ${fmtP(L.tp[1])}` : '—';
-      const fv = fairOf();
+      const fv = fairOf(); { const k = fv ? [fv.bear, fv.base, fv.bull].map((x) => x.toFixed(3)).join('|') : ''; if (k !== fairKey) { fairKey = k; try { ch.setFair(fv); } catch (e) { /* drawn at the next look */ } } }
       sFvK.textContent = fv && fv.model ? 'Model value: bear · base · bull' : 'Fair value: bear · base · bull';
       sFv.textContent = fv ? `${fmtP(fv.bear)} · ${fmtP(fv.base)} · ${fmtP(fv.bull)}` : 'Not valued yet';
       sFv.parentElement.title = fv && fv.method ? fv.method : '';
@@ -1014,7 +1025,7 @@
     want(who, [inst.id]);
     setMode(mode);
     load(true);
-    const api = { id: inst.id, timing: () => lastLoad, back: () => { if (ch.back()) return true; if (comparePanel.hidden) return false; setCompareOpen(false); return true; }, destroy() { dead = true; if (pageRO) pageRO.disconnect(); clearTimeout(compareTimer); ticks.delete(tick); want(who, []); want(compareWho, []); views.delete(api); ch.destroy(); } };
+    const api = { id: inst.id, timing: () => lastLoad, back: () => { if (ch.back()) return true; if (comparePanel.hidden) return false; setCompareOpen(false); return true; }, destroy() { dead = true; if (pageRO) pageRO.disconnect(); clearTimeout(compareTimer); ticks.delete(tick); want(who, []); want(compareWho, []); if (studyLive) want('fairref-' + inst.id, []); views.delete(api); ch.destroy(); } };
     views.add(api);
     return api;
   }
