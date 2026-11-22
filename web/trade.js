@@ -296,13 +296,16 @@
     if (M.start > 0 && tv.startAt !== M.start) { if (tv.startLine) tv.candles.removePriceLine(tv.startLine); tv.startAt = M.start; tv.startLine = tv.candles.createPriceLine({ price: M.start, color: muted, lineWidth: 1, lineStyle: L.LineStyle ? L.LineStyle.Dashed : 2, axisLabelVisible: true, title: 'start' }); }
     // the S&P 500 over the same hours, set to the account's value at the first point they share
     const Bn = M.P.bench, bp = new Map(); if (Bn && Bn.px > 0 && Bn.value > 0) for (const p of (M.P.curve || [])) if (p[2] > 0) bp.set(Math.floor(p[0] / tf) * tf / 1000, +(Bn.value * p[2] / Bn.px).toFixed(2));
-    tv.bench.setData([...bp.entries()].sort((x, y) => x[0] - y[0]).map(([time, value]) => ({ time, value }))); tv.bench.applyOptions({ visible: !!ui.bench && bp.size > 1 });
+    // only at the account's own candles: a point between them would add a slot to the chart's time line and push the candles apart
+    const bd = bars.filter((k) => bp.has(k.time)).map((k) => ({ time: k.time, value: bp.get(k.time) }));
+    tv.bench.setData(bd); tv.bench.applyOptions({ visible: !!ui.bench && bd.length > 1 });
+    tv.host.__bench = bd.map((p) => p.time);   // for the tests
     // where the program's trades opened and closed
     if (tv.marks) { const have = new Set(bars.map((k) => k.time)), at = (ms) => Math.floor(ms / tf) * tf / 1000, mk = [];
       for (const p of M.positions) if (p.t && isFinite(p.opened) && have.has(at(p.opened))) mk.push({ time: at(p.opened), position: 'belowBar', color: p.side > 0 ? up : down, shape: p.side > 0 ? 'arrowUp' : 'arrowDown', text: p.sym });
       for (const c of M.closed) if (c.t && isFinite(c.at) && have.has(at(c.at))) mk.push({ time: at(c.at), position: 'aboveBar', color: c.net >= 0 ? up : down, shape: 'circle', text: `${c.sym} ${c.net >= 0 ? '+' : '−'}$${Math.round(Math.abs(c.net))}` });
       mk.sort((x, y) => x.time - y.time); tv.api.setMarks(mk.slice(-80)); tv.host.dataset.marks = String(mk.length); }
-    tv.host.dataset.bars = String(bars.length); tv.host.dataset.wicks = String(bars.filter((k) => k.high > Math.max(k.open, k.close) + 0.005 || k.low < Math.min(k.open, k.close) - 0.005).length); tv.host.dataset.bench = String(ui.bench ? bp.size : 0); tv.say();
+    tv.host.dataset.bars = String(bars.length); tv.host.dataset.wicks = String(bars.filter((k) => k.high > Math.max(k.open, k.close) + 0.005 || k.low < Math.min(k.open, k.close) - 0.005).length); tv.host.dataset.bench = String(ui.bench ? bd.length : 0); tv.say();
     const lo0 = Math.min(...bars.map((k) => k.low)), hi0 = Math.max(...bars.map((k) => k.high));
     const how = rebuilt ? `Candles worked out from eToro's own ${({ 1: '1-minute', 5: '5-minute', 15: '15-minute', 30: '30-minute', 60: '1-hour', 240: '4-hour', 1440: 'daily' })[step]} candles of the ${RBk.assets || ''} assets the account held, set on ${RBk.n} real readings of the account; the last one moves with the live value.${RBk.err ? ' ' + RBk.err + ': asked again in 10 s.' : ''} `
       : RBk && RBk.err ? `Only the readings of the account are drawn: ${RBk.err}. Asked again in 10 s. ` : RBk && RBk.busy ? 'Working out the candles from eToro\'s prices of what the account held… meanwhile only the readings of the account are drawn. ' : '';

@@ -144,7 +144,16 @@
     const from = D ? Date.parse(D.made) - 60000 : 0, tail = [...(D && D.cur ? [D.cur] : []), ...((L && L.tail) || [])].sort((a, b) => a[0] - b[0]);
     for (const c of tail) if (tf < 5 ? !seen.has(c[0]) || c[0] >= from : c[0] >= from) fold(c);
     if (!m.size && L) for (const p of (L.lifetimeCurve && L.lifetimeCurve.length > 1 ? L.lifetimeCurve : L.curve) || []) fold([p[0], p[1], p[1], p[1], p[1]]);   // a VM not updated yet: its 15-minute points
-    const bars = [...m.values()].sort((a, b) => a.b - b.b), last = bars[bars.length - 1];
+    // every slot of the time frame, as on the markets' charts: the lab's 1- and 5-minute histories keep only the minutes when its
+    // value moved, so a night or a weekend without a trade would vanish from the time line and the market's line beside it
+    // would jump there (Matteo, 22 Nov 2026: "sometimes the data does not follow the asset compared on the same timeline").
+    // A slot without a reading keeps the last value.
+    const bars = []; for (const k of [...m.values()].sort((a, b) => a.b - b.b)) {
+      const p = bars[bars.length - 1]; if (p) for (let b = p.b + ms; b < k.b && bars.length < 40000; b += ms) bars.push({ b, time: b / 1000, open: p.close, high: p.close, low: p.close, close: p.close, flat: true });
+      bars.push(k);
+    }
+    if (bars.length > 20000) bars.splice(0, bars.length - 20000);
+    const last = bars[bars.length - 1];
     if (liveAdj > 0 && last) {
       const b = Math.floor(Date.now() / ms) * ms;
       if (last.b === b) { last.close = liveAdj; last.high = Math.max(last.high, liveAdj); last.low = Math.min(last.low, liveAdj); }

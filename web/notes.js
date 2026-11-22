@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 131, "text": "Fair values reworked: the middle of three yardsticks (the company's own usual P/E, its sector's, analysts' target), so fewer odd values. MSTR's moves with bitcoin. New paper portfolios: silver, platinum, natural gas and more currency pairs on eToro, and a starting amount from $500 to $100,000."};
+window.SR_NOTES = {"build": 132, "text": "Labs charts: 1m, 5m and 15m now keep every time slot (nights and weekends without trades stay at the last value), so the market's line follows the same clock. The demo's S&P 500 line sits only on its own candles."};
