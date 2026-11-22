@@ -130,17 +130,42 @@
     for (const r of rows()) {
       if (!r.A) continue; const m = M.get(r.id) || {}, A = r.A; seen.add(r.id);
       out.push(grade({ sym: r.sym, id: r.id, name: r.name, group: r.group, mine: r.group === 'Yours', cls: m.cls || (r.group === 'Funds' ? 'ETF' : null), sec: m.sec || null, cap: m.cap || null, sales: m.sales || null, pe: m.pe || null, pop: m.pop || null, px: r.px, chg: r.chg, c5: A.chg5, c20: A.chg20, rsi: A.rsi,
-        sup: r.sup, res: r.res, rr: A.rr, ms: r.ms, stop: A.atr > 0 ? A.price - 2 * A.atr : null, target: A.atr > 0 ? A.price + 2 * A.atr : null, last: A.date, live: true }));
+        sup: r.sup, res: r.res, rr: A.rr, ms: r.ms, stop: A.atr > 0 ? A.price - 2 * A.atr : null, target: A.atr > 0 ? A.price + 2 * A.atr : null, last: A.date, live: true, f: m.f || null }));
     }
     if (wide) for (const r of wide.rows) {
       if (seen.has(r.id)) continue;
       const q = Q.get(r.id), px = q && q.price > 0 ? q.price : r.px, chg = q && q.price > 0 && r.px ? (r.d < today ? px / r.px - 1 : (1 + r.c1) * px / r.px - 1) : r.c1;
       out.push(grade({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: r.cap || null, sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
-        sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true }));
+        sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true, f: r.f || null }));
     }
     allMemo = { at: Date.now(), rows: out };
     return out;
   }
+  // ---- the financial ranking (Matteo, 22 Nov 2026: "rank any asset by the several financial scores on the different fields, and
+  // allow to see which place of the ranking the asset currently is ... and give also an overall score"). The nightly scan scores
+  // every share 0 to 100 on five fields and overall (fin.js in the private repository: the share of the ranked companies it beats,
+  // from eToro's figures); here they become places: #1 is the best. Ties go to the higher overall score, then the larger company.
+  const FIN = [['all', 'Overall'], ['profit', 'Profit'], ['cash', 'Cash flow'], ['debt', 'Debt'], ['growth', 'Growth'], ['outlook', 'Outlook']];
+  let finMemo = null;
+  function finRanks() {
+    if (!wide || !wide.rows) return null; if (finMemo && finMemo.made === wide.made) return finMemo;
+    const R = wide.rows.filter((r) => r.cls === 'Stocks' && Array.isArray(r.f)), out = { made: wide.made, by: new Map(), n: [], sec: new Map(), secN: new Map(), top: null };
+    if (!R.length) { finMemo = out; return out; }
+    FIN.forEach(([k], i) => {
+      const L = R.filter((r) => r.f[i] != null).sort((a, b) => b.f[i] - a.f[i] || (b.f[0] == null ? -1 : b.f[0]) - (a.f[0] == null ? -1 : a.f[0]) || (b.cap || 0) - (a.cap || 0) || a.id - b.id);
+      out.n[i] = L.length; L.forEach((r, j) => { let o = out.by.get(r.id); if (!o) out.by.set(r.id, (o = [])); o[i] = j + 1; });
+      if (i === 0) { out.top = L; const per = new Map(); for (const r of L) { const s = r.sec || 'Other', k2 = (per.get(s) || 0) + 1; per.set(s, k2); out.sec.set(r.id, k2); } out.secN = per; }
+    });
+    finMemo = out; return out;
+  }
+  // one company's places: [{ k, label, score, rank, n }], its sector's place, and the date of the figures
+  function finOf(id) {
+    const F2 = finRanks(), r = wide && wide.rows ? wide.rows.find((x) => x.id === +id) : null; if (!F2 || !r || !Array.isArray(r.f)) return null;
+    const P = F2.by.get(r.id) || [], sec = r.sec || 'Other';
+    return { made: F2.made, sec: F2.sec.has(r.id) ? { name: sec, rank: F2.sec.get(r.id), n: F2.secN.get(sec) || 0 } : null,
+      cats: FIN.map(([k, label], i) => ({ k, label, score: r.f[i], rank: P[i] || null, n: F2.n[i] || 0 })) };
+  }
+  const finIx = (k) => FIN.findIndex((x) => x[0] === k);
   const tier = (r) => (r.buy ? 0 : 1);
   // 1. the assets with a buy signal now, highest score first; 2. the others, by score; an asset without a year of candles has no score and comes last
   const rankOrder = (a, b) => tier(a) - tier(b) || (a.ms == null) - (b.ms == null) || (b.ms || 0) - (a.ms || 0) || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup);
@@ -223,7 +248,12 @@
   const by = (f, dir) => (a, b) => { const x = f(a), y = f(b), nx = x == null || !isFinite(x), ny = y == null || !isFinite(y); return nx - ny || (nx ? 0 : dir * (x - y)); };   // assets without the figure go last
   const SORTS = { rank: ['our ranking (buy score)', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
     day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
-    rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)] };
+    rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)],
+    'fin:all': ['financial health, healthiest first'], 'fin:all:lo': ['financial health, least healthy first'], 'fin:profit': ['profit, best first'], 'fin:cash': ['cash flow, best first'],
+    'fin:debt': ['debt, soundest first'], 'fin:growth': ['growth, fastest first'], 'fin:outlook': ['outlook, best first'] };
+  // a financial sort: only the shares with that score, in the order of their place (the least healthy: from the last place up)
+  const finSort = () => { const m = /^fin:(\w+)(:lo)?$/.exec(F.sort || ''); if (!m) return null; const i = finIx(m[1]); return i < 0 ? null : { i, k: m[1], lo: !!m[2] }; };
+  const finOrder = (fs) => { const P = finRanks(); const at = (r) => { const p = P && P.by.get(r.id); return p && p[fs.i] ? p[fs.i] : null; }; return (a, b) => (fs.lo ? at(b) - at(a) : at(a) - at(b)); };
   const oddsText = (r) => { const st = MST()['1D']; if (!st) return ''; const b = r.strong && st.strong ? st.strong : st.buy; return `Worked ${p0(b.win)} in the test (any day ${p0(b.base)})`; };
   function howBox() {
     const S = MST(), md = MDL(), d = el('details', 'sc-how'); d.open = howOpen; d.addEventListener('toggle', () => { howOpen = d.open; });
@@ -248,6 +278,44 @@
     P('The edge is small: about 57% against 54%. Four signals in ten fail, which is why each comes with a stop. Analysis, not advice.');
     return d;
   }
+  // the five fields as five small bars (their height is the score), the place in the sorted field and its score written beside them
+  function finStrip(b, r, fs) {
+    const P = finRanks(), pl = P && P.by.get(r.id), here = finPos.get(r.id), rank = here ? here[0] : pl ? pl[fs.i] : null, n = here ? here[1] : P ? P.n[fs.i] : 0;   // the place in the list shown (a sector, a size), else in all
+    b.classList.add('sc-row-fin'); const y = b.appendChild(el('span', 'sc-y sc-fin'));
+    const head = y.appendChild(el('span', 'sc-fin-r')); head.appendChild(el('b', '', rank ? '#' + rank.toLocaleString('en-US') : '–')); head.appendChild(el('span', 'g-muted', ` of ${n.toLocaleString('en-US')} · ${FIN[fs.i][1].toLowerCase()} ${r.f[fs.i]}`));
+    const bars = y.appendChild(el('span', 'sc-fin-b')); bars.setAttribute('role', 'img');
+    bars.setAttribute('aria-label', FIN.slice(1).map(([, l], j) => `${l} ${r.f[j + 1] == null ? 'not scored' : r.f[j + 1]}`).join(', '));
+    FIN.slice(1).forEach(([k, l], j) => { const v = r.f[j + 1], c = bars.appendChild(el('span', 'sc-fin-c' + (j + 1 === fs.i ? ' is-on' : ''))); c.dataset.k = k; const t = c.appendChild(el('i', v == null ? 'is-na' : '')); t.style.height = (v == null ? 6 : Math.max(6, v)) + '%'; c.appendChild(el('small', '', l[0])); });
+  }
+  // the healthiest and the least healthy companies of $2 billion or more (as the home card: tiny ones carry the oddest figures), last night
+  function finCard(box) {
+    const P = finRanks(); if (!P || !P.top || !P.top.length) return;
+    const big2 = P.top.filter((r) => r.cap >= 2e9), S = box.appendChild(el('section', 'sc-hc')), H = S.appendChild(el('div', 'sc-hc-h'));
+    H.appendChild(el('b', '', 'Financial health')); H.appendChild(el('span', '', `${P.n[0].toLocaleString('en-US')} companies ranked · eToro's figures of ${new Date(P.made).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`));
+    const G = S.appendChild(el('div', 'sc-hc-g'));
+    for (const [title, L, lo] of [['Healthiest', big2.slice(0, 5), false], ['Least healthy', big2.slice(-5).reverse(), true]]) {
+      const C = G.appendChild(el('div', 'sc-hc-c' + (lo ? ' is-lo' : ''))); C.appendChild(el('span', 'sc-hc-t', title));
+      for (const r of L) { const x = C.appendChild(el('button', 'sc-hc-r')); x.type = 'button'; x.dataset.id = r.id; x.title = `${r.n}: overall ${r.f[0]}, #${P.by.get(r.id)[0]} of ${P.n[0]}`;
+        x.addEventListener('click', () => open({ id: r.id, sym: r.s, name: r.n }));
+        x.appendChild(el('b', '', r.s)); const t = x.appendChild(el('span', 'sc-hc-bar')); t.appendChild(el('i', '')).style.width = r.f[0] + '%'; x.appendChild(el('span', 'sc-hc-v', String(r.f[0]))); }
+      const all = C.appendChild(el('button', 'sc-hc-all', lo ? 'All, least healthy first' : 'All, healthiest first')); all.type = 'button';
+      all.addEventListener('click', () => { Object.assign(F, F0, { sort: lo ? 'fin:all:lo' : 'fin:all', cls: 'Stocks' }); shown = 60; saveF(); SRApp.renderDraw('screener'); const l = document.querySelector('#screener .sc-bar'); if (l) l.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+    }
+    S.appendChild(el('p', 'sc-hc-n', 'Companies worth $2 billion or more. Score: the share of ranked companies it beats on profit, cash flow, debt, growth and outlook (0 to 100). A reading of figures, not advice.'));
+  }
+  // from an asset's page: the list in that field, the asset found and lit up (a sector narrows it to the asset's sector)
+  let hlId = null; const finPos = new Map();
+  function showRank(id, k, sector) {
+    const i = finIx(k), P = finRanks(), pl = P && P.by.get(+id); if (i < 0 || !pl || !pl[i]) return false;
+    Object.assign(F, F0, { sort: 'fin:' + k, cls: 'Stocks', sec: sector || '' }); saveF();
+    const place = sector ? P.top.filter((r) => (r.sec || 'Other') === sector).filter((r) => r.f[i] != null).sort(finOrder({ i, lo: false })).findIndex((r) => r.id === +id) + 1 : pl[i];
+    shown = Math.max(60, Math.ceil((place + 10) / 60) * 60); hlId = +id;
+    if (!(isMac() && left && left.offsetParent !== null)) { try { if (window.SRLive && SRLive.close) SRLive.close(); } catch (e) { /* the page stays */ } if (window.appShowTab) window.appShowTab('markets', 0); }
+    // from the top: a redraw puts the page back where it was (runtime.js renderDraw), and the list is then scrolled to the company
+    window.scrollTo(0, 0); SRApp.renderDraw('screener');
+    setTimeout(() => { const x = document.querySelector(`#screener .sc-list [data-id="${+id}"]`); if (!x) return; x.scrollIntoView({ block: 'center' }); x.classList.add('is-hl'); setTimeout(() => { x.classList.remove('is-hl'); }, 2600); }, 200);
+    return true;
+  }
   function rowEl(r) {
     const b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
     const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 22); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group || ''));
@@ -256,6 +324,8 @@
     { const M = window.SRLive && SRLive.market && r.id ? SRLive.market(r.id) : null; if (r.id && SRLive.marketAsk) SRLive.marketAsk([r.id]);   // each row says when its market is shut
       const shut = M ? (M.delisted ? 'delisted' : M.tradable === false ? 'not tradable now' : M.open === false ? 'market closed' : '') : ''; if (shut) m.push(shut); }
     if (m.length) b.appendChild(el('span', 'sc-m', m.join(' · ')));
+    const fs = finSort();
+    if (fs && Array.isArray(r.f)) { finStrip(b, r, fs); return b; }
     const y = b.appendChild(el('span', 'sc-y'));
     if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));
     y.appendChild(el('span', 'sc-t', `${r.buy || r.ms == null ? '' : 'score ' + sc100(r.ms) + ' · '}RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}`));
@@ -301,6 +371,7 @@
     const how = box.appendChild(howBox());
     const scan = wide ? `Scan: ${wide.scanned} assets on ${String(wide.made).slice(0, 10)}. Ideas: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wider scan is unavailable.';
     how.insertBefore(el('p', '', scan + (U && U.next > U.limit ? ` Adds up to ${U.next - U.limit} assets per night.` : '')), how.children[1]);
+    finCard(box);
     // filters: every choice is one tap; the list below answers at once
     const nOn = Object.keys(F0).filter((k) => k !== 'sort' && F[k]).length;
     const bar = box.appendChild(el('div', 'sc-bar')), fb = el('div', 'sc-filters');
@@ -309,7 +380,7 @@
       for (const [val, lab] of opts) s.appendChild(new Option(lab, val));
       s.value = F[key]; if (s.value !== F[key]) { F[key] = first ? '' : opts[0][0]; s.value = F[key]; }
       s.classList.toggle('is-on', !!first && !!F[key]); s.addEventListener('focus', () => { selAt = Date.now(); });
-      s.addEventListener('change', () => { F[key] = s.value; if (key === 'cls' && F.cls && F.cls !== 'Stocks') F.sec = ''; shown = 60; saveF(); s.blur(); SRApp.renderDraw('screener'); });
+      s.addEventListener('change', () => { F[key] = s.value; hlId = null; if (key === 'cls' && F.cls && F.cls !== 'Stocks') F.sec = ''; shown = 60; saveF(); s.blur(); SRApp.renderDraw('screener'); });
       return s;
     };
     const uniq = (f) => [...new Set(ALL.map(f).filter(Boolean))].sort();
@@ -323,11 +394,12 @@
     sel('size', 'Any market value', Object.entries(SIZE).map(([k, x]) => [k, x[0]]));
     sel('sales', 'Any revenue', Object.entries(SALES).map(([k, x]) => [k, x[0]]));
     sel('rsi', 'Any RSI', Object.entries(RSIB).map(([k, x]) => [k, x[0]]));
-    const L = ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
-    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
-    if (active || F.sort !== 'rank') { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; saveF(); SRApp.renderDraw('screener'); }); }
+    const fsN = finSort(), P0 = fsN ? finRanks() : null, L = fsN ? ALL.filter(pass).filter((r) => { const p = P0 && P0.by.get(r.id); return p && p[fsN.i]; }).sort(finOrder(fsN)) : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
+    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
+    if (active || F.sort !== 'rank') { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
+    finPos.clear(); if (fsN) L.forEach((r, k) => finPos.set(r.id, [fsN.lo ? L.length - k : k + 1, L.length]));
     const list = box.appendChild(el('div', 'sc-list')), vis = L.slice(0, shown);
-    for (const r of vis) list.appendChild(rowEl(r));
+    for (const r of vis) { const x = list.appendChild(rowEl(r)); if (r.id === hlId) x.classList.add('is-hl-keep'); }
     if (!L.length) list.appendChild(el('p', 'g-muted', 'No asset matches these filters.'));
     if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `Show ${Math.min(60, L.length - shown)} more (${L.length - shown} left)`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
@@ -364,5 +436,5 @@
   // 20 s after the start (what the screen needs first goes first), then every 30 minutes: the likely next pages are loaded ahead
   const ahead = () => { try { const ids = [...((prac && prac.open) || []).map((t) => +t.id), ...top(6).map((r) => +r.id)]; if (window.SRLive && SRLive.preload) SRLive.preload(ids); } catch (e) { /* not ready */ } };
   setTimeout(ahead, 20000); setInterval(ahead, 30 * 60e3);
-  window.SRScreen = { prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { fin: finOf, finRanks, showRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();

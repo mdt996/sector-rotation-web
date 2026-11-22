@@ -228,7 +228,7 @@
       row('ISIN', f.isin || null);
       box.dataset.facts = String(grid.children.length);
       try { const t = target(box, f, px); box.dataset.tgt = t ? '1' : '0'; } catch (e) { box.dataset.tgt = '0'; }
-      try { const fin = financials(box, f); box.dataset.fin = fin ? String(fin.querySelectorAll('.ab-fin-row').length) : '0'; } catch (e) { box.dataset.fin = '0'; }
+      try { const fin = financials(box, f, id); box.dataset.fin = fin ? String(fin.querySelectorAll('.ab-fin-row').length) : '0'; } catch (e) { box.dataset.fin = '0'; }
     }).catch(() => { etoDone = true; showText(); sub.textContent = inst.symbol || ''; });
   }
 
@@ -247,9 +247,11 @@
     if (rows.length < 3) return null;
     const end = String(f['fiscalperiodenddate-ttm'] || ''), m = /^(\d{1,2})\/\d{1,2}\/(\d{4})/.exec(end) || [], iso = /^(\d{4})-(\d{2})/.exec(end) || [], mo = +(m[1] || iso[2] || 0), yr = +(m[2] || iso[1] || 0);
     const cash = n('cashshortterminvestments-ttm'), debt = n('totaldebt-ttm'), eq = n('totalshareholdersequity-ttm');
+    // eToro still lists some companies' last figures years later (Noble Energy: June 2020): said plainly, and not read for health
+    const endT = mo >= 1 && yr > 2000 ? Date.UTC(yr, mo, 0) : null, old = endT != null && Date.now() - endT > 365 * 864e5;
     const growth = [['Last year', n('1yearannualrevenuegrowthrate-ttm')], ['Last 3 years', n('3yearannualrevenuegrowthrate-ttm')], ['Last 5 years', n('5yearannualrevenuegrowthrate-ttm')]].filter((g) => g[1] != null);
     return { rows, cur: String(f['currency-ttm'] || '').toUpperCase() || null, to: mo >= 1 && mo <= 12 && yr > 2000 ? `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mo - 1]} ${yr}` : null,
-      year: f['fiscalperiod-annual'] ? String(f['fiscalperiod-annual']).replace(/^(\d{4})FY$/, '$1') : null, cash, debt, eq, growth, health: healthOf(f, n, rev) };
+      year: f['fiscalperiod-annual'] ? String(f['fiscalperiod-annual']).replace(/^(\d{4})FY$/, '$1') : null, cash, debt, eq, growth, old, health: old ? null : healthOf(f, n, rev) };
   }
   // is the business healthy, and where do analysts see it going (Matteo, 22 Nov 2026: "those info should help understand if the
   // business of those assets is healthy, projected healthy, or projected unhealthy"). Five plain tests on eToro's figures, each
@@ -291,7 +293,7 @@
     const S = box.appendChild(el('section', 'ab-tgt')), H = S.appendChild(el('div', 'ab-tgt-h')); const hk = H.appendChild(el('div', '')); hk.appendChild(el('b', '', '1-year return analysts expect')); hk.appendChild(el('span', '', [A.n ? `${A.n} analyst${A.n === 1 ? '' : 's'}` : '', A.word].filter(Boolean).join(' · ')));
     H.appendChild(el('strong', A.r > 0 ? 'up' : A.r < 0 ? 'down' : '', pcs(A.r)));
     if (A.lo != null) {
-      const a = Math.min(0, A.rlo), z = Math.max(0, A.rhi), w = z - a || 1, at = (v) => (100 * (v - a) / w).toFixed(2) + '%', T = S.appendChild(el('div', 'ab-tgt-t')); T.setAttribute('role', 'img');
+      const pad0 = (Math.max(0, A.rhi) - Math.min(0, A.rlo)) * 0.04 || 0.01, a = Math.min(0, A.rlo) - pad0, z = Math.max(0, A.rhi) + pad0, w = z - a || 1, at = (v) => (100 * (v - a) / w).toFixed(2) + '%', T = S.appendChild(el('div', 'ab-tgt-t')); T.setAttribute('role', 'img');
       T.setAttribute('aria-label', `Targets from ${pcs(A.rlo)} to ${pcs(A.rhi)} against the price, average ${pcs(A.r)}`);
       const band = T.appendChild(el('i', 'ab-tgt-band')); band.style.left = at(A.rlo); band.style.width = (100 * (A.rhi - A.rlo) / w).toFixed(2) + '%'; T.appendChild(el('i', 'ab-tgt-now')).style.left = at(0); T.appendChild(el('i', 'ab-tgt-avg')).style.left = at(A.r);
       const X = S.appendChild(el('div', 'ab-tgt-x')); for (const [k, v, p] of [['Lowest', A.rlo, A.lo], ['Average target', A.r, A.tp], ['Highest', A.rhi, A.hi]]) { const c = X.appendChild(el('span', '')); c.appendChild(el('i', '', k)); c.appendChild(el('b', '', `${num(p)} (${pcs(v)})`)); }
@@ -301,9 +303,9 @@
     S.appendChild(el('div', 'ab-fin-n', 'Black line: today\'s price. Their forecast (TipRanks, on eToro), not the app\'s.'));
     return S;
   }
-  function financials(box, f) {
+  function financials(box, f, id) {
     const F = financialsOf(f); if (!F) return null;
-    const S = box.appendChild(el('section', 'ab-fin')), H = S.appendChild(el('div', 'ab-fin-h')); H.appendChild(el('b', '', 'Financials')); H.appendChild(el('span', '', ['last 12 months' + (F.to ? ' to ' + F.to : ''), F.cur].filter(Boolean).join(' · ')));
+    const S = box.appendChild(el('section', 'ab-fin')), H = S.appendChild(el('div', 'ab-fin-h')); H.appendChild(el('b', '', 'Financials')); H.appendChild(el('span', '', ['last 12 months' + (F.to ? ' to ' + F.to : ''), F.cur].filter(Boolean).join(' · '))); if (F.old) H.appendChild(el('em', 'ab-fin-old', 'old figures: eToro has nothing newer'));
     if (F.health) {
       const Hh = F.health, B = S.appendChild(el('div', 'ab-hl')), top = B.appendChild(el('div', 'ab-hl-h')); B.dataset.now = Hh.now; B.dataset.next = Hh.next || '';
       top.appendChild(el('span', 'ab-hl-b is-' + Hh.now.toLowerCase(), Hh.now + ' now')); if (Hh.next) top.appendChild(el('span', 'ab-hl-b is-' + (Hh.next === 'healthy' ? 'healthy' : Hh.next === 'weaker' ? 'mixed' : 'weak'), 'Projected ' + Hh.next));
@@ -312,6 +314,7 @@
       Hh.tests.forEach((t) => { const b = pips.appendChild(el('button', 'ab-hl-t ' + (t.ok == null ? 'is-na' : t.ok ? 'is-ok' : 'is-no'))); b.type = 'button'; b.appendChild(el('i', '', t.ok == null ? '–' : t.ok ? '✓' : '✕')).setAttribute('aria-hidden', 'true'); b.appendChild(el('span', '', t.k)); b.setAttribute('aria-label', `${t.k}: ${t.ok == null ? 'not judged' : t.ok ? 'passed' : 'failed'}`); b.addEventListener('click', () => show(t, b)); });
       const first = Hh.tests.find((t) => t.ok === false) || Hh.tests[4] || Hh.tests[0]; show(first, pips.children[Hh.tests.indexOf(first)]);
     }
+    rankCard(S.appendChild(el('div', 'ab-rk')), id);
     const max = Math.max(...F.rows.map((r) => Math.abs(r.v)), ...F.rows.map((r) => Math.abs(r.a || 0))), bars = S.appendChild(el('div', 'ab-fin-bars')); bars.setAttribute('role', 'list');
     for (const r of F.rows) {
       const row = bars.appendChild(el('div', 'ab-fin-row' + (r.v < 0 ? ' is-neg' : ''))); row.setAttribute('role', 'listitem'); row.dataset.k = r.k;
@@ -329,6 +332,26 @@
     if (F.growth.length) { const G = S.appendChild(el('div', 'ab-fin-g')); G.appendChild(el('span', 'ab-fin-gk', 'How fast sales grew, per year on average')); for (const [k, v] of F.growth) { const c = G.appendChild(el('span', 'ab-p')); c.appendChild(el('i', '', k)); c.appendChild(el('b', v > 0 ? 'up' : v < 0 ? 'down' : '', pc(v))); } }
     S.appendChild(el('div', 'ab-fin-n', `Bars: share of sales.${F.year && F.rows.some((r) => r.a != null) ? ` Tick: fiscal year ${F.year}.` : ''} Figures from eToro.${F.health ? ' The health reading is five tests on these figures, not a study.' : ''}`));
     return S;
+  }
+  // its places in last night's financial ranking (screen.js finOf; the scores are made each night by the scan, fin.js): one bar a
+  // field, its length the score (the share of ranked companies it beats), the place written beside it; a tap opens that list in
+  // Markets with this company lit up. The scan may still be on its way when the page opens: one more look 3 s later.
+  function rankCard(C, id, again) {
+    const R = window.SRScreen && window.SRScreen.fin ? window.SRScreen.fin(id) : null;
+    if (!R) { C.hidden = true; if (!again && window.SRScreen) setTimeout(() => { if (C.isConnected) rankCard(C, id, true); }, 3000); return; }
+    C.hidden = false; C.replaceChildren(); const n0 = R.cats[0].n, fmt = (x) => x.toLocaleString('en-US');
+    const h = C.appendChild(el('div', 'ab-rk-h')); h.appendChild(el('b', '', 'Ranking')); h.appendChild(el('span', '', `among ${fmt(n0)} companies · ${new Date(R.made).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`));
+    for (const c of R.cats) {
+      const row = C.appendChild(el(c.score == null ? 'div' : 'button', 'ab-rk-r' + (c.k === 'all' ? ' is-all' : '') + (c.score == null ? ' is-na' : ''))); row.dataset.k = c.k; row.appendChild(el('span', 'ab-rk-k', c.label));
+      if (c.score == null) { row.appendChild(el('span', 'ab-rk-none', c.k === 'debt' ? 'not judged for a financial company' : c.k === 'outlook' ? 'fewer than three analysts' : c.k === 'all' ? 'too few figures for an overall place' : 'no figures')); continue; }
+      row.type = 'button'; row.setAttribute('aria-label', `${c.label}: score ${c.score}, place ${c.rank} of ${c.n}. Opens the list`);
+      const t = row.appendChild(el('span', 'ab-rk-t')); t.appendChild(el('i', '')).style.width = Math.max(1, c.score) + '%';
+      row.appendChild(el('b', 'ab-rk-s', String(c.score)));
+      const p = row.appendChild(el('span', 'ab-rk-p')); p.appendChild(el('b', '', '#' + fmt(c.rank))); p.appendChild(el('small', '', ' of ' + fmt(c.n)));
+      row.addEventListener('click', () => window.SRScreen.showRank(id, c.k));
+    }
+    if (R.sec && R.cats[0].score != null) { const b = C.appendChild(el('button', 'ab-rk-sec')); b.type = 'button'; b.appendChild(el('span', '', `In ${R.sec.name}: `)); b.appendChild(el('b', '', `#${fmt(R.sec.rank)} of ${fmt(R.sec.n)}`)); b.addEventListener('click', () => window.SRScreen.showRank(id, 'all', R.sec.name)); }
+    C.appendChild(el('div', 'ab-fin-n', 'Score: the share of ranked companies it beats, 0 to 100. Made each night. Tap a line for the list.'));
   }
   // ---- names that open their asset's page ----
   const NOLINK = new Set('US UK EU ETF ETFS RSI ATR VM UTC OK AI CEO ID PE EPS IPO USD EUR GBP HKD NOK AUD JPY CHF CAD SEK DKK FX TA SMA EMA MA PM AM NY ON IT ALL ARE BE NOW SO GO OR AN AT BY DO IF IN IS ME MY NO OF TO UP WE TP SL CFD NAV GDP CPI FED API APP NEW TOP BIG ONE'.split(' '));

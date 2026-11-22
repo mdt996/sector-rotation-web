@@ -250,9 +250,9 @@
         const range = visiblePrices();
         if (rangeBar.hidden === !!bars.length) { rangeBar.hidden = !bars.length; sizeMain(); }
         const moved = range && range.first.time < range.last.time && range.first.close > 0;
-        const text = moved ? (opts.rangeLabel || 'Price change') + ' in view: ' + comparePct((range.last.close / range.first.close - 1) * 100) : 'Fewer than two prices in view';
+        const lab = moved ? (opts.rangeLabel || 'Price change') + ' in view: ' : '', val = moved ? comparePct((range.last.close / range.first.close - 1) * 100) : 'Fewer than two prices in view';
         const dates = moved ? rangeDate(range.first.time) + ' – ' + rangeDate(range.last.time) : '';
-        if (rangeValue.textContent !== text) rangeValue.textContent = text;
+        if (rangeValue.textContent !== lab + val) { rangeValue.replaceChildren(); if (lab) rangeValue.appendChild(el('span', 'ch-rl', lab)); rangeValue.appendChild(document.createTextNode(val)); }   // the words apart: a phone's full view leaves them out
         if (rangeDates.textContent !== dates) rangeDates.textContent = dates;
         const shared = comparison && comparisonWindow(comparison.data, range);
         syncCompareLines(shared);

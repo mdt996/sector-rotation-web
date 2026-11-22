@@ -1307,6 +1307,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();

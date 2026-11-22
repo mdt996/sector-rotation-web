@@ -30,7 +30,15 @@
   const table = (box, cols, cls) => { const tb = box.appendChild(el('div', 't-table ' + (cls || 't-t4'))), hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of cols) hd.appendChild(el('span', '', h)); return tb; };
   const row = (tb, name, sub, cells, cls) => { const r = tb.appendChild(el('div', 't-tr' + (cls ? ' ' + cls : ''))), nm = r.appendChild(el('span', 't-name', name)); if (sub) nm.appendChild(el('small', 't-sub', sub)); for (const c of cells) r.appendChild(Array.isArray(c) ? el('span', c[1] || '', c[0]) : el('span', '', c)); return r; };
 
-  const KEYS = ['gold', 'etoro', 'crypto'], VENUE = { gold: 'etoro', etoro: 'etoro', crypto: 'revx' };
+  // the three labs, then the portfolios made in the app (Matteo, 22 Nov 2026: "offer the possibility of deleting or creating new paper
+  // trading portfolios for etoro or revolut x auto trading rules"), as the VM's summary lists them (custom: true)
+  const BASE = ['gold', 'etoro', 'crypto'], VENUE0 = { gold: 'etoro', etoro: 'etoro', crypto: 'revx' };
+  const keysOf = () => BASE.concat(LB.sum && Array.isArray(LB.sum.labs) ? LB.sum.labs.filter((l) => l && l.custom && /^u[a-z0-9]{3,10}$/.test(l.key)).map((l) => l.key) : []);
+  const venueOf = (k) => VENUE0[k] || ((LB.sum && LB.sum.labs.find((x) => x.key === k)) || {}).venue || 'etoro';
+  // the markets a portfolio may hold: those the labs already follow (lab/engine.js ETORO and REVX)
+  const MARKETS = { etoro: [['18', 'Gold'], ['27', 'S&P 500'], ['28', 'Nasdaq 100'], ['32', 'DAX'], ['1', 'EUR/USD'], ['5', 'USD/JPY'], ['17', 'Oil']],
+    revx: ['BTC', 'ETH', 'XRP', 'SOL', 'PEPE', 'HYPE', 'NEAR', 'LINK', 'DOGE', 'AAVE', 'JUP', 'ADA', 'XLM', 'AVAX', 'HBAR', 'LTC'].map((c) => [c + '-USD', c]) };
+  const CUSTOM_MAX = 3;
   const TFS = [['1', '1m'], ['5', '5m'], ['15', '15m'], ['60', '1h'], ['240', '4h'], ['1440', '1D']];
   // the market each lab is measured against, as a line on its chart (Matteo, 22 Nov 2026: "offer the comparison, like you do for
   // the etoro demo portfolio with the sp500, with the reference asset. For example the gold only portfolio can be compared with
@@ -47,17 +55,17 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: false, more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
-  try { const k = localStorage.getItem('sr.labSel'); if (KEYS.includes(k)) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = !!c.bench; } catch (e) { /* the gold lab, 5-minute candles */ }
+  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: true, more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  try { const k = localStorage.getItem('sr.labSel'); if (/^[a-z0-9]{3,12}$/.test(k || '')) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = c.ref == null ? true : !!c.ref; } catch (e) { /* the gold lab, 5-minute candles */ }   // the market's line is on unless switched off (Matteo, 22 Nov 2026: the comparison "also in the chart")
   // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
   // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
   const PANES = [['now', 'Now'], ['trades', 'Trades'], ['history', 'History'], ['learning', 'Learning'], ['all', 'All']];
   try { const q = JSON.parse(localStorage.getItem('sr.labPane') || 'null'); if (PANES.some((x) => x[0] === q)) LB.pane = q; } catch (e) { /* the first part */ }
-  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style, bench: LB.bench })); } catch (e) { /* not kept */ } };
+  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style, ref: LB.bench })); } catch (e) { /* not kept */ } };
 
   // ---- reading ----
   const read = async (name) => { try { return window.SRSync && window.SRSync.getFile ? await window.SRSync.getFile(name) : null; } catch (e) { return null; } };
-  const validSum = (j) => !!(j && Number.isFinite(Date.parse(j.made)) && Array.isArray(j.labs) && KEYS.every((k) => j.labs.some((l) => l && l.key === k && Number.isFinite(l.equity) && l.start > 0 && l.port && Array.isArray(l.open) && Array.isArray(l.assets) && Array.isArray(l.entries))));
+  const validSum = (j) => !!(j && Number.isFinite(Date.parse(j.made)) && Array.isArray(j.labs) && BASE.every((k) => j.labs.some((l) => l && l.key === k && Number.isFinite(l.equity) && l.start > 0 && l.port && Array.isArray(l.open) && Array.isArray(l.assets) && Array.isArray(l.entries))));
   async function load(force) {
     if (LB.loading) return; LB.loading = true; let got = false;
     try {
@@ -74,6 +82,8 @@
       const k = LB.sel, d = LB.det[k], dMade = d ? Date.parse(d.made) : 0; now = Date.now();
       const wantDet = LB.sum && LB.sum.format === 2 && (!d || force || (rev.det && rev.det[k] > dMade + 500) || now - (LB.detAt[k] || 0) >= 300000);
       if (wantDet && (force || now - (LB.detAt[k] || 0) >= 5000)) { const j = await read(`lab-${k}.json`); LB.detAt[k] = Date.now(); got = true; if (j && j.key === k && Array.isArray(j.eq60) && Number.isFinite(Date.parse(j.made))) LB.det[k] = j; }
+      // the portfolios made in the app, as written (one may be waiting for the VM to start it): at the start, on Refresh, then every 10 minutes
+      if (window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite() && (force || now - (LB.custAt || 0) >= 600000)) { const j = await read('lab/custom.json'); LB.custAt = Date.now(); if (j && Array.isArray(j.labs)) LB.cust = j; else if (!LB.cust) LB.cust = { v: 1, labs: [] }; }
       // the backtest: read once, then when the live file says a new one was made (once a day)
       const btMade = LB.bt ? Date.parse(LB.bt.made) : 0; now = Date.now();
       if (rev.bt > 0 && (rev.bt > btMade + 500 || force) && now - (LB.btAt || 0) >= (force ? 5000 : 600000)) { const j = await read('lab-backtest.json'); LB.btAt = Date.now(); got = true; if (j && j.labs && Number.isFinite(Date.parse(j.made))) LB.bt = j; }
@@ -95,11 +105,11 @@
   const levStep = (v) => { for (const st of [1, 2, 5, 10, 20, 30]) if (st >= v - 1e-9) return st; return Math.round(v); };
   function valueOf(o, key) {
     const u = +o.units, fee0 = +o.fee0 || 0;
-    if (u > 0 && VENUE[key] === 'etoro' && window.SRLive && SRLive.quotes) {
+    if (u > 0 && venueOf(key) === 'etoro' && window.SRLive && SRLive.quotes) {
       const q = SRLive.quotes.get(+o.a), conv = o.quote === 'USD' ? 1 : q && q.conv > 0 ? q.conv : 0;
       if (q && q.bid > 0 && q.ask > 0 && conv > 0 && Date.now() - q.got < 60000) { const slip = 0.25 * (q.ask - q.bid), p = o.dir > 0 ? q.bid - slip : q.ask + slip; return [o.dir * u * (p - o.e) * conv - fee0 - (+o.fee || 0) * u * p * conv, (q.bid + q.ask) / 2, true]; }
     }
-    if (u > 0 && VENUE[key] === 'revx' && window.SRRevx && window.SRRevx.book) {
+    if (u > 0 && venueOf(key) === 'revx' && window.SRRevx && window.SRRevx.book) {
       const B = window.SRRevx.book(), q = B && B.usd && B.usd[o.sym];
       if (q && q.bid > 0 && q.ask > 0 && Date.now() - B.at < 30000) { const slip = 0.25 * (q.ask - q.bid), p = o.dir > 0 ? q.bid - slip : q.ask + slip; return [o.dir * u * (p - o.e) - fee0 - (+o.fee || 0) * u * p, (q.bid + q.ask) / 2, true]; }
     }
@@ -114,7 +124,7 @@
   // which prices this page needs from eToro's stream: the open trades' markets
   function want() {
     if (!window.SRLive || !SRLive.want) return;
-    const ids = new Set(); for (const k of KEYS) if (VENUE[k] === 'etoro') { const N = now(k); if (N) for (const o of N.open) if (+o.a > 0) ids.add(+o.a); }
+    const ids = new Set(); for (const k of keysOf()) if (venueOf(k) === 'etoro') { const N = now(k); if (N) for (const o of N.open) if (+o.a > 0) ids.add(+o.a); }
     const key = [...ids].sort().join(','); if (key !== LB.wanted) { LB.wanted = key; SRLive.want('labs', [...ids]); }
   }
 
@@ -156,8 +166,14 @@
   }
   // the reference market over the lab's own candles, set to the lab's value at the first candle they share (as the demo account's
   // S&P 500 line): where the two part, the lab did something holding would not have. eToro's candles; kept a minute.
+  // a lab's market for the line on its chart: the three's own, or the one chosen for a portfolio made in the app (eToro's candles)
+  function refOf(key) {
+    if (REF[key]) return REF[key]; const L = sumLab(key); if (!L || !L.versusId) return null;
+    const v = String(L.versusId), id = venueOf(key) === 'revx' ? (window.SRLive && SRLive.liveIdOf ? SRLive.liveIdOf(v.replace(/-USD$/, '')) : null) : +v;
+    const nm = ((MARKETS[venueOf(key)] || []).find((m) => m[0] === v) || [])[1] || L.versusName || v; return id > 0 ? { id, name: nm } : null;
+  }
   function bench(tv, key, bars, tf) {
-    const R = REF[key]; if (!tv.bench) return;
+    const R = refOf(key); if (!tv.bench) return;
     if (!LB.bench || !R || !IV[tf] || !window.SRLive || !SRLive.candles) { tv.bench.applyOptions({ visible: false }); tv.host.dataset.bench = '0'; tv.benchAt0 = null; return; }
     const ms = tf * 60000, want = `${key}|${tf}|${bars[0].b}|${bars.length}`; tv.benchWant = want;
     const paint = (rows) => {
@@ -189,8 +205,8 @@
       const bar = H.appendChild(el('div', 't-chips t-tfs')), chip = (k, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (LB[k] === val ? ' on' : ''), label)); b.type = 'button'; b.dataset.k = k + ':' + val; b.addEventListener('click', () => { LB[k] = val; keep(); chart(B, key, valued(key), 'full'); }); };
       for (const [k, l] of TFS) chip('tf', k, l);
       bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
-      if (REF[key]) { bar.appendChild(el('span', 't-sep', '·')); const bb = bar.appendChild(el('button', 't-chip t-chip-ref' + (LB.bench ? ' on' : ''), 'vs ' + REF[key].name)); bb.type = 'button'; bb.dataset.k = 'bench'; bb.setAttribute('aria-pressed', String(!!LB.bench));
-        bb.title = `Holding ${REF[key].name.toLowerCase() === 'gold' ? 'gold' : REF[key].name} over the same candles, set to the lab's value at the first one they share`; bb.addEventListener('click', () => { LB.bench = !LB.bench; keep(); chart(B, key, valued(key), 'full'); }); }
+      const RF = refOf(key); if (RF) { bar.appendChild(el('span', 't-sep', '·')); const bb = bar.appendChild(el('button', 't-chip t-chip-ref' + (LB.bench ? ' on' : ''), 'vs ' + RF.name)); bb.type = 'button'; bb.dataset.k = 'bench'; bb.setAttribute('aria-pressed', String(!!LB.bench));
+        bb.title = `Holding ${RF.name.toLowerCase() === 'gold' ? 'gold' : RF.name} over the same candles, set to the lab's value at the first one they share`; bb.addEventListener('click', () => { LB.bench = !LB.bench; keep(); chart(B, key, valued(key), 'full'); }); }
       tv.legend = H.appendChild(el('div', 't-legend'));
     }
     if (tv.fullV) { tv.fullV.textContent = usd(V.equity); tv.fullS.textContent = ` ${usd2(V.total)} (${pc(100 * V.total / L.start)})`; tv.fullS.className = sign(V.total); }
@@ -229,7 +245,7 @@
   // ---- the page ----
   function skeleton(root) {
     root.textContent = '';
-    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), top: root.appendChild(el('div', 't-labtop')),
+    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), form: root.appendChild(el('div', 't-labform')), top: root.appendChild(el('div', 't-labtop')),
       tabs: root.appendChild(el('div', 't-labtabs')), chart: root.appendChild(el('div', 't-labchartbox')), body: root.appendChild(el('div', 't-labbody')) };
     R.tabs.setAttribute('role', 'tablist'); R.tabs.setAttribute('aria-label', 'Parts of this lab');
     for (const [k, name] of PANES) { const b = R.tabs.appendChild(el('button', 't-labtab', name)); b.type = 'button'; b.dataset.pane = k; b.setAttribute('role', 'tab'); b.addEventListener('click', () => { if (LB.pane === k) return; LB.pane = k; keep(); panes(R); }); }
@@ -244,7 +260,7 @@
   }
   function status(R) {
     const S = R.status, made = LB.live ? Date.parse(LB.live.made) : LB.sum ? Date.parse(LB.sum.made) : 0, age = made ? Date.now() - made : null, slow = age == null || age > 6 * 60000;
-    const stream = window.SRLive && SRLive.streamState ? SRLive.streamState() : null, any = KEYS.some((k) => { const v = valued(k); return v && v.live; });
+    const stream = window.SRLive && SRLive.streamState ? SRLive.streamState() : null, any = keysOf().some((k) => { const v = valued(k); return v && v.live; });
     S.textContent = ''; S.appendChild(el('span', 't-dot ' + (slow ? 'off' : 'on')));
     S.appendChild(el('span', '', slow ? (age == null ? 'No report yet' : `VM report ${span(age)} ago: check the lab runner`) : any && stream && stream.ok ? `Live · ${clock(Date.now())}` : `VM report ${span(age)} ago`));
     S.appendChild(el('span', 't-labpaper', 'Paper only: no order is ever sent'));   // on its own line: the age of the report changes length and must not rewrap the page
@@ -257,7 +273,7 @@
   }
   function cards(R) {
     R.cards.textContent = '';
-    for (const key of KEYS) {
+    for (const key of keysOf()) {
       const L = sumLab(key), V = valued(key); if (!L || !V) continue;
       const P = L.top && L.top.proof, d = tile(R.cards, L.name, usd(V.equity), ' ', sign(V.total)); tileSub(d.querySelector('.g-stat-s'), L, V);
       // where it stands, in a word: the VM's own verdict (the "Proof so far" line under the lab's value says why)
@@ -265,7 +281,56 @@
       d.classList.add('t-labcard'); d.dataset.lab = key; if (key === LB.sel) d.classList.add('on'); d.setAttribute('role', 'button'); d.tabIndex = 0;
       const pick = () => { if (LB.sel === key) return; LB.sel = key; keep(); LB.bodySig = ''; paint(); load(false); };
       d.addEventListener('click', pick); d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') pick(); });
+      if (L.custom && LB.cust && !custList().some((c) => c.key === key)) d.appendChild(el('span', 't-labword t-labgone', 'Stopping'));   // deleted here, still running until the VM restarts it
     }
+    if (!(window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite())) return;
+    for (const c of custList()) if (!sumLab(c.key)) { const w = R.cards.appendChild(el('div', 'g-stat t-labcard t-labwait')); w.dataset.lab = c.key; w.appendChild(el('span', 'g-stat-k', `${c.name} · ${c.venue === 'revx' ? 'Revolut X' : 'eToro'}`)); w.appendChild(el('span', 'g-stat-v', '$2,000.00')); w.appendChild(el('span', 'g-stat-s', 'Starting on the VM…')); }
+    const full = custList().length >= CUSTOM_MAX, nb = R.cards.appendChild(el('button', 'g-stat t-labnew' + (LB.form ? ' on' : ''))); nb.type = 'button'; nb.disabled = full && !LB.form;
+    nb.appendChild(el('span', 't-labnew-p', '+')); nb.appendChild(el('span', '', full ? `Up to ${CUSTOM_MAX} portfolios of your own` : 'New paper portfolio'));
+    nb.addEventListener('click', () => { LB.form = LB.form ? null : { name: '', venue: 'etoro', assets: [], versus: '', msg: '' }; drawForm(R); cards(R); });
+  }
+  const custList = () => (LB.cust && Array.isArray(LB.cust.labs) ? LB.cust.labs.filter((c) => c && /^u[a-z0-9]{3,10}$/.test(c.key)) : []);
+  // the form of a new portfolio: a name, eToro or Revolut X, its markets, the market it is set against. Drawn only when something in it
+  // changes (never by the live repaints, which would take the keyboard away while typing).
+  function drawForm(R) {
+    const B = R.form, F = LB.form; B.textContent = ''; B.hidden = !F; if (!F) return;
+    B.appendChild(el('b', 't-labform-h', 'New paper portfolio'));
+    const nm = B.appendChild(el('label', 't-labform-f')); nm.appendChild(el('span', '', 'Name'));
+    const inp = nm.appendChild(el('input', '')); inp.type = 'text'; inp.maxLength = 32; inp.value = F.name; inp.placeholder = F.venue === 'revx' ? 'My crypto' : 'My eToro'; inp.addEventListener('input', () => { F.name = inp.value; });
+    const vrow = B.appendChild(el('div', 't-labform-f')); vrow.appendChild(el('span', '', 'Where'));
+    const vs = vrow.appendChild(el('div', 't-chips t-labform-v'));
+    for (const [v, t] of [['etoro', 'eToro: leveraged, long and short'], ['revx', 'Revolut X: crypto, buy only']]) { const b = vs.appendChild(el('button', 't-chip' + (F.venue === v ? ' on' : ''), t)); b.type = 'button'; b.setAttribute('aria-pressed', String(F.venue === v)); b.addEventListener('click', () => { if (F.venue === v) return; F.venue = v; F.assets = []; F.versus = ''; drawForm(R); }); }
+    const mrow = B.appendChild(el('div', 't-labform-f')); mrow.appendChild(el('span', '', 'Markets'));
+    const ms = mrow.appendChild(el('div', 't-chips t-labform-m'));
+    for (const [id, t] of MARKETS[F.venue]) { const on = F.assets.includes(id), b = ms.appendChild(el('button', 't-chip' + (on ? ' on' : ''), t)); b.type = 'button'; b.dataset.id = id; b.setAttribute('aria-pressed', String(on));
+      b.addEventListener('click', () => { F.assets = on ? F.assets.filter((x) => x !== id) : F.assets.concat(id); if (!F.assets.includes(F.versus)) F.versus = F.assets[0] || ''; drawForm(R); }); }
+    if (F.assets.length) {
+      const crow = B.appendChild(el('label', 't-labform-f')); crow.appendChild(el('span', '', 'Compare with')); const sel = crow.appendChild(el('select', 'sc-sel'));
+      for (const id of F.assets) sel.appendChild(new Option('Holding ' + MARKETS[F.venue].find((m) => m[0] === id)[1], id)); sel.value = F.versus || F.assets[0]; sel.addEventListener('change', () => { F.versus = sel.value; });
+    }
+    B.appendChild(el('p', 'g-hint', `$2,000 of paper money, with the rules, costs and limits of the ${F.venue === 'revx' ? 'Revolut X' : 'eToro'} lab. Paper only: no order is ever sent. It starts on the VM in about 10 to 20 minutes.`));
+    const act = B.appendChild(el('div', 't-labform-a')), go = act.appendChild(el('button', 'btn btn-primary', F.busy ? 'Saving…' : 'Create')), no = act.appendChild(el('button', 'btn', 'Cancel'));
+    go.type = no.type = 'button'; go.disabled = !!F.busy || !F.assets.length; no.addEventListener('click', () => { LB.form = null; drawForm(R); cards(R); });
+    if (F.msg) act.appendChild(el('span', 'g-hint t-labform-msg', F.msg));
+    go.addEventListener('click', async () => {
+      F.busy = true; F.msg = ''; drawForm(R);
+      const fresh = await read('lab/custom.json'), list = fresh && Array.isArray(fresh.labs) ? fresh.labs : custList();   // another device may have changed it
+      if (list.length >= CUSTOM_MAX) { F.busy = false; F.msg = `There are already ${CUSTOM_MAX}: delete one first.`; drawForm(R); return; }
+      const item = { key: 'u' + Date.now().toString(36).slice(-7), name: (F.name.trim() || (F.venue === 'revx' ? 'My crypto' : 'My eToro')).slice(0, 32), venue: F.venue, assets: F.assets.slice(), versus: F.versus || F.assets[0], at: Date.now() };
+      const doc = { v: 1, about: 'Paper portfolios made in the app; lab/engine.js setCustom checks every field. Paper only.', labs: list.concat(item) };
+      const r = await window.SRSync.putFile('lab/custom.json', doc, 'Paper portfolio added in the app: ' + item.name);
+      if (r.ok) { LB.cust = doc; LB.form = null; drawForm(R); cards(R); } else { F.busy = false; F.msg = 'Not saved: ' + r.why; drawForm(R); }
+    });
+  }
+  // a portfolio made in the app can be deleted there: two taps, the second within 6 seconds
+  async function remove(key) {
+    if (!(LB.del && LB.del.key === key && Date.now() - LB.del.at < 6000)) { LB.del = { key, at: Date.now() }; paint(); setTimeout(() => { if (LB.del && LB.del.key === key && !LB.del.busy) { LB.del = null; paint(); } }, 6100); return; }
+    LB.del.busy = true; paint();
+    const fresh = await read('lab/custom.json'), list = (fresh && Array.isArray(fresh.labs) ? fresh.labs : custList()).filter((c) => c && c.key !== key);
+    const doc = { v: 1, about: 'Paper portfolios made in the app; lab/engine.js setCustom checks every field. Paper only.', labs: list };
+    const r = await window.SRSync.putFile('lab/custom.json', doc, 'Paper portfolio deleted in the app');
+    LB.del = null; if (r.ok) { LB.cust = doc; LB.gone = 'Deleted. It stops on the VM in about 10 to 20 minutes, and its record goes with it.'; } else LB.gone = 'Not deleted: ' + r.why; setTimeout(() => { LB.gone = null; paint(); }, 20000);
+    paint();
   }
   // under a tile's value: its return, then its trades, each on one line of its own (the same at every reading and between two:
   // a line that came and went made the page jump)
@@ -325,6 +390,14 @@
       const W = T.appendChild(el('details', 't-labwords')); W.appendChild(el('summary', '', 'In words')); for (const w of words) W.appendChild(w);
       W.open = wordsOpen.get(L.key) === true; W.addEventListener('toggle', () => wordsOpen.set(L.key, W.open));
     }
+    if (L.custom) {
+      const C = T.appendChild(el('div', 't-labmine')); C.appendChild(el('span', 'g-hint', `Made in the app · ${(L.assets || []).join(', ')} · set against ${L.versusName || '—'}`));
+      if (window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite() && custList().some((c) => c.key === L.key)) {
+        const sure = LB.del && LB.del.key === L.key, b = C.appendChild(el('button', 'btn t-labdel' + (sure ? ' is-sure' : ''), LB.del && LB.del.busy ? 'Deleting…' : sure ? 'Tap again to delete: its record goes' : 'Delete this portfolio')); b.type = 'button'; b.disabled = !!(LB.del && LB.del.busy);
+        b.addEventListener('click', () => remove(L.key));
+      }
+    }
+    if (LB.gone) { T.appendChild(el('div', 'g-hint t-labgonemsg', LB.gone)); }
     const sc = V.N.scale == null ? L.scale : V.N.scale;
     if (sc != null && sc < 1) T.appendChild(el('div', 'g-warn t-labbrake', `Stakes at ${Math.round(sc * 100)}% of normal${L.streak >= 3 ? `: ${L.streak} losses in a row` : ': a fall from the 3-day high'}.${L.coolUntil > Date.now() ? ` No new trade before ${hm(L.coolUntil)}.` : ''}`));
     if (L.resetPending) T.appendChild(el('div', 'g-warn', 'Reset pending: waiting for fresh prices to settle the remaining paper trades. No new entries.'));
@@ -674,7 +747,9 @@
       const b = root.appendChild(el('button', 'btn t-labrefresh', LB.loading ? 'Reading…' : 'Refresh')); b.type = 'button'; b.disabled = LB.loading; b.addEventListener('click', () => { load(true); });
       root.appendChild(el('div', 'g-hint', LB.sumAt ? 'No lab report available. The lab runner must be installed and running on the VM, and this device needs the owner’s GitHub sync key.' : 'Reading the labs…')); return;
     }
+    if (!sumLab(LB.sel)) LB.sel = 'gold';
     const R = LB.R && root.contains(LB.R.body) ? LB.R : skeleton(root), key = LB.sel, L = sumLab(key), V = valued(key), D = LB.det[key];
+    if (!!LB.form !== !R.form.hidden || (LB.form && !R.form.childElementCount)) drawForm(R);
     want(); status(R); cards(R); top(R, L, V);
     const cf = key + '|' + LB.sum.made + '|' + (D ? D.made : '') + '|' + V.N.open.length; chart(R.chart, key, V, R.chart.dataset.for === cf ? 'tick' : 'data'); R.chart.dataset.for = cf;
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
@@ -696,7 +771,7 @@
     const root = LB.root, R = LB.R; if (!root || !R || !LB.sum || !root.isConnected || root.closest('[hidden]') || document.hidden) return;
     if (Date.now() - LB.lastTick < 250) return; LB.lastTick = Date.now();
     const key = LB.sel, L = sumLab(key), V = valued(key); if (!L || !V) return;
-    for (const k of KEYS) { const c = R.cards.querySelector(`[data-lab="${k}"]`), v = k === key ? V : valued(k), Lk = sumLab(k); if (!c || !v || !Lk) continue; const b = c.querySelector('.g-stat-v'), s = c.querySelector('.g-stat-s');
+    for (const k of keysOf()) { const c = R.cards.querySelector(`[data-lab="${k}"]`), v = k === key ? V : valued(k), Lk = sumLab(k); if (!c || !v || !Lk) continue; const b = c.querySelector('.g-stat-v'), s = c.querySelector('.g-stat-s');
       b.textContent = usd(v.equity); b.className = 'g-stat-v ' + sign(v.total); tileSub(s, Lk, v); }
     const big = R.top.querySelector('[data-live="equity"]'); if (big) { const t = usd(V.equity); if (big.textContent !== t) big.textContent = t; }
     const sub = R.top.querySelectorAll('.t-sub b'); if (sub[0]) { sub[0].textContent = `${usd2(V.total)} (${pc(100 * V.total / L.start)})`; sub[0].className = sign(V.total); } if (sub[1] && V.day != null) { sub[1].textContent = usd2(V.day); sub[1].className = sign(V.day); }

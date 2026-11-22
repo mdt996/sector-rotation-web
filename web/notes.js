@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 129, "text": "Labs: a new button on each lab's chart draws its market beside it (vs Gold, vs S&P 500, vs Bitcoin). A company's page draws its financials, a health reading and the 1-year return analysts expect; shares without earnings get a model value from what they own and sell."};
+window.SR_NOTES = {"build": 130, "text": "Markets ranks every company on profit, cash flow, debt, growth and outlook each night: the healthiest and least healthy, and each company's place on its page. Labs: make or delete your own paper portfolios; each lab's chart shows its market. A phone's full-screen chart has more room."};

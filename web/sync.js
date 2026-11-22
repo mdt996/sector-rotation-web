@@ -113,13 +113,25 @@
     }
     // the candle files live on their own branch ("packs": one commit, replaced when they are rewritten, so the repository does not grow); the main branch is tried if a file is not there
     const url = API.replace(/settings\.json$/, name) + '?t=' + Date.now(), hd = { ...headers(t), Accept: 'application/vnd.github.raw+json' };
-    let r = await SRApp.request('GET', url + (/^packs\//.test(name) ? '&ref=packs' : /^lab(-[a-z]+)?\.json$/.test(name) ? '&ref=lab' : ''), hd);   // lab.json, lab-live.json, lab-<key>.json: the paper labs' branch
+    let r = await SRApp.request('GET', url + (/^packs\//.test(name) ? '&ref=packs' : /^lab(-[a-z0-9]+)?\.json$/.test(name) ? '&ref=lab' : ''), hd);   // lab.json, lab-live.json, lab-<key>.json: the paper labs' branch
     if (r.status === 404 && /^packs\//.test(name)) r = await SRApp.request('GET', url, hd);
     if (r.status !== 200) return null;
     const j = JSON.parse(r.body);
     return j && typeof j.content === 'string' && j.encoding === 'base64' && j.sha ? JSON.parse(b64d(j.content)) : j;   // the usual answer, if the raw form was not given
   }
-  window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus, getFile, readFile: getFile };   // readFile: the reader itself, also where a check stands in for getFile
+  // the one file the app writes besides the settings: the paper portfolios made in the app (lab/custom.json; the labs on the VM read it
+  // when they start, and a change there restarts them). Only on a device with the owner's sync key.
+  async function putFile(name, obj, message) {
+    const t = token(); if (!t) return { ok: false, why: 'Only on a device with your GitHub sync key.' };
+    if (name !== 'lab/custom.json') return { ok: false, why: 'Not a file the app writes.' };
+    const url = API.replace(/settings\.json$/, name), g = await SRApp.request('GET', url + '?t=' + Date.now(), headers(t));
+    let s0 = null; if (g.status === 200) { try { s0 = JSON.parse(g.body).sha || null; } catch (e) { s0 = null; } } else if (g.status !== 404) return { ok: false, why: why(g) };
+    const body = JSON.stringify({ message: (message || 'Paper portfolios') + ' [skip ci]', content: b64e(JSON.stringify(obj, null, 1) + '\n'), ...(s0 ? { sha: s0 } : {}) });
+    const r = await SRApp.request('PUT', url, headers(t), body);
+    return r.status === 200 || r.status === 201 ? { ok: true } : { ok: false, why: why(r) };
+  }
+  const canWrite = () => !!token();
+  window.SRSync = { pull: pullOnce, afterSave, pushSoon, showStatus, getFile, readFile: getFile, putFile, canWrite };   // readFile: the reader itself, also where a check stands in for getFile
   // when the app opens, when you come back to it, and every 5 minutes while it is open
   setTimeout(pullOnce, 1500);
   setInterval(() => { if (!document.hidden) pullOnce(); }, 5 * 60 * 1000);
