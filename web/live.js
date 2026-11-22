@@ -452,8 +452,9 @@
       if (dead || !f) return;
       // a share with no study made by hand: the model value, on the chart and beside it
       if (!(window.SR_FAIR && window.SR_FAIR[inst.symbol]) && window.SRAbout.valuation) {
-        try { modelFair = window.SRAbout.valuation(f, window.SRAbout.sectorPE(f.umbrellasector)); } catch (e) { modelFair = null; }
-        if (!modelFair && /^stocks?$/i.test(String(f.internalassetclassname || ''))) fairWhy = `No fair value for ${inst.symbol}: the model needs earnings over the last twelve months and two price/earnings yardsticks, and eToro's figures do not give them here.`;
+        try { modelFair = window.SRAbout.valuation(f, window.SRAbout.sectorPE(f.umbrellasector)) || window.SRAbout.assetValue(f, window.SRAbout.sectorPS(f.umbrellasector)); } catch (e) { modelFair = null; }
+        const cls = String(f.internalassetclassname || '');
+        if (!modelFair) fairWhy = /^stocks?$/i.test(cls) ? `No fair value for ${inst.symbol}: eToro gives no earnings, book value or sales to work from.` : `No fair value for ${inst.symbol}: ${/etf|fund/i.test(cls) ? 'a fund' : /crypto/i.test(cls) ? 'a coin' : /commod/i.test(cls) ? 'a commodity' : /curr/i.test(cls) ? 'a currency pair' : /indic|index/i.test(cls) ? 'an index' : 'this asset'} has no earnings or sales to value.`;
         try { ch.setFair(fairOf()); facts(); } catch (e) { /* the page was closed meanwhile */ }
       }
       // the next results date, in the empty days after the last candle
@@ -471,6 +472,20 @@
     howText.hidden = true;
     const fvText = side.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
     const sFvK = sFv.parentElement.querySelector('dt'); let fairWhy = '';   // why there is no value, when there is none
+    // the value as a picture instead of two lines of figures: the band from bear to bull, the base, and where the price stands
+    const gauge = side.insertBefore(el('div', 'fv-g'), stats); gauge.hidden = true;
+    const paintGauge = (fv, px) => {
+      if (!fv && fairWhy) { gauge.hidden = false; if (gauge.dataset.key !== fairWhy) { gauge.dataset.key = fairWhy; gauge.replaceChildren(el('div', 'fv-g-none', fairWhy)); gauge.removeAttribute('role'); gauge.removeAttribute('aria-label'); gauge.title = ''; } return; }
+      gauge.hidden = !fv || !(px > 0); if (gauge.hidden) return;
+      const lo = Math.min(fv.bear, px), hi = Math.max(fv.bull, px), pad = (hi - lo) * 0.06 || 1, a = lo - pad, w = hi + pad - a, at = (v) => (100 * (v - a) / w).toFixed(2) + '%', vs = px / fv.base - 1;
+      const say = Math.abs(vs) < 0.005 ? 'at the base' : `${Math.round(100 * Math.abs(vs))}% ${vs > 0 ? 'above' : 'below'} the base`, name = fv.model ? 'Model value' : 'Fair value';
+      const key = [name, fv.bear, fv.base, fv.bull, fmtP(px)].join('|'); if (gauge.dataset.key === key) return; gauge.dataset.key = key; gauge.replaceChildren();
+      gauge.setAttribute('role', 'img'); gauge.setAttribute('aria-label', `${name}, ${fv.confidence || 'low'} confidence: bear ${fmtP(fv.bear)}, base ${fmtP(fv.base)}, bull ${fmtP(fv.bull)}. Price ${fmtP(px)}, ${say}.`); gauge.title = fv.method || '';
+      const H = gauge.appendChild(el('div', 'fv-g-h')); H.appendChild(el('b', '', name)); H.appendChild(el('span', '', `${fv.confidence || 'low'} confidence`)); H.appendChild(el('em', vs > 0.005 ? 'is-over' : vs < -0.005 ? 'is-under' : '', `Price ${say}`));
+      const T = gauge.appendChild(el('div', 'fv-g-t')), band = T.appendChild(el('i', 'fv-g-band')), base = T.appendChild(el('i', 'fv-g-base')), dot = T.appendChild(el('i', 'fv-g-px'));
+      band.style.left = at(fv.bear); band.style.width = (100 * (fv.bull - fv.bear) / w).toFixed(2) + '%'; base.style.left = at(fv.base); dot.style.left = at(px);
+      const X = gauge.appendChild(el('div', 'fv-g-x')); for (const [k, v] of [['Bear', fv.bear], ['Base', fv.base], ['Bull', fv.bull]]) { const c = X.appendChild(el('span', '')); c.appendChild(el('i', '', k)); c.appendChild(el('b', '', fmtP(v))); }
+    };
     how.addEventListener('click', () => { howText.hidden = !howText.hidden; fvText.hidden = howText.hidden || !fvText.textContent; });
 
     // the chart: eToro/TradingView style, with drawing tools and indicators (chart.js)
@@ -916,7 +931,7 @@
       sFv.parentElement.title = fv && fv.method ? fv.method : '';
       const vs = fv && now ? now / fv.base - 1 : null;
       sVs.textContent = vs == null ? '—' : `${Math.abs(vs) < 0.005 ? 'at' : d3.format('.0%')(Math.abs(vs)) + (vs > 0 ? ' above' : ' below')} · ${fv.confidence || 'low'} confidence`;
-      sVs.parentElement.hidden = !fv; sFv.parentElement.hidden = !fv;
+      paintGauge(fv, now); sVs.parentElement.hidden = sFv.parentElement.hidden = !fv || !gauge.hidden || !!gauge.querySelector('.fv-g-none');   // the picture says it; the two lines only when it cannot be drawn
       fvText.textContent = fv ? `${fv.model ? 'Model value' : 'Fair value'} for ${inst.symbol} (${fv.as_of || 'November 2026'}, ${fv.confidence || 'low'} confidence): ${fv.method}.` : fairWhy;
     }
     // eToro lists some European lines (e.g. SEC0.DE) without serving any prices: say so, and offer the US twin

@@ -771,6 +771,24 @@ div.av-pick { max-width: none; }
 .t-labproofk { margin-top: 2px; }
 .t-labvs { margin-top: 6px; font-size: 13px; }
 .t-labvsk { margin-top: 2px; }
+/* the same two answers drawn: the road of trades to a proof, and the lab beside holding; their sentences fold under "In words" */
+.t-labmeter { margin-top: 12px; }
+.t-labmeter-h { display: flex; align-items: baseline; gap: 8px; font-size: 13px; } .t-labmeter-h b { font-size: 14px; }
+.t-labmeter-w { font-weight: 620; } .t-labmeter-n { margin-left: auto; color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+.t-labmeter-t { position: relative; height: 8px; margin-top: 6px; border-radius: 4px; background: var(--color-border-line); overflow: hidden; }
+.t-labmeter-t i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #5b6b8c; }
+.t-labmeter[data-verdict="ahead"] .t-labmeter-t i, .t-labmeter[data-verdict="holding"] .t-labmeter-t i { background: #1a9a52; } .t-labmeter[data-verdict="losing"] .t-labmeter-t i { background: #c62828; }
+.t-labchips { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.t-labchip { display: grid; padding: 6px 6px; border-radius: 8px; background: var(--color-bg); min-width: 0; } .t-labchip i { font-style: normal; font-size: 11px; color: var(--color-fg-muted); }
+.t-labchip b { font-size: 14px; font-variant-numeric: tabular-nums; } .t-labchip b.up { color: var(--color-ok); } .t-labchip b.down { color: var(--color-bad); } .t-labchip small { font-size: 11px; color: var(--color-fg-muted); }
+.t-labvsg { margin-top: 14px; display: grid; grid-template-columns: auto minmax(40px, 1fr) auto; align-items: center; gap: 6px 8px; font-size: 13px; } .t-labvsg-h { font-size: 14px; grid-column: 1 / -1; }
+.t-labvsrow { display: contents; }
+.t-labvsrow-k { color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-labvsrow-t { position: relative; height: 14px; } .t-labvsrow-t::before { content: ''; position: absolute; left: var(--zero, 0%); top: -2px; bottom: -2px; width: 1px; background: var(--color-fg-muted); opacity: .6; }
+.t-labvsrow-t i { position: absolute; top: 2px; bottom: 2px; min-width: 2px; border-radius: 0 4px 4px 0; background: #1a9a52; } .t-labvsrow-t i.is-neg { border-radius: 4px 0 0 4px; background: #c62828; }
+.t-labvsrow-v { text-align: right; font-weight: 620; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t-labvsg-c { grid-column: 1 / -1; font-size: 12px; color: var(--color-fg-muted); }
+.t-labwords { margin-top: 8px; } .t-labwords > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--sr-c1); padding: 4px 0; }
 /* the labs' tiles: three across, each with its verdict in a word; then the selected lab's page in parts (text tabs: the pills above are the Trading screens) */
 .g-stats.t-labcards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .t-labcards .g-stat { padding: 9px 9px 8px; } .t-labcards .g-stat-k { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .t-labcards .g-stat-v { font-size: 17px; } .t-labcards .g-stat-s { font-size: 11px; display: grid; gap: 1px; }
@@ -889,6 +907,66 @@ div.av-pick { max-width: none; }
 .ab-p { display: grid; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--color-bg); } .ab-p i { font-style: normal; font-size: 11px; color: var(--color-fg-muted); } .ab-p b { font-size: 13px; font-variant-numeric: tabular-nums; }
 .ab-p b.up { color: var(--color-ok); } .ab-p b.down { color: var(--color-bad); }
 .ab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 10px 0 0; } .ab-grid:empty { display: none; }
+/* a company's financials, drawn: bars on the scale of the sales, a tick for the last fiscal year, cash against debt */
+.ab-fin { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--color-border-line); }
+.ab-fin-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; } .ab-fin-h b { font-size: 15px; } .ab-fin-h span { font-size: 12px; color: var(--color-fg-muted); }
+.ab-fin-bars { display: grid; gap: 7px; }
+.ab-fin-pair { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--color-border-line); }
+.ab-fin-row { display: grid; grid-template-columns: 9.2em minmax(40px, 1fr) 6.2em; align-items: center; gap: 8px; font-size: 13px; }
+.ab-fin-k { color: var(--color-fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ab-fin-t { position: relative; height: 14px; }
+.ab-fin-b { position: absolute; left: 0; top: 2px; bottom: 2px; min-width: 2px; border-radius: 0 4px 4px 0; background: #2962ff; }
+.ab-fin-row[data-k="Sales"] .ab-fin-b { background: #5b6b8c; }
+.ab-fin-row[data-k="Cash from operations"] .ab-fin-b, .ab-fin-row[data-k="Free cash flow"] .ab-fin-b, .ab-fin-row.is-cash .ab-fin-b { background: #1a9a52; }
+.ab-fin-row.is-debt .ab-fin-b { background: #c9822a; }
+.ab-fin-row.is-neg .ab-fin-b { background: #c62828; }
+.ab-fin-tick { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--color-fg); opacity: .55; border-radius: 1px; }
+.ab-fin-v { display: flex; justify-content: flex-end; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ab-fin-v b { font-weight: 620; color: var(--color-fg); } .ab-fin-v small { min-width: 2.6em; text-align: right; font-size: 11.5px; color: var(--color-fg-muted); }
+.ab-fin-g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; } .ab-fin-gk { grid-column: 1 / -1; font-size: 12px; color: var(--color-fg-muted); }
+.ab-fin-n { margin-top: 8px; font-size: 11px; color: var(--color-fg-muted); }
+/* the fair or model value as a picture: the band from bear to bull, the base, and where the price stands */
+.fv-g { margin: 10px 0 2px; padding-top: 10px; border-top: 1px solid var(--color-border-line); }
+.fv-g-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 12px; color: var(--color-fg-muted); } .fv-g-h b { font-size: 14px; color: var(--color-fg); }
+.fv-g-h em { margin-left: auto; font-style: normal; font-weight: 620; color: var(--color-fg); }
+.fv-g-h em::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; background: var(--color-fg); }
+.fv-g-t { position: relative; height: 26px; margin: 8px 7px 4px; }
+.fv-g-t::before { content: ''; position: absolute; left: -7px; right: -7px; top: 11px; height: 4px; border-radius: 2px; background: var(--color-border-line); }
+.fv-g-band { position: absolute; top: 7px; height: 12px; border-radius: 4px; background: rgba(41, 98, 255, .28); }
+.fv-g-base { position: absolute; top: 3px; bottom: 3px; width: 2px; margin-left: -1px; background: #2962ff; border-radius: 1px; }
+.fv-g-px { position: absolute; top: 6px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--color-fg); border: 2px solid var(--color-panel, #fff); box-sizing: border-box; }
+.fv-g-x { display: flex; justify-content: space-between; font-size: 12px; font-variant-numeric: tabular-nums; } .fv-g-x span { display: grid; } .fv-g-x span:nth-child(2) { text-align: center; } .fv-g-x span:last-child { text-align: right; }
+.fv-g-x i { font-style: normal; font-size: 11px; color: var(--color-fg-muted); } .fv-g-x b { font-weight: 620; }
+.fv-g-none { font-size: 13px; color: var(--color-fg-muted); }
+/* is the business healthy: two words, five tests (a mark, a name; tap one for its figure) */
+.ab-hl { margin: 0 0 12px; }
+.ab-hl-h { display: flex; flex-wrap: wrap; gap: 6px; }
+.ab-hl-b { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 620; color: var(--color-fg); background: var(--color-bg); }
+.ab-hl-b::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #8a93a6; }
+.ab-hl .ab-hl-b.is-healthy, .ab-hl .ab-hl-b.is-mixed, .ab-hl .ab-hl-b.is-weak { color: var(--color-fg); }
+.ab-hl-b.is-healthy { background: rgba(26, 154, 82, .14); } .ab-hl-b.is-healthy::before { background: #1a9a52; }
+.ab-hl-b.is-mixed { background: rgba(201, 130, 42, .16); } .ab-hl-b.is-mixed::before { background: #c9822a; }
+.ab-hl-b.is-weak { background: rgba(198, 40, 40, .13); } .ab-hl-b.is-weak::before { background: #c62828; }
+.ab-hl-p { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.ab-hl-t { display: grid; justify-items: center; gap: 2px; padding: 6px 2px; border: 1px solid transparent; border-radius: 8px; background: var(--color-bg); font: inherit; font-size: 11.5px; color: var(--color-fg-muted); cursor: pointer; min-width: 0; }
+.ab-hl-t i { font-style: normal; font-size: 14px; font-weight: 700; line-height: 1; } .ab-hl-t.is-ok i { color: #1a9a52; } .ab-hl-t.is-no i { color: #c62828; } .ab-hl-t.is-na i { color: #8a93a6; }
+.ab-hl-t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ab-hl-t[aria-pressed="true"] { border-color: var(--color-fg-muted); color: var(--color-fg); } .ab-hl-t:focus-visible { outline: 2px solid var(--sr-c1); outline-offset: 1px; }
+.ab-hl-say { margin-top: 6px; min-height: 2.6em; font-size: 12.5px; line-height: 1.3; color: var(--color-fg-muted); }
+/* what analysts expect of the price over a year: their range against today's price, and how they vote */
+.ab-tgt { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--color-border-line); }
+.ab-tgt-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; } .ab-tgt-h div { display: grid; min-width: 0; } .ab-tgt-h b { font-size: 15px; } .ab-tgt-h span { font-size: 12px; color: var(--color-fg-muted); }
+.ab-tgt-h strong { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; } .ab-tgt-h strong.up { color: var(--color-ok); } .ab-tgt-h strong.down { color: var(--color-bad); }
+.ab-tgt-t { position: relative; height: 26px; margin: 8px 2px 4px; }
+.ab-tgt-t::before { content: ''; position: absolute; left: -2px; right: -2px; top: 11px; height: 4px; border-radius: 2px; background: var(--color-border-line); }
+.ab-tgt-band { position: absolute; top: 7px; height: 12px; border-radius: 4px; background: rgba(41, 98, 255, .28); }
+.ab-tgt-avg { position: absolute; top: 3px; bottom: 3px; width: 3px; margin-left: -1.5px; background: #2962ff; border-radius: 1.5px; }
+.ab-tgt-now { position: absolute; top: 1px; bottom: 1px; width: 2px; margin-left: -1px; background: var(--color-fg); border-radius: 1px; }
+.ab-tgt-x { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; } .ab-tgt-x span { display: grid; min-width: 0; } .ab-tgt-x span:nth-child(2) { text-align: center; } .ab-tgt-x span:nth-child(3) { text-align: right; }
+.ab-tgt-x i { font-style: normal; font-size: 11px; color: var(--color-fg-muted); } .ab-tgt-x b { font-weight: 620; white-space: nowrap; }
+.ab-tgt-v { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; color: var(--color-fg-muted); }
+.ab-tgt-vb { flex: 1; display: flex; gap: 2px; height: 8px; min-width: 60px; } .ab-tgt-vb i { flex: 1 1 0; min-width: 3px; border-radius: 3px; }
+.ab-tgt-vb .is-buy { background: #1a9a52; } .ab-tgt-vb .is-hold { background: #8a93a6; } .ab-tgt-vb .is-sell { background: #c62828; } .ab-tgt-vk { white-space: nowrap; }
 .ab-grid dt { font-size: 12px; color: var(--color-fg-muted); } .ab-grid dd { margin: 2px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; } .ab-grid .ab-wide { grid-column: 1 / -1; }
 
 /* Settings > Speed on this phone */

@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 127, "text": "Charts: every share with earnings now has a model value (bear, base, bull) from eToro's figures, in the Levels and Full views. It is a rough yardstick, always marked as a model with low confidence. The 12 studies made by hand come first."};
+window.SR_NOTES = {"build": 128, "text": "Each company's page now draws its financials (sales to cash, cash against debt), a health reading (healthy now, projected healthy or not) and the 1-year return analysts expect. Shares without earnings (Rigetti) get a model value from what they own and sell. Labs: proof and holding as pictures."};

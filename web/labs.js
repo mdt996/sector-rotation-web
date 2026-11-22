@@ -250,6 +250,7 @@
     if (s.dataset.t === a + '|' + b) return; s.dataset.t = a + '|' + b; s.textContent = '';
     s.appendChild(el('b', sign(V.total), a)); s.appendChild(el('span', '', b));
   }
+  const wordsOpen = new Map();   // the fold of sentences under a lab's pictures stays as the reader left it across the refreshes
   const VERDICT = { few: 'Too early', losing: 'Losing', luck: 'Not proven', ahead: 'Ahead so far', holding: 'Holding up' };
   function top(R, L, V) {
     const T = R.top; T.textContent = '';
@@ -259,25 +260,46 @@
     sub.appendChild(el('b', sign(V.total), `${usd2(V.total)} (${pc(100 * V.total / L.start)})`)); sub.appendChild(document.createTextNode(L.cycle > 1 ? ` in cycle ${L.cycle}` : ' since the start'));
     if (V.day != null) { sub.appendChild(el('span', 't-sep', '·')); sub.appendChild(el('b', sign(V.day), usd2(V.day))); sub.appendChild(document.createTextNode(V.N.day && V.N.day.stopped ? ' today (down 3%: no new trade until midnight UTC)' : ' today')); }
     // proof so far: where the lab stands on the road to "more than luck" (the VM's verdict: trades, luck, kinds of market)
-    const P = L.top && L.top.proof;
+    const P = L.top && L.top.proof, words = [];
     if (P && P.bar) {
       const txt = P.verdict === 'few' ? `too early to say anything: ${P.n} closed trade${P.n === 1 ? '' : 's'}.`
         : P.verdict === 'losing' ? `losing by more than luck would give, over ${P.n.toLocaleString('en-US')} trades.`
         : P.verdict === 'luck' ? (P.mR > 0 ? `not proven. ${P.n.toLocaleString('en-US')} trades so far of about ${(P.need || P.bar.n).toLocaleString('en-US')} needed, and the result is still within what luck gives.` : `not proven. ${P.n.toLocaleString('en-US')} trades, a result below zero but within what luck gives.`)
         : P.verdict === 'ahead' ? `ahead of luck so far, not proven. ${P.n.toLocaleString('en-US')} of ${P.bar.n} trades, a gain in ${P.earned} of the ${P.bar.kinds} kinds of market needed.`
         : `holding up: beyond luck over ${P.n.toLocaleString('en-US')} trades, in ${P.earned} kinds of market. The next proof is real fills on the demo account.`;
-      const d = T.appendChild(el('div', 'g-line t-labproof')); d.dataset.verdict = P.verdict; d.appendChild(el('b', '', 'Proof so far: ')); d.appendChild(document.createTextNode(txt));
+      // the picture first (Matteo, 22 Nov 2026: "more visualization features than verbose info"): how far along the road of trades, the
+      // verdict in a word, and what each kind of market and each side made; the sentences fold under "In words"
+      const need = P.verdict === 'luck' && P.mR > 0 ? (P.need || P.bar.n) : P.bar.n, M = T.appendChild(el('div', 't-labmeter')); M.dataset.verdict = P.verdict;
+      const mh = M.appendChild(el('div', 't-labmeter-h')); mh.appendChild(el('b', '', 'Proof')); mh.appendChild(el('span', 't-labmeter-w', VERDICT[P.verdict] || '')); mh.appendChild(el('span', 't-labmeter-n', `${P.n.toLocaleString('en-US')} of ${need.toLocaleString('en-US')} trades`));
+      const mt = M.appendChild(el('div', 't-labmeter-t')); mt.setAttribute('role', 'img'); mt.setAttribute('aria-label', `${P.n} of ${need} trades needed`); mt.appendChild(el('i', '')).style.width = Math.max(1, Math.min(100, 100 * P.n / Math.max(1, need))).toFixed(1) + '%';
+      if (P.verdict !== 'few') {
+        const chips = [['Falling days', P.kinds && P.kinds.falling], ['Rising days', P.kinds && P.kinds.rising], ['Flat days', P.kinds && P.kinds.flat]].concat(L.short && P.sides ? [['Shorts', P.sides.short], ['Buys', P.sides.long]] : []).filter((c) => c[1] && c[1].n);
+        for (const grp of chips.length > 4 ? [chips.filter((c) => / days$/.test(c[0])), chips.filter((c) => !/ days$/.test(c[0]))] : [chips]) { if (!grp.length) continue; const C = M.appendChild(el('div', 't-labchips')); C.style.setProperty('--n', grp.length); for (const [k, v] of grp) { const c = C.appendChild(el('span', 't-labchip')); c.appendChild(el('i', '', k)); c.appendChild(el('b', sign(v.net), usd2(v.net))); c.appendChild(el('small', '', `${v.n} trade${v.n === 1 ? '' : 's'}`)); } }
+      }
+      const d = el('div', 'g-line t-labproof'); words.push(d); d.dataset.verdict = P.verdict; d.appendChild(el('b', '', 'Proof so far: ')); d.appendChild(document.createTextNode(txt));
       const kinds = ['falling', 'rising', 'flat'].filter((k) => P.kinds && P.kinds[k] && P.kinds[k].n).map((k) => `${k} ${usd2(P.kinds[k].net)} over ${P.kinds[k].n}`);
-      if (P.verdict !== 'few' && (kinds.length || L.short)) T.appendChild(el('div', 'g-hint t-labproofk', `${kinds.length ? `By what the market did the day before each trade: ${kinds.join(' · ')}. ` : ''}${L.short && P.sides ? `Shorts ${usd2(P.sides.short.net)} over ${P.sides.short.n}, buys ${usd2(P.sides.long.net)} over ${P.sides.long.n}.` : ''}`.trim()));
+      if (P.verdict !== 'few' && (kinds.length || L.short)) words.push(el('div', 'g-hint t-labproofk', `${kinds.length ? `By what the market did the day before each trade: ${kinds.join(' · ')}. ` : ''}${L.short && P.sides ? `Shorts ${usd2(P.sides.short.net)} over ${P.sides.short.n}, buys ${usd2(P.sides.long.net)} over ${P.sides.long.n}.` : ''}`.trim()));
     }
     // against simply holding the lab's market over the same days, and what the lab's own average position explains (the VM's figures)
     const H = L.top && L.top.vs;
     if (H && Number.isFinite(H.ret) && Number.isFinite(H.lab)) {
-      const d = T.appendChild(el('div', 'g-line t-labvs')); d.appendChild(el('b', '', 'Against holding: '));
+      // drawn: the lab, holding its market over the same days, and what the lab's own average position alone would have made, on one
+      // scale around zero; the average position stays written beside it (never the comparison without it)
+      const rows = [['This lab', H.lab], ['Holding ' + H.name, H.usd]].concat(H.n && H.pos != null ? [['Average position alone', H.pos]] : []);
+      const lo = Math.min(0, ...rows.map((r) => r[1])), hi = Math.max(0, ...rows.map((r) => r[1])), span = hi - lo || 1, zero = 100 * (0 - lo) / span;
+      const G = T.appendChild(el('div', 't-labvsg')); G.appendChild(el('b', 't-labvsg-h', 'Against holding'));
+      for (const [k, v] of rows) { const r = G.appendChild(el('div', 't-labvsrow')); r.dataset.k = k; r.appendChild(el('span', 't-labvsrow-k', k)); const t = r.appendChild(el('span', 't-labvsrow-t')); t.style.setProperty('--zero', zero.toFixed(2) + '%');
+        const b = t.appendChild(el('i', v < 0 ? 'is-neg' : '')); b.style.left = (v < 0 ? 100 * (v - lo) / span : zero).toFixed(2) + '%'; b.style.width = (100 * Math.abs(v) / span).toFixed(2) + '%'; r.appendChild(el('b', 't-labvsrow-v', usd2(v))); }
+      G.appendChild(el('div', 't-labvsg-c', `Average position open: ${usd(H.share * L.start)}${!L.short ? '' : Math.abs(H.side) < 0.2 * H.share ? ', long and short about equally' : H.side < 0 ? ', short on balance' : ', long on balance'}`));
+      const d = el('div', 'g-line t-labvs'); words.push(d); d.appendChild(el('b', '', 'Against holding: '));
       d.appendChild(document.createTextNode(`this lab ${usd2(H.lab)} (${pc(100 * H.lab / L.start)}), holding ${H.name} over the same days ${usd2(H.usd)} (${pc(100 * H.ret)}).`));
       const side = !L.short ? '' : Math.abs(H.side) < 0.2 * H.share ? ', long and short about equally' : H.side < 0 ? ', short on balance' : ', long on balance';
       const split = !H.n ? ' No trade closed yet.' : H.pos != null && H.timing != null ? ` Before costs ${usd2(H.gross)}: its average position alone would have made ${usd2(H.pos)}, timing the rest (${usd2(H.timing)}). Costs ${usd2(-H.cost)}.` : ` Before costs ${usd2(H.gross)}, costs ${usd2(-H.cost)}.`;
-      T.appendChild(el('div', 'g-hint t-labvsk', `Average position open: ${usd(H.share * L.start)}${side}.${split} A lab mostly out of the market beats holding when prices fall and trails it when they rise.`));
+      words.push(el('div', 'g-hint t-labvsk', `Average position open: ${usd(H.share * L.start)}${side}.${split} A lab mostly out of the market beats holding when prices fall and trails it when they rise.`));
+    }
+    if (words.length) {
+      const W = T.appendChild(el('details', 't-labwords')); W.appendChild(el('summary', '', 'In words')); for (const w of words) W.appendChild(w);
+      W.open = wordsOpen.get(L.key) === true; W.addEventListener('toggle', () => wordsOpen.set(L.key, W.open));
     }
     const sc = V.N.scale == null ? L.scale : V.N.scale;
     if (sc != null && sc < 1) T.appendChild(el('div', 'g-warn t-labbrake', `Stakes at ${Math.round(sc * 100)}% of normal${L.streak >= 3 ? `: ${L.streak} losses in a row` : ': a fall from the 3-day high'}.${L.coolUntil > Date.now() ? ` No new trade before ${hm(L.coolUntil)}.` : ''}`));
