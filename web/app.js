@@ -93,6 +93,8 @@
     showUpdateInfo(build > 0 ? `updated to build ${build}` : message);
     if (build > 0) offerReload(build);
   };
+  // an iPhone or iPad: Safari zooms the whole page when a field with text under 16 px takes the focus, and does not zoom back
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) document.documentElement.classList.add('is-ios');
   // The bars at the bottom (a new build to reload, the Mac app updating itself, what changed) share one stack: each has its own
   // line. Until build 123 each was fixed at the same place, so a second one covered the first (Matteo, 22 Nov 2026, on the Mac:
   // "I can see the reload button, after an update, hidden on the right": the update's failure lay over the Reload bar).

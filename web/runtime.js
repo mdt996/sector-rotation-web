@@ -159,7 +159,8 @@
     const out = [];
     let account = '';
     // a comma between two digits is a decimal comma (250,50); any other comma, a semicolon or a new line separates holdings
-    for (const raw of String(text).split(/\r?\n|;|,(?!\d)|(?<!\d),/)) {
+    // (written without a look-behind: Safari before iOS 16.4 cannot read one, and an iPhone on it would not start the app at all)
+    for (const raw of String(text).replace(/(\d),(?=\d)/g, '$1\u0001').split(/\r?\n|;|,/).map((x) => x.replace(/\u0001/g, ','))) {
       let line = raw.trim();
       if (!line) continue;
       const head = /^([A-Za-z][^=:\d]{0,39}):$/.exec(line);

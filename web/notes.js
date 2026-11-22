@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 124, "text": "Fixed: the bars at the bottom (Reload, the Mac app's update, what changed) no longer cover one another. Mac app 1.0.71 finds GitHub's gh tool to update itself."};
+window.SR_NOTES = {"build": 125, "text": "iPhone: fields no longer zoom the page, and held sideways everything keeps clear of the camera island; the chart gets more height. Older iPhones (before iOS 16.4) can start the app again."};

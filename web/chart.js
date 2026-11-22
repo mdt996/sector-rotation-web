@@ -643,7 +643,7 @@
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
     function sizeMain() {
       const np = +(main.dataset.panes || 1), own = opts.height ? opts.height() : 0, full = root.classList.contains('is-full');
-      if (full && window.innerWidth >= 900) {
+      if (full && (window.innerWidth >= 900 || (window.innerWidth >= 640 && window.innerHeight <= 500))) {   // a wide window, or a phone held sideways: every row saved goes to the chart
         if (rangeBar.parentNode !== tools) tools.append(rangeBar);
       } else if (rangeBar.parentNode !== root) dateForm.before(rangeBar);
       main.style.height = full ? '' : (own || (340 + (np - 1) * 110)) + 'px';
