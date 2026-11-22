@@ -634,6 +634,16 @@
     root.__future = (ahead) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - 30, to: n + (ahead || 40) }); return new Promise((res) => setTimeout(() => res({ slots: future.length, lastBar: bars[n - 1].time, timeRight: chart.timeScale().coordinateToTime(main.clientWidth - 70), sec: frame.sec }), 300)); };   // for the tests: what the axis shows to the right of the last candle
     root.__lines = () => shownLines().map((d) => ({ kind: d.kind, broken: !!d.broken, major: !!d.major, span: d.span, now: d.now, from: d.a.t, to: d.b.t, full: d.full }));   // for the tests: the trendlines this zoom shows
     root.__setView = (k) => setView(k);
+    // a logarithmic price scale (Matteo, 22 Nov 2026: "Add logscale on all charts"): equal heights are equal percentage moves.
+    // One setting for every chart (markets, labs, the demo account), the "log" button in the corner under the prices, as on
+    // TradingView; the other panes (RSI, MACD, a comparison in %) keep their own scale. Drawings follow (priceToCoordinate).
+    let logOn = !!lsGet('sr.chartLog', false);
+    const bLog = main.appendChild(el('button', 'ch-log', 'log')); bLog.type = 'button'; bLog.title = 'Logarithmic price scale: equal heights are equal percentage moves'; bLog.setAttribute('aria-label', 'Logarithmic price scale');
+    const applyLog = () => { chart.priceScale('right').applyOptions({ mode: logOn ? LW().PriceScaleMode.Logarithmic : LW().PriceScaleMode.Normal }); bLog.classList.toggle('on', logOn); bLog.setAttribute('aria-pressed', String(logOn)); root.dataset.log = logOn ? '1' : '0'; };
+    const onLog = () => { const v = !!lsGet('sr.chartLog', false); if (v !== logOn && !dead) { logOn = v; applyLog(); redraw(); queueRange(); } };
+    bLog.addEventListener('click', () => { logOn = !logOn; lsSet('sr.chartLog', logOn); applyLog(); redraw(); queueRange(); try { window.dispatchEvent(new CustomEvent('sr-chartlog')); } catch (e) { /* the other charts follow when drawn again */ } });
+    window.addEventListener('sr-chartlog', onLog); applyLog();
+    root.__log = () => chart.priceScale('right').options().mode;   // for the tests: 1 logarithmic, 0 normal
     root.__zoom = (count) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - count, to: n + 3 }); return new Promise((res) => setTimeout(() => res(root.__lines()), 350)); };   // for the tests: the last `count` candles on screen, and the lines then shown
     root.__probe = () => autos.concat(shownLines()).filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
     bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
@@ -807,7 +817,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
       back() { if (!viewMenu.hidden) { openViews(false); return true; } if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
-      destroy() { dead = true; document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true); if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
+      destroy() { dead = true; window.removeEventListener('sr-chartlog', onLog); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true); if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
   }
   window.SRChart = { create, sma, ema, rsi, comparePrices, comparisonWindow, quoteBars };
