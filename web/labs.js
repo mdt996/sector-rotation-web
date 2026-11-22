@@ -61,12 +61,16 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: true, more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
   try { const k = localStorage.getItem('sr.labSel'); if (/^[a-z0-9]{3,12}$/.test(k || '')) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = c.ref == null ? true : !!c.ref; } catch (e) { /* the gold lab, 5-minute candles */ }   // the market's line is on unless switched off (Matteo, 22 Nov 2026: the comparison "also in the chart")
   // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
   // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
   const PANES = [['now', 'Now'], ['trades', 'Trades'], ['history', 'History'], ['learning', 'Learning'], ['all', 'All']];
   try { const q = JSON.parse(localStorage.getItem('sr.labPane') || 'null'); if (PANES.some((x) => x[0] === q)) LB.pane = q; } catch (e) { /* the first part */ }
+  // any eToro asset as the line over a lab's chart (Matteo, 22 Nov 2026: "offer the possibility of comparing with any asset, in the
+  // paper trading"), chosen per lab and remembered on this device; none chosen: the lab's own market
+  try { const v = JSON.parse(localStorage.getItem('sr.labVs') || '{}'); for (const [k, a] of Object.entries(v || {})) if (/^[a-z0-9]{3,12}$/.test(k) && a && +a.id > 0 && a.symbol) LB.vs[k] = { id: +a.id, symbol: String(a.symbol).slice(0, 24), name: String(a.name || '').slice(0, 60) }; } catch (e) { /* the labs' own markets */ }
+  const keepVs = () => { try { localStorage.setItem('sr.labVs', JSON.stringify(LB.vs)); } catch (e) { /* not kept */ } };
   const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style, ref: LB.bench })); } catch (e) { /* not kept */ } };
 
   // ---- reading ----
@@ -169,7 +173,8 @@
     T.api = SRChart.create(host, { id: 'lab-' + key, account: true, rangeLabel: 'Value change', priceFormat: (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       height: () => (window.innerWidth >= 900 ? Math.max(380, Math.min(560, window.innerHeight - 420)) : 0),
       onFull: (on) => { if (on) T.api.slot.replaceChildren(hdr); else B.insertBefore(hdr, host); },
-      onHover: (b) => { T.hover = b ? T.bars.find((k) => k.time === b.time) || null : null; say(T); } });
+      onHover: (b) => { T.hover = b ? T.bars.find((k) => k.time === b.time) || null : null; say(T); },
+      onRange: (shared, range) => { const v = range ? [range.first.time, range.last.time] : null; if (!T.view || !v || v[0] !== T.view[0] || v[1] !== T.view[1]) { T.view = v; say(T); } } });
     const Lw = window.LightweightCharts, { chart: ch, candles } = T.api.lw(), blue = cssVar('--sr-c1', '#2563eb');
     T.candles = candles;
     T.line = ch.addSeries(Lw.AreaSeries || Lw.LineSeries, { lineColor: blue, topColor: 'rgba(37,99,235,0.22)', bottomColor: 'rgba(37,99,235,0.02)', color: blue, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, visible: false }, 0);
@@ -181,8 +186,32 @@
   }
   // the reference market over the lab's own candles, set to the lab's value at the first candle they share (as the demo account's
   // S&P 500 line): where the two part, the lab did something holding would not have. eToro's candles; kept a minute.
+  // the search for a market to set against the lab: eToro's own search, the same as the Markets tab; the choice is kept per lab
+  function vsPanel(H, B, key) {
+    const P = H.appendChild(el('div', 't-vs')), row = P.appendChild(el('div', 't-vs-row')), inp = row.appendChild(el('input', ''));
+    inp.type = 'search'; inp.placeholder = 'Compare with any asset: Apple, silver, BTC…'; inp.setAttribute('aria-label', 'Find an asset to compare with this lab');
+    const own = ownRef(key);
+    if (LB.vs[key] && own) { const back = row.appendChild(el('button', 'btn', 'Back to ' + own.name)); back.type = 'button'; back.addEventListener('click', () => { delete LB.vs[key]; keepVs(); LB.vsOpen = false; chart(B, key, valued(key), 'full'); }); }
+    const res = P.appendChild(el('div', 't-vs-res')); let seq = 0, tm = null;
+    inp.addEventListener('input', () => {
+      const q = inp.value.trim(), mine = ++seq; clearTimeout(tm); res.textContent = ''; if (q.length < 1) return;
+      res.appendChild(el('div', 'g-hint', 'Searching…'));
+      tm = setTimeout(async () => {
+        const items = (await SRLive.search(q).catch(() => [])).filter((a) => a && +a.id > 0).slice(0, 6); if (mine !== seq || !P.isConnected) return;
+        res.textContent = ''; if (!items.length) { res.appendChild(el('div', 'g-hint', 'No eToro asset found.')); return; }
+        for (const a of items) {
+          const b = res.appendChild(el('button', 'sr-res t-vs-pick', `${a.symbol} · ${a.name || ''}`)); b.type = 'button'; b.dataset.id = String(a.id); if (window.SRLogo) window.SRLogo.lead(b, a.id, a.symbol, 22);
+          b.addEventListener('click', () => { LB.vs[key] = { id: +a.id, symbol: String(a.symbol), name: String(a.name || '') }; keepVs(); LB.bench = true; keep(); LB.vsOpen = false; chart(B, key, valued(key), 'full'); });
+        }
+      }, 300);
+    });
+  }
   // a lab's market for the line on its chart: the three's own, or the one chosen for a portfolio made in the app (eToro's candles)
   function refOf(key) {
+    const C = LB.vs[key]; if (C) return { id: C.id, name: C.symbol, chosen: true };
+    return ownRef(key);
+  }
+  function ownRef(key) {
     if (REF[key]) return REF[key]; const L = sumLab(key); if (!L || !L.versusId) return null;
     const v = String(L.versusId), id = venueOf(key) === 'revx' ? (window.SRLive && SRLive.liveIdOf ? SRLive.liveIdOf(v.replace(/-USD$/, '')) : null) : +v;
     const nm = ((MARKETS[venueOf(key)] || []).find((m) => m[0] === v) || [])[1] || L.versusName || v; return id > 0 ? { id, name: nm } : null;
@@ -190,23 +219,31 @@
   function bench(tv, key, bars, tf) {
     const R = refOf(key); if (!tv.bench) return;
     if (!LB.bench || !R || !IV[tf] || !window.SRLive || !SRLive.candles) { tv.bench.applyOptions({ visible: false }); tv.host.dataset.bench = '0'; tv.benchAt0 = null; return; }
-    const ms = tf * 60000, want = `${key}|${tf}|${bars[0].b}|${bars.length}`; tv.benchWant = want;
+    const ms = tf * 60000, want = `${key}|${R.id}|${tf}|${bars[0].b}|${bars.length}`; tv.benchWant = want;
     const paint = (rows) => {
       if (tv.benchWant !== want || !tv.host.isConnected) return;
       const px = new Map(); for (const r of rows || []) if (r && r.close > 0) px.set(Math.floor(r.t / ms) * ms, r.close);
       let k = null; const out = []; for (const b of bars) { const p = px.get(b.b); if (!(p > 0)) continue; if (k == null) k = b.close / p; out.push({ time: b.time, value: +(p * k).toFixed(2) }); }
       tv.bench.setData(out); tv.bench.applyOptions({ visible: out.length > 1 }); tv.host.dataset.bench = String(out.length); tv.benchData = out.length > 1 ? new Map(out.map((o) => [o.time, o.value])) : null; tv.benchName = R.name; say(tv);
     };
-    if (tv.benchRows && tv.benchKey === key + '|' + tf && Date.now() - tv.benchAt < 60000) { paint(tv.benchRows); return; }
+    const bk = key + '|' + R.id + '|' + tf;
+    if (tv.benchRows && tv.benchKey === bk && Date.now() - tv.benchAt < 60000) { paint(tv.benchRows); return; }
     const n = Math.max(5, Math.min(1000, Math.ceil((bars[bars.length - 1].b - bars[0].b) / ms) + 3));
-    SRLive.candles(R.id, IV[tf], n, 1.5).then((rows) => { tv.benchRows = rows || []; tv.benchKey = key + '|' + tf; tv.benchAt = Date.now(); paint(tv.benchRows); }).catch(() => { /* the line waits for the next reading */ });
+    SRLive.candles(R.id, IV[tf], n, 1.5).then((rows) => { tv.benchRows = rows || []; tv.benchKey = bk; tv.benchAt = Date.now(); paint(tv.benchRows); }).catch(() => { /* the line waits for the next reading */ });
   }
   function say(T) {
     const lg = T.legend, k = T.hover || T.bars[T.bars.length - 1]; if (!lg || !k) return; const d = k.close - k.open, f = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     lg.textContent = ''; lg.appendChild(el('span', 't-leg-t', new Date(k.b).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
     for (const [n, v] of [['O', k.open], ['H', k.high], ['L', k.low], ['C', k.close]]) { lg.appendChild(el('span', 't-leg-k', n)); lg.appendChild(el('span', '', f(v))); }
     lg.appendChild(el('span', sign(d), `${usd2(d)} (${pc(k.open ? 100 * d / k.open : 0)})`));
-    const rv = LB.bench && T.benchData ? T.benchData.get(k.time) : null; if (rv != null) { const r = lg.appendChild(el('span', 't-leg-ref', `${T.benchName} ${f(rv)}`)); r.dataset.ref = '1'; }
+    const rv = LB.bench && T.benchData ? T.benchData.get(k.time) : null;
+    if (rv != null) { const r = lg.appendChild(el('span', 't-leg-ref', `${T.benchName} ${f(rv)}`)); r.dataset.ref = '1'; const w = refInView(T); if (w != null) { const s = r.appendChild(el('span', 't-leg-refv ' + sign(w), ` ${pc(w)} in view`)); s.dataset.v = String(Math.round(w * 100) / 100); } }
+  }
+  // the market's change from the first to the last of its points on screen (the chart's own "Value change in view" is the lab's)
+  function refInView(T) {
+    if (!T.benchData || !T.view || !T.bars.length) return null; let a = null, b = null;
+    for (const k of T.bars) { if (k.time < T.view[0]) continue; if (k.time > T.view[1]) break; const v = T.benchData.get(k.time); if (v == null) continue; if (a == null) a = v; b = v; }
+    return a > 0 && b > 0 && a !== b ? 100 * (b / a - 1) : a > 0 && b > 0 ? 0 : null;
   }
   // mode: 'full' (the header with the time frames, the candles, the trade marks), 'data' (candles and marks), 'tick' (the last candle only)
   function chart(B, key, V, mode) {
@@ -222,6 +259,8 @@
       bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
       const RF = refOf(key); if (RF) { bar.appendChild(el('span', 't-sep', '·')); const bb = bar.appendChild(el('button', 't-chip t-chip-ref' + (LB.bench ? ' on' : ''), 'vs ' + RF.name)); bb.type = 'button'; bb.dataset.k = 'bench'; bb.setAttribute('aria-pressed', String(!!LB.bench));
         bb.title = `Holding ${RF.name.toLowerCase() === 'gold' ? 'gold' : RF.name} over the same candles, set to the lab's value at the first one they share`; bb.addEventListener('click', () => { LB.bench = !LB.bench; keep(); chart(B, key, valued(key), 'full'); }); }
+      if (window.SRLive && SRLive.search) { const ob = bar.appendChild(el('button', 't-chip t-chip-vs' + (LB.vsOpen ? ' on' : ''), LB.vsOpen ? 'Close' : 'Other asset')); ob.type = 'button'; ob.setAttribute('aria-expanded', String(!!LB.vsOpen)); ob.addEventListener('click', () => { LB.vsOpen = !LB.vsOpen; chart(B, key, valued(key), 'full'); if (LB.vsOpen) { const i = tv.hdr.querySelector('.t-vs input'); if (i) i.focus(); } }); }
+      if (LB.vsOpen) vsPanel(H, B, key);
       tv.legend = H.appendChild(el('div', 't-legend'));
     }
     if (tv.fullV) { tv.fullV.textContent = usd(V.equity); tv.fullS.textContent = ` ${usd2(V.total)} (${pc(100 * V.total / L.start)})`; tv.fullS.className = sign(V.total); }

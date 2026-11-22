@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 133, "text": "Charts: fixed missing days in a market's line over a chart. The app's saved candles could join an old history to a new read with a gap between them; saved candles are read again once. The demo's S&P 500 line now uses eToro's S&P 500 candles, up to now."};
+window.SR_NOTES = {"build": 134, "text": "Labs: compare any portfolio's chart with any eToro asset (Other asset, then search), with its change over the candles on screen. Kept for each portfolio."};
