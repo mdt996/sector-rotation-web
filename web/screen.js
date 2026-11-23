@@ -130,13 +130,16 @@
     for (const r of rows()) {
       if (!r.A) continue; const m = M.get(r.id) || {}, A = r.A; seen.add(r.id);
       out.push(grade({ sym: r.sym, id: r.id, name: r.name, group: r.group, mine: r.group === 'Yours', cls: m.cls || (r.group === 'Funds' ? 'ETF' : null), sec: m.sec || null, cap: m.cap || null, sales: m.sales || null, pe: m.pe || null, pop: m.pop || null, px: r.px, chg: r.chg, c5: A.chg5, c20: A.chg20, rsi: A.rsi,
-        sup: r.sup, res: r.res, rr: A.rr, ms: r.ms, stop: A.atr > 0 ? A.price - 2 * A.atr : null, target: A.atr > 0 ? A.price + 2 * A.atr : null, last: A.date, live: true, f: m.f || null }));
+        sup: r.sup, res: r.res, rr: A.rr, ms: r.ms, stop: A.atr > 0 ? A.price - 2 * A.atr : null, target: A.atr > 0 ? A.price + 2 * A.atr : null, last: A.date, live: true, f: m.f || null,
+        m50: A.s50 > 0 && r.px > 0 ? r.px / A.s50 - 1 : null, m200: A.s200 > 0 && r.px > 0 ? r.px / A.s200 - 1 : null }));
     }
     if (wide) for (const r of wide.rows) {
       if (seen.has(r.id)) continue;
       const q = Q.get(r.id), px = q && q.price > 0 ? q.price : r.px, chg = q && q.price > 0 && r.px ? (r.d < today ? px / r.px - 1 : (1 + r.c1) * px / r.px - 1) : r.c1;
       out.push(grade({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: r.cap || null, sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
-        sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true, f: r.f || null }));
+        sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true, f: r.f || null,
+        // the averages are those of the last close (the scan); the price is the live one
+        m50: r.m50 != null && r.px > 0 ? px * (1 + r.m50) / r.px - 1 : null, m200: r.m200 != null && r.px > 0 ? px * (1 + r.m200) / r.px - 1 : null }));
     }
     allMemo = { at: Date.now(), rows: out };
     return out;
@@ -250,7 +253,34 @@
     day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
     rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)],
     'fin:all': ['financial health, healthiest first'], 'fin:all:lo': ['financial health, least healthy first'], 'fin:profit': ['profit, best first'], 'fin:cash': ['cash flow, best first'],
-    'fin:debt': ['debt, soundest first'], 'fin:growth': ['growth, fastest first'], 'fin:outlook': ['outlook, best first'] };
+    'fin:debt': ['debt, soundest first'], 'fin:growth': ['growth, fastest first'], 'fin:outlook': ['outlook, best first'],
+    'ma:m200': ['200-day average, furthest above first'], 'ma:m200:lo': ['200-day average, furthest below first'], 'ma:m50': ['50-day average, furthest above first'], 'ma:m50:lo': ['50-day average, furthest below first'] };
+  // Distance from the 50- and 200-day averages, in %, ranked among every asset that has one (Matteo, 23 Nov 2026: "Implement for every
+  // asset the distance from the 200 MA and the 50 MA in percentage and insert it as a ranking among the others available").
+  // Place 1 = the furthest above its average; the list sorted "furthest below first" counts from the last place up.
+  const MA = { m50: '50-day average', m200: '200-day average' };
+  const maSort = () => { const m = /^ma:(m50|m200)(:lo)?$/.exec(F.sort || ''); return m ? { k: m[1], lo: !!m[2] } : null; };
+  let maMemo = null;
+  function maRanks() {
+    const A = all(); if (maMemo && maMemo.rows === A) return maMemo;
+    const by = new Map(), n = {};
+    for (const k of Object.keys(MA)) { const L = A.filter((r) => r.id && r[k] != null && isFinite(r[k])).sort((a, b) => b[k] - a[k]); n[k] = L.length; L.forEach((r, i) => { const e = by.get(r.id) || {}; e[k] = [r[k], i + 1]; by.set(r.id, e); }); }
+    maMemo = { rows: A, by, n }; return maMemo;
+  }
+  const maOf = (id) => { const P = maRanks(), e = P.by.get(+id); return e ? { m50: e.m50 || null, m200: e.m200 || null, n: P.n, made: wide ? wide.made : null } : null; };
+  const maPos = new Map();
+  // the row of a list sorted by an average: the place, the distance from each average, a bar from the average (the middle) to the price
+  function maStrip(b, r, ms) {
+    const P = maRanks(), here = maPos.get(r.id), e = P.by.get(r.id), rank = here ? here[0] : e && e[ms.k] ? e[ms.k][1] : null, n = here ? here[1] : P.n[ms.k] || 0;
+    b.classList.add('sc-row-ma'); const y = b.appendChild(el('span', 'sc-y sc-ma'));
+    const head = y.appendChild(el('span', 'sc-ma-r')); head.appendChild(el('b', '', rank ? '#' + rank.toLocaleString('en-US') : '–')); head.appendChild(el('span', 'g-muted', ` of ${n.toLocaleString('en-US')}`));
+    for (const k of ['m50', 'm200']) {
+      const v = r[k], c = y.appendChild(el('span', 'sc-ma-c' + (k === ms.k ? ' is-on' : ''))); c.dataset.k = k; c.appendChild(el('small', '', k === 'm50' ? '50-day' : '200-day'));
+      const t = c.appendChild(el('span', 'sc-ma-t')); if (v != null) { const w = Math.min(50, Math.abs(v) * 100 * 50 / 30); const f = t.appendChild(el('i', v >= 0 ? 'up' : 'down')); f.style.width = w + '%'; if (v < 0) f.style.right = '50%'; else f.style.left = '50%'; }
+      c.appendChild(el('b', v == null ? 'g-muted' : v >= 0 ? 'up' : 'down', v == null ? '–' : pct(v)));
+    }
+    y.setAttribute('aria-label', `place ${rank || '–'} of ${n}; ${r.m50 == null ? 'no 50-day average' : pct(r.m50) + ' from its 50-day average'}; ${r.m200 == null ? 'no 200-day average' : pct(r.m200) + ' from its 200-day average'}`);
+  }
   // a financial sort: only the shares with that score, in the order of their place (the least healthy: from the last place up)
   const finSort = () => { const m = /^fin:(\w+)(:lo)?$/.exec(F.sort || ''); if (!m) return null; const i = finIx(m[1]); return i < 0 ? null : { i, k: m[1], lo: !!m[2] }; };
   const finOrder = (fs) => { const P = finRanks(); const at = (r) => { const p = P && P.by.get(r.id); return p && p[fs.i] ? p[fs.i] : null; }; return (a, b) => (fs.lo ? at(b) - at(a) : at(a) - at(b)); };
@@ -306,9 +336,13 @@
   // from an asset's page: the list in that field, the asset found and lit up (a sector narrows it to the asset's sector)
   let hlId = null; const finPos = new Map();
   function showRank(id, k, sector) {
-    const i = finIx(k), P = finRanks(), pl = P && P.by.get(+id); if (i < 0 || !pl || !pl[i]) return false;
-    Object.assign(F, F0, { sort: 'fin:' + k, cls: 'Stocks', sec: sector || '' }); saveF();
-    const place = sector ? P.top.filter((r) => (r.sec || 'Other') === sector).filter((r) => r.f[i] != null).sort(finOrder({ i, lo: false })).findIndex((r) => r.id === +id) + 1 : pl[i];
+    let place;
+    if (MA[k]) { const e = maRanks().by.get(+id); if (!e || !e[k]) return false; Object.assign(F, F0, { sort: 'ma:' + k }); saveF(); place = e[k][1]; }
+    else {
+      const i = finIx(k), P = finRanks(), pl = P && P.by.get(+id); if (i < 0 || !pl || !pl[i]) return false;
+      Object.assign(F, F0, { sort: 'fin:' + k, cls: 'Stocks', sec: sector || '' }); saveF();
+      place = sector ? P.top.filter((r) => (r.sec || 'Other') === sector).filter((r) => r.f[i] != null).sort(finOrder({ i, lo: false })).findIndex((r) => r.id === +id) + 1 : pl[i];
+    }
     shown = Math.max(60, Math.ceil((place + 10) / 60) * 60); hlId = +id;
     if (!(isMac() && left && left.offsetParent !== null)) { try { if (window.SRLive && SRLive.close) SRLive.close(); } catch (e) { /* the page stays */ } if (window.appShowTab) window.appShowTab('markets', 0); }
     // from the top: a redraw puts the page back where it was (runtime.js renderDraw), and the list is then scrolled to the company
@@ -326,6 +360,7 @@
     if (m.length) b.appendChild(el('span', 'sc-m', m.join(' · ')));
     const fs = finSort();
     if (fs && Array.isArray(r.f)) { finStrip(b, r, fs); return b; }
+    const ms = maSort(); if (ms) { maStrip(b, r, ms); return b; }
     const y = b.appendChild(el('span', 'sc-y'));
     if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));
     y.appendChild(el('span', 'sc-t', `${r.buy || r.ms == null ? '' : 'score ' + sc100(r.ms) + ' · '}RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}`));
@@ -394,10 +429,14 @@
     sel('size', 'Any market value', Object.entries(SIZE).map(([k, x]) => [k, x[0]]));
     sel('sales', 'Any revenue', Object.entries(SALES).map(([k, x]) => [k, x[0]]));
     sel('rsi', 'Any RSI', Object.entries(RSIB).map(([k, x]) => [k, x[0]]));
-    const fsN = finSort(), P0 = fsN ? finRanks() : null, L = fsN ? ALL.filter(pass).filter((r) => { const p = P0 && P0.by.get(r.id); return p && p[fsN.i]; }).sort(finOrder(fsN)) : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
-    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
+    const fsN = finSort(), msN = maSort(), P0 = fsN ? finRanks() : null;
+    const L = fsN ? ALL.filter(pass).filter((r) => { const p = P0 && P0.by.get(r.id); return p && p[fsN.i]; }).sort(finOrder(fsN))
+      : msN ? ALL.filter(pass).filter((r) => r[msN.k] != null && isFinite(r[msN.k])).sort((a, b) => (msN.lo ? a[msN.k] - b[msN.k] : b[msN.k] - a[msN.k]))
+      : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
+    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : msN ? `${L.length.toLocaleString('en-US')} assets ranked by their distance from the ${MA[msN.k]}${msN.lo ? ', from the last place up' : ''}` : `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
     if (active || F.sort !== 'rank') { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
     finPos.clear(); if (fsN) L.forEach((r, k) => finPos.set(r.id, [fsN.lo ? L.length - k : k + 1, L.length]));
+    maPos.clear(); if (msN) L.forEach((r, k) => maPos.set(r.id, [msN.lo ? L.length - k : k + 1, L.length]));
     const list = box.appendChild(el('div', 'sc-list')), vis = L.slice(0, shown);
     for (const r of vis) { const x = list.appendChild(rowEl(r)); if (r.id === hlId) x.classList.add('is-hl-keep'); }
     if (!L.length) list.appendChild(el('p', 'g-muted', 'No asset matches these filters.'));
@@ -436,5 +475,5 @@
   // 20 s after the start (what the screen needs first goes first), then every 30 minutes: the likely next pages are loaded ahead
   const ahead = () => { try { const ids = [...((prac && prac.open) || []).map((t) => +t.id), ...top(6).map((r) => +r.id)]; if (window.SRLive && SRLive.preload) SRLive.preload(ids); } catch (e) { /* not ready */ } };
   setTimeout(ahead, 20000); setInterval(ahead, 30 * 60e3);
-  window.SRScreen = { fin: finOf, finRanks, showRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { fin: finOf, finRanks, ma: maOf, maRanks, showRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();

@@ -203,7 +203,8 @@
     const hm = head.appendChild(el('div', 'ab-hm')), title = hm.appendChild(el('b', 'ab-t', 'About ' + (inst.symbol || ''))), sub = hm.appendChild(el('span', 'ab-sub', ''));
     const desc = box.appendChild(el('p', 'ab-d g-muted', '…')), more = box.appendChild(el('button', 'ab-more', 'More')), src = box.appendChild(el('div', 'ab-src'));
     more.type = 'button'; more.hidden = true; more.addEventListener('click', () => { const on = box.classList.toggle('is-open'); more.textContent = on ? 'Less' : 'More'; });
-    const perf = box.appendChild(el('div', 'ab-perf')), grid = box.appendChild(el('dl', 'ab-grid'));
+    const perf = box.appendChild(el('div', 'ab-perf')), maBox = box.appendChild(el('div', 'ab-ma')), grid = box.appendChild(el('dl', 'ab-grid'));
+    maCard(maBox, id);
     // the text: the app's own or Wikipedia's when there is one, else eToro's (both readings arrive in any order)
     let wiki, eto, wikiDone = false, etoDone = false;
     const showText = () => {
@@ -365,6 +366,26 @@
     }
     if (R.sec && R.cats[0].score != null) { const b = C.appendChild(el('button', 'ab-rk-sec')); b.type = 'button'; b.appendChild(el('span', '', `In ${R.sec.name}: `)); b.appendChild(el('b', '', `#${fmt(R.sec.rank)} of ${fmt(R.sec.n)}`)); b.addEventListener('click', () => window.SRScreen.showRank(id, 'all', R.sec.name)); }
     C.appendChild(el('div', 'ab-fin-n', 'Score: the share of ranked companies it beats, 0 to 100. Made each night. Tap a line for the list.'));
+  }
+  // how far the price is from its 50- and 200-day averages, and its place among all the assets ranked (screen.js maRanks); a tap
+  // opens the list sorted that way, with the asset in it (Matteo, 23 Nov 2026)
+  function maCard(C, id, again) {
+    const R = window.SRScreen && window.SRScreen.ma ? window.SRScreen.ma(id) : null;
+    if (!R || (!R.m50 && !R.m200)) { C.hidden = true; if (!again && window.SRScreen) setTimeout(() => { if (C.isConnected) maCard(C, id, true); }, 3000); return; }
+    C.hidden = false; C.replaceChildren(); const fmt = (x) => x.toLocaleString('en-US');
+    const h = C.appendChild(el('div', 'ab-rk-h')); h.appendChild(el('b', '', 'From its averages')); h.appendChild(el('span', '', 'place 1 = furthest above'));
+    for (const [k, label] of [['m50', '50-day average'], ['m200', '200-day average']]) {
+      const e = R[k];
+      if (!e) { const row = C.appendChild(el('div', 'ab-ma-r is-na')); row.appendChild(el('span', 'ab-rk-k', label)); row.appendChild(el('span', 'ab-rk-none', k === 'm200' ? 'fewer than 200 days of prices' : 'fewer than 50 days of prices')); continue; }
+      const [v, rank] = e, n = R.n[k], row = C.appendChild(el('button', 'ab-ma-r')); row.type = 'button'; row.dataset.k = k;
+      row.setAttribute('aria-label', `${pc(v * 100)} from its ${label}: place ${rank} of ${n}. Opens the list`);
+      row.appendChild(el('span', 'ab-rk-k', label));
+      const t = row.appendChild(el('span', 'ab-ma-t')), f = t.appendChild(el('i', v >= 0 ? 'up' : 'down')); f.style.width = Math.min(50, Math.abs(v) * 100 * 50 / 30) + '%'; f.style[v >= 0 ? 'left' : 'right'] = '50%';
+      row.appendChild(el('b', 'ab-ma-v ' + (v >= 0 ? 'up' : 'down'), pc(v * 100)));
+      const p = row.appendChild(el('span', 'ab-rk-p')); p.appendChild(el('b', '', '#' + fmt(rank))); p.appendChild(el('small', '', ' of ' + fmt(n)));
+      row.addEventListener('click', () => window.SRScreen.showRank(id, k));
+    }
+    C.appendChild(el('div', 'ab-fin-n', 'The bar runs from the average (the middle) to the price, up to 30% either way. Averages of the daily closes, ranked among all the assets with one; the price is live.'));
   }
   // ---- names that open their asset's page ----
   const NOLINK = new Set('US UK EU ETF ETFS RSI ATR VM UTC OK AI CEO ID PE EPS IPO USD EUR GBP HKD NOK AUD JPY CHF CAD SEK DKK FX TA SMA EMA MA PM AM NY ON IT ALL ARE BE NOW SO GO OR AN AT BY DO IF IN IS ME MY NO OF TO UP WE TP SL CFD NAV GDP CPI FED API APP NEW TOP BIG ONE'.split(' '));
