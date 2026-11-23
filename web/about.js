@@ -133,6 +133,9 @@
       return { model: true, kind: 'analysts', base: A.v, bear, bull, confidence: 'low', as_of: new Date().toISOString().slice(0, 10), parts: [['analysts', A.v], ['book', book]],
         method: `${lead}: analysts' average target (${A.n} analysts) as the middle, ${book != null && book < 0.9 * A.v ? `its book value of ${money(book)} a share as the floor` : 'a floor 40% under it'}, their highest target as the top.${book != null && book < 0.5 * px ? ' What it owns is far under the price: the price pays for a future its figures do not show yet.' : ''} A rough yardstick, not a study` };
     }
+    // what it owns and sells is a yardstick for a company without profits; one with profits whose earnings land far from the price
+    // (SanDisk on 23 Nov 2026: P/E 5 on record earnings) gets none, not a value from its book (16.71 against a price of 84)
+    if (!loss) return null;
     const Y = [], r2 = (x) => (x >= 100 ? x.toFixed(0) : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
     if (book != null) {
       Y.push({ k: 'book', v: book, say: `its book value per share ${r2(book)}` });

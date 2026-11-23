@@ -209,10 +209,19 @@
   async function kept(id, interval) {   // what the device has for this series, however old (null when nothing)
     const key = id + '/' + interval; let hit = cache.get(key);
     // v 2: kept since build 133 (one kept before may hold a hole, see candles(): it is read again)
-    if (!hit) { const k = await DB.get(key); if (k && k.v === 2 && k.rows && k.rows.length) { hit = { at: k.at, fullAt: k.fullAt || 0, all: !!k.all, rows: unpack(k.rows) }; cache.set(key, hit); } }
+    if (!hit) { const k = await DB.get(key); if (k && k.v === 2 && k.rows && k.rows.length) { hit = { at: k.at, fullAt: k.fullAt || 0, all: !!k.all, ok: Array.isArray(k.ok) ? k.ok : [], rows: unpack(k.rows) }; cache.set(key, hit); } }
     return hit || null;
   }
-  const keep = (key, e) => { cache.set(key, e); DB.set(key, { v: 2, at: e.at, fullAt: e.fullAt, all: e.all, rows: pack(e.rows) }); };
+  const keep = (key, e) => { cache.set(key, e); DB.set(key, { v: 2, at: e.at, fullAt: e.fullAt, all: e.all, ok: e.ok || [], rows: pack(e.rows) }); };
+  // Splits (Matteo, 23 Nov 2026: "some times assets do stocks price split, and it's for example the case of SanDisk"). eToro
+  // rewrites an asset's whole history after a split (SanDisk, 8 for 1 on 20 Nov: every earlier candle divided by 8), so a history
+  // kept from before, or a published pack, no longer matches it: joined to the new candles it drew a fall from 1,000 to 100.
+  // A kept history is checked against eToro's whenever the two meet (their common candles must agree), and a jump the size of a
+  // split between two of its candles is checked once: when eToro's own history has no such jump, eToro's replaces it.
+  const jumpsOf = (rows, ok) => { const J = []; for (let i = 1; i < rows.length; i++) { const pc = rows[i - 1].close, o = rows[i].open, c = rows[i].close; if (pc > 0 && o > 0 && c > 0 && ((o / pc < 0.55 && c / pc < 0.6) || (o / pc > 1.8 && c / pc > 1.7)) && !(ok || []).includes(rows[i].t)) J.push(rows[i].t); } return J; };
+  // the candles two histories share agree (the newest kept one may still have been forming, so it is not compared)
+  const agree = (kept, got) => { const by = new Map(got.map((r) => [r.t, r.close])); let n = 0, bad = 0; for (let i = 0; i < kept.length - 1; i++) { const v = by.get(kept[i].t); if (v > 0 && kept[i].close > 0) { n++; if (Math.abs(kept[i].close / v - 1) > 0.03) bad++; } } return bad <= Math.max(0, Math.floor(n * 0.02)); };
+  const stats2 = { split: 0, real: 0 };   // for the tests: histories replaced after a split, jumps found to be real moves
   async function fetchRows(id, interval, count, prio) {
     const j = await getJSON(`/api/v1/market-data/instruments/${id}/history/candles/desc/${interval}/${count}`, prio);
     const list = (j.candles && j.candles[0] && j.candles[0].candles) || [];
@@ -234,10 +243,21 @@
       return true;
     } catch (e) { return false; }
   }
+  // a kept history with a jump the size of a split, read again from eToro once: eToro's replaces it unless eToro has the same jump
+  async function checkJumps(id, interval, key, hit, prio) {
+    const J = jumpsOf(hit.rows, hit.ok); if (!J.length) return hit;
+    const ask = Math.min(1000, Math.max(hit.rows.length, 50)), got = await fetchRows(id, interval, ask, prio); stats.full++;
+    if (!got.length) return hit;
+    const by = new Map(got.map((r, i) => [r.t, i])), hitBy = new Map(hit.rows.map((r, i) => [r.t, i]));
+    const real = J.filter((t) => { const i = by.get(t), k = hitBy.get(t); if (i == null || i < 1 || k == null || k < 1) return false; return got[i - 1].t === hit.rows[k - 1].t && Math.abs(got[i].close / got[i - 1].close - hit.rows[k].close / hit.rows[k - 1].close) < 0.05 * (hit.rows[k].close / hit.rows[k - 1].close); });
+    if (real.length === J.length && agree(hit.rows, got)) { hit.ok = (hit.ok || []).concat(real).slice(-50); keep(key, hit); stats2.real++; return hit; }
+    const e = { at: Date.now(), fullAt: Date.now(), all: got.length < ask, ok: [], rows: got }; keep(key, e); stats2.split++; return e;
+  }
   async function candles(id, interval, count, prio) {
     const key = id + '/' + interval, ttl = /Day|Week/.test(interval) ? 600000 : 60000, now = Date.now(); let hit = await kept(id, interval);
     let enough = hit && (hit.rows.length >= count || hit.all);
     if (!enough && interval === 'OneDay' && count > 20 && await fromPack(id)) { hit = cache.get(key); enough = hit && (hit.rows.length >= count || hit.all); }   // the published history first
+    if (hit && !hit.checked) { hit.checked = true; try { hit = await checkJumps(id, interval, key, hit, prio); } catch (e) { /* checked again next session */ hit.checked = false; } enough = hit && (hit.rows.length >= count || hit.all); }
     if (enough && now - hit.at < ttl) { stats.fromDevice++; return hit.rows.slice(-count); }
     const fkey = key + '/' + count;
     if (flying.has(fkey)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/`); return flying.get(fkey); }   // already on its way: the screen's need moves it to the front
@@ -250,7 +270,7 @@
           if (fresh.length && fresh[0].t <= lastT && same) {
             for (const r of fresh) byT.set(r.t, r);
             const rows = [...byT.values()].sort((a, b) => a.t - b.t).slice(-Math.max(count, hit.rows.length));
-            keep(key, { at: Date.now(), fullAt: hit.fullAt, all: hit.all, rows }); stats.delta++;
+            keep(key, { at: Date.now(), fullAt: hit.fullAt, all: hit.all, ok: hit.ok || [], checked: true, rows }); stats.delta++;
             return rows.slice(-count);
           }
         }
@@ -263,11 +283,12 @@
       const got = await fetchRows(id, interval, ask, prio), cur = cache.get(key); stats.full++;
       const rows = ask > count ? got.slice(-count) : got;
       if (!got.length) return rows;   // nothing came: what is kept stays as it is
-      const joins = cur && cur.rows.length && got[0].t <= cur.rows[cur.rows.length - 1].t;
+      const meets = cur && cur.rows.length && got[0].t <= cur.rows[cur.rows.length - 1].t, joins = meets && agree(cur.rows, got);   // the same history (not one from before a split)
+      if (meets && !joins) stats2.split++;
       if (joins && cur.rows.length > got.length) {   // a longer history arrived meanwhile from another request: add to it, never shorten it
         const byT = new Map(cur.rows.map((r) => [r.t, r])); for (const r of got) byT.set(r.t, r);
-        keep(key, { at: Date.now(), fullAt: cur.fullAt, all: cur.all || got.length < ask, rows: [...byT.values()].sort((a, b) => a.t - b.t) });
-      } else keep(key, { at: Date.now(), fullAt: Date.now(), all: got.length < ask, rows: got });
+        keep(key, { at: Date.now(), fullAt: cur.fullAt, all: cur.all || got.length < ask, ok: cur.ok || [], checked: true, rows: [...byT.values()].sort((a, b) => a.t - b.t) });
+      } else keep(key, { at: Date.now(), fullAt: Date.now(), all: got.length < ask, ok: [], checked: true, rows: got });
       return rows;
     })();
     flying.set(fkey, job);
@@ -463,7 +484,7 @@
       if (!(window.SR_FAIR && window.SR_FAIR[inst.symbol]) && window.SRAbout.valuation) {
         try { modelFair = window.SRAbout.valuation(f, window.SRAbout.sectorPE(f.umbrellasector)) || window.SRAbout.assetValue(f, window.SRAbout.sectorPS(f.umbrellasector)); } catch (e) { modelFair = null; }
         const cls = String(f.internalassetclassname || '');
-        if (!modelFair) fairWhy = /^stocks?$/i.test(cls) ? `No fair value for ${inst.symbol}: eToro gives no earnings, book value or sales to work from.` : `No fair value for ${inst.symbol}: ${/etf|fund/i.test(cls) ? 'a fund' : /crypto/i.test(cls) ? 'a coin' : /commod/i.test(cls) ? 'a commodity' : /curr/i.test(cls) ? 'a currency pair' : /indic|index/i.test(cls) ? 'an index' : 'this asset'} has no earnings or sales to value.`;
+        if (!modelFair) fairWhy = /^stocks?$/i.test(cls) && +f['eps-ttm'] > 0 ? `No fair value for ${inst.symbol}: none of its yardsticks (its usual P/E, its sector's, analysts' target) lands close enough to the price to trust: often earnings at a peak, or about to change.` : /^stocks?$/i.test(cls) ? `No fair value for ${inst.symbol}: eToro gives no earnings, book value or sales to work from.` : `No fair value for ${inst.symbol}: ${/etf|fund/i.test(cls) ? 'a fund' : /crypto/i.test(cls) ? 'a coin' : /commod/i.test(cls) ? 'a commodity' : /curr/i.test(cls) ? 'a currency pair' : /indic|index/i.test(cls) ? 'an index' : 'this asset'} has no earnings or sales to value.`;
         try { ch.setFair(fairOf()); facts(); } catch (e) { /* the page was closed meanwhile */ }
       }
       // the next results date, in the empty days after the last candle
@@ -1327,6 +1348,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { _store: { keep, cache }, close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { _store: { keep, cache, stats2, jumpsOf },  close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();
