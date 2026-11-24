@@ -1133,6 +1133,35 @@ button.ab-ma-r:hover { background: var(--color-bg); } .ab-ma-r:focus-visible { o
 /* folded parts of a lab (more statistics, the trend table): a quiet line with a 44px tap target */
 .t-labfold > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--sr-c1); min-height: 44px; display: flex; align-items: center; }
 .t-labfold[open] > summary { min-height: 36px; }
+/* ---- the reorganisation of 24 Nov 2026 ---- */
+/* Trading: the state of things in one line; the why behind a tap */
+.t-statusd { margin-bottom: 10px; } .t-statusd > summary { list-style: none; cursor: pointer; margin-bottom: 0; min-height: 32px; } .t-statusd > summary::-webkit-details-marker { display: none; }
+.t-statusd > summary::after { content: 'why'; font-size: 11.5px; color: var(--sr-c1); text-decoration: underline; margin-left: 2px; }
+.t-statusd:not(.is-warn) > summary::after { content: ''; }
+.t-statusd[open] > summary::after { content: 'hide'; }
+.t-statusd.is-warn > summary { color: var(--color-warn-fg, #8a5a00); }
+.t-statusd > .g-hint { margin: 4px 0 6px 14px; }
+/* Trading, Log: one fold a day */
+.t-logday { border-top: 1px solid var(--color-border-line); } .t-logday > summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 12px 0; min-height: 44px; box-sizing: border-box; }
+.t-logday .t-log { border-top: 0; padding: 4px 0 8px; } .t-logday .t-log .g-hint { margin: 2px 0 0; font-size: 11.5px; }
+.t-ask { padding: 8px 10px; border-left: 3px solid var(--sr-c1); background: color-mix(in srgb, var(--sr-c1) 6%, transparent); border-radius: 0 8px 8px 0; margin: 0 0 8px; }
+.t-more { margin: 8px 0 4px; }
+/* Today: the labs in a line each */
+.g-labrow { align-items: center; } .g-labrow .g-wrow-t { font-weight: 600; }
+.g-labword { font-size: 11px; font-weight: 650; padding: 4px 7px; border-radius: 999px; color: var(--color-fg-muted); background: color-mix(in srgb, var(--color-fg) 8%, transparent); white-space: nowrap; }
+.g-labword[data-verdict="losing"] { color: var(--color-bad); background: color-mix(in srgb, var(--color-bad) 12%, transparent); }
+.g-labword[data-verdict="ahead"], .g-labword[data-verdict="holding"] { color: var(--color-ok); background: color-mix(in srgb, var(--color-ok) 13%, transparent); }
+.g-ask { display: block; margin: 10px 0 4px; font-weight: 600; }
+/* a long table folded under its own title (Portfolio's every figure, Sectors' funds table) */
+.app-folded { padding-top: 4px; padding-bottom: 4px; } .app-fold > summary { font-size: 15px; }
+/* Screener: the world's markets as one row to swipe on a phone; the extras under the list */
+@media (max-width: 899px) {
+  .sc-map.sc-strip { display: flex; overflow-x: auto; gap: 6px; scrollbar-width: none; margin: 0 -4px 12px; padding: 0 4px 2px; scroll-snap-type: x proximity; }
+  .sc-map.sc-strip::-webkit-scrollbar { display: none; }
+  .sc-map.sc-strip .sc-tile { flex: 0 0 82px; scroll-snap-align: start; }
+}
+.sc-extra { margin-top: 14px; display: grid; gap: 8px; }
+.sc-extra .sr-disclosure .sc-hc { margin: 0 0 8px; }
 
 /* ---- dashboard ---- */
   .sr { --sr-up: #26a69a; --sr-down: #ef5350; display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); color: var(--color-fg); min-width: 0; }

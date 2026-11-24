@@ -238,19 +238,30 @@
     if (sheet.hidden && SRApp.isStale()) SRApp.refresh();
   };
   // ---- tabs and sub-tabs: each block of the dashboard page belongs to one of them; only what's open is drawn ----
+  // the reorganisation of 24 Nov 2026: 16 parts became 11, each label short enough for a 360 px phone; a part may hold several
+  // blocks, shown in the page's order; "+" folds a block under its own title (a long table that most visits do not need)
   const TABS = {
     today: [['', ['today']]],
-    portfolio: [['Overview', ['pfolio']], ['Details', ['portfolio']], ['Taxes', ['ptax']], ['eToro taxes', ['petax']]],
-    markets: [['Screener', ['screener']], ['Sectors', ['rotboard']], ['All funds', ['ranking']]],
-    trading: [['Overview', ['trade']], ['Positions', ['tradepos']], ['History', ['tradehist']], ['Progress', ['tradeprog']], ['Review', ['tradereview']], ['Labs', ['tradelab']]],
+    portfolio: [['Holdings', ['pfolio', '+portfolio']], ['Taxes', ['ptax', 'petax']]],
+    markets: [['Screener', ['screener']], ['Sectors', ['rotboard', '+ranking']]],
+    trading: [['Account', ['trade', 'tradepos', 'tradehist']], ['Labs', ['tradelab']], ['Progress', ['tradeprog']], ['Log', ['tradelog', 'tradereview']]],
     plan: [['Plan', ['plan']], ['26-year test', ['backtest']]],
   };
+  const NAV_V = 2;   // the parts' numbers changed with the reorganisation: a part kept from before is not reused
+  const FOLDS = { portfolio: 'Every figure for each holding', ranking: 'All sector and theme funds, ranked over the last month' };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
   const blocks = [...document.querySelectorAll('#dash-root .sr > *')];
   for (const b of blocks) {
     let where = ['none', 0]; // blocks of the old layout that no tab uses stay out of sight
-    for (const [t, subs] of Object.entries(TABS)) subs.forEach(([, keys], i) => { if (keys.includes(keyOf(b))) where = [t, i]; });
+    let fold = false;
+    for (const [t, subs] of Object.entries(TABS)) subs.forEach(([, keys], i) => { const k = keyOf(b); if (keys.includes(k)) where = [t, i]; else if (keys.includes('+' + k)) { where = [t, i]; fold = true; } });
     b.setAttribute('data-tab', where[0]); b.setAttribute('data-sub', String(where[1]));
+    if (fold && !b.querySelector(':scope > details.app-fold')) {
+      const d = document.createElement('details'), sm = document.createElement('summary'); d.className = 'sr-disclosure app-fold'; d.dataset.section = 'fold-' + keyOf(b);
+      sm.textContent = FOLDS[keyOf(b)] || ((b.querySelector('h2') || {}).textContent || 'More'); d.appendChild(sm);
+      while (b.firstChild) d.appendChild(b.firstChild);
+      b.appendChild(d); b.classList.add('app-folded');
+    }
   }
   const method = document.getElementById('method');
   if (method) method.open = true; // the Method sub-tab shows the notes unfolded
@@ -258,8 +269,8 @@
   subbar.className = 'subtabs'; subbar.setAttribute('aria-label', 'Sub-sections');
   document.getElementById('dash-root').prepend(subbar);
   const tabBtns = [...document.querySelectorAll('#tabbar [data-tab]')];
-  let nav = { tab: null, sub: {} }, cameFrom = null;
-  try { nav = Object.assign(nav, JSON.parse(localStorage.getItem('sr.nav') || '{}'), { tab: null }); } catch (e) { /* defaults */ }
+  let nav = { tab: null, sub: {}, v: NAV_V }, cameFrom = null;
+  try { const was = JSON.parse(localStorage.getItem('sr.nav') || '{}') || {}; if (was.v !== NAV_V) was.sub = {}; nav = Object.assign(nav, was, { tab: null, v: NAV_V }); } catch (e) { /* defaults */ }
   let saved = null;
   try { saved = (JSON.parse(localStorage.getItem('sr.nav') || '{}') || {}).tab; } catch (e) { saved = null; }
   function showTab(id, sub, keepScroll) {

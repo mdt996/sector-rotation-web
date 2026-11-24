@@ -16,7 +16,9 @@
   const ARM = { buy: 'Nightly buys', short: 'Nightly shorts', 'fast-buy': 'Fast buys (1-hour)', 'fast-short': 'Fast shorts (1-hour)', hand: 'Opened by hand' };
   const FASTCLS = { 27: 'Indices', 28: 'Indices', 29: 'Indices', 32: 'Indices', 30: 'Indices', 31: 'Indices', 36: 'Indices', 18: 'Commodity', 19: 'Commodity', 17: 'Commodity', 1: 'Forex', 2: 'Forex', 5: 'Forex', 6: 'Forex', 4: 'Forex', 7: 'Forex' };
   const FASTSYM = { 27: 'SPX500', 28: 'NSDQ100', 29: 'DJ30', 32: 'GER40', 30: 'UK100', 31: 'FRA40', 36: 'JPN225', 18: 'GOLD', 19: 'SILVER', 17: 'OIL', 1: 'EURUSD', 2: 'GBPUSD', 5: 'USDJPY', 6: 'USDCHF', 4: 'USDCAD', 7: 'AUDUSD' };
-  const ui = { range: 'all', arm: 'all', sort: 'pl', tf: '60', style: 'candles', bench: false };
+  const ui = { range: 'all', arm: 'all', sort: 'pl', tf: '60', style: 'candles', bench: false, histAll: false, open: {} };
+  // a fold that stays as it was left: every reading of eToro (5 s) draws the parts again
+  const fold = (box, key, cls, title, def) => { const d = box.appendChild(el('details', cls)); d.open = key in ui.open ? ui.open[key] : !!def; d.appendChild(el('summary', '', title)); d.addEventListener('toggle', () => { ui.open[key] = d.open; }); return d; };
   try { const k = JSON.parse(localStorage.getItem('sr.pfChart') || '{}'); if (['1', '5', '15', '30', '60', '240', '1440'].includes(k.tf)) ui.tf = k.tf; if (k.style === 'line') ui.style = 'line'; ui.bench = !!k.bench; } catch (e) { /* defaults */ }
   const keepUi = () => { try { localStorage.setItem('sr.pfChart', JSON.stringify({ tf: ui.tf, style: ui.style, bench: ui.bench })); } catch (e) { /* not kept */ } };
   // the account's value between two readings of eToro (every 5 s), moved with each price eToro pushes for the open positions: minute by minute extremes kept in memory
@@ -153,13 +155,20 @@
   const tile = (grid, k, v, sub, cls) => { const d = grid.appendChild(el('div', 'g-stat')); d.appendChild(el('span', 'g-stat-k', k)); d.appendChild(el('b', 'g-stat-v' + (cls ? ' ' + cls : ''), v)); if (sub) d.appendChild(el('span', 'g-stat-s', sub)); return d; };
   const head = (box, text) => box.appendChild(el('h3', 't-h', text));
   const openAsset = (x) => S().open({ sym: x.sym, id: x.id, name: (x.t && x.t.n) || x.sym });
+  // one line for the state of things (the audit of 24 Nov 2026: three lines and an orange box on every part); the why behind a tap
   function status(box, M) {
-    const s = box.appendChild(el('div', 't-status')), P = M.P;
-    s.appendChild(el('span', 't-dot ' + (M.live ? 'on' : 'off'))); s.appendChild(el('span', '', M.live ? `Live from eToro · ${clock(M.L.at)}` : M.L.err === 'no keys' ? 'Not live: add your eToro keys in Settings' : M.L.err ? `Not live: eToro answered ${M.L.err} (the key in this app needs "Trading – Demo, Read")` : 'Connecting to eToro…'));
-    const quiet = S().vmSilent();
-    if (P.made) { s.appendChild(el('span', 't-sep', '·')); s.appendChild(el('span', quiet ? 'g-warn' : '', `VM record ${when(P.made)}${P.mode !== 'live' ? ' (dry run: no orders)' : ''}`)); }
-    s.appendChild(el('span', 't-sep', '·')); s.appendChild(el('span', '', 'virtual money'));
-    if (quiet) box.appendChild(el('div', 'g-line g-warn t-alarm', `No sign of the VM for ${span(quiet * 60e3)} (its record should be at most half an hour old). Until it is back: no new order, no close at a time limit, and no watch on the stops eToro does not hold. The stops and targets that sit on eToro still work.`));
+    const P = M.P, quiet = S().vmSilent(), bad = !M.live || quiet || (P.made && P.mode !== 'live');
+    const d = box.appendChild(el('details', 't-statusd' + (bad ? ' is-warn' : ''))), s = d.appendChild(el('summary', 't-status')); d.open = !!ui.open.status; d.addEventListener('toggle', () => { ui.open.status = d.open; });
+    s.appendChild(el('span', 't-dot ' + (M.live && !quiet ? 'on' : 'off')));
+    s.appendChild(el('span', '', [M.live ? `Live · ${clock(M.L.at)}` : M.L.err === 'no keys' ? 'Not live: no eToro keys' : M.L.err ? `Not live (eToro ${M.L.err})` : 'Connecting…',
+      P.made ? `VM ${quiet ? 'silent ' + span(quiet * 60e3) : when(P.made)}${P.mode !== 'live' ? ', dry run' : ''}` : null, 'virtual money'].filter(Boolean).join(' · ')));
+    const why = [];
+    if (!M.live) why.push(M.L.err === 'no keys' ? 'Add your eToro keys in Settings to read the demo account live.' : M.L.err ? `eToro answered ${M.L.err}: the key in this app needs the "Trading – Demo, Read" right. Showing the VM's record instead.` : 'Waiting for eToro\'s first answer.');
+    if (quiet) why.push(`No sign of the VM for ${span(quiet * 60e3)} (its record should be at most half an hour old). Until it is back: no new order, no close at a time limit, and no watch on the stops eToro does not hold. The stops and targets that sit on eToro still work.`);
+    if (P.made && P.mode !== 'live') why.push(`The program is on dry runs: it looks, but sends no order${P.why ? ` (${P.why})` : ''}.`);
+    if (P.made) why.push(`The VM's last record: ${when(P.made)}. eToro's own figures are read every 5 seconds; orders come only from the program on the VM.`);
+    for (const w of why) d.appendChild(el('div', 'g-hint', w));
+    if (quiet) box.appendChild(el('div', 'g-line g-warn t-alarm', `No sign of the VM for ${span(quiet * 60e3)}: no new orders until it is back. Stops on eToro still work.`));
   }
 
   // ---- the account's value on the same chart as the markets (SRChart: drag, pinch or scroll to zoom, drawing tools, indicators, full view) ----
@@ -398,6 +407,9 @@
     tile(g, 'Closed trades', usd2(st.realized), st.n ? `${st.n} closed since the start` : 'none closed yet', sign(st.realized));
     tile(g, 'This week', f.week != null ? usd2(f.week) : '–', f.week != null ? 'change in value over 7 days' : 'needs a week of readings', f.week != null ? sign(f.week) : '');
     tile(g, 'Costs paid', usd(st.fees), 'fees booked by eToro');
+    // risk, exposure and the trade statistics: one fold (the audit of 24 Nov 2026: 15 tiles under the chart)
+    for (const [k, v] of Object.entries(M.P.paused || {})) root.appendChild(el('div', 'g-line g-warn', `Paused by the program: ${ARM[k] || k} since ${v.since} (${v.why}).`));
+    const more = SRApp.disclosure(root, 'trading-more', 'Risk, exposure and statistics'); root = more;
     head(root, 'Risk'); g = root.appendChild(el('div', 'g-stats'));
     tile(g, 'Worst fall so far', f.dd < 0 ? pc(f.dd) : '0%', `from a high of ${usd(f.peak || M.value)}`, f.dd < -0.005 ? 'down' : '');
     tile(g, 'If every stop is hit', usd(-M.riskOpen), M.value ? `${(100 * M.riskOpen / M.value).toFixed(2)}% of the account, from here` : '', M.riskOpen > 0 ? 'down' : '');
@@ -405,7 +417,7 @@
     tile(g, 'Net direction', M.value ? pc(100 * M.net / M.value, 0) : '–', M.net >= 0 ? 'net long' : 'net short');
     tile(g, 'Money set aside', usd(M.margin), `${M.gross > 0 && M.margin > 0 ? (M.gross / M.margin).toFixed(1) + '× leverage on average' : 'no position'}`);
     tile(g, 'Free cash', usd(M.cash - M.frozen), M.frozen ? `${usd(M.frozen)} held for waiting orders` : '');
-    tile(g, 'Sharpe ratio', f.sharpe != null ? f.sharpe.toFixed(2) : '–', f.sharpe != null ? `from ${f.days} days` : `needs 20 days of history (${f.days} so far)`);
+    tile(g, 'Sharpe ratio', f.sharpe != null && f.days >= 60 ? f.sharpe.toFixed(2) : '–', f.sharpe != null && f.days >= 60 ? `from ${f.days} days, on a year` : `needs 60 days of history (${f.days} so far)`);
     // exposure by sector, country and currency (net: long minus short), and the positions that move together
     if (M.positions.length && M.value > 0) {
       head(root, 'Exposure, net');
@@ -425,8 +437,7 @@
         if (cor.total && cor.pairs.length === cor.total && !tog.length) root.appendChild(el('div', 'g-hint', 'No two positions move closely together (60 days).'));
       }
     }
-    for (const [k, v] of Object.entries(M.P.paused || {})) root.appendChild(el('div', 'g-line g-warn', `Paused by the program: ${ARM[k] || k} since ${v.since} (${v.why}).`));
-    const quality = SRApp.disclosure(root, 'trading-quality', 'Trade statistics');
+    head(root, 'Trade statistics'); const quality = root;
     g = quality.appendChild(el('div', 'g-stats'));
     tile(g, 'Trades with a gain', st.winPct != null ? `${Math.round(st.winPct)}%` : '–', st.n ? `${st.wins} of ${st.n}` : 'no closed trade yet');
     tile(g, 'Profit factor', st.pf == null ? '–' : st.pf === Infinity ? 'no loss yet' : st.pf.toFixed(2), 'gains divided by losses; above 1 earns');
@@ -436,7 +447,7 @@
     tile(g, 'Average holding time', st.hold != null ? span(st.hold) : '–', '');
     tile(g, 'Best trade', st.best ? usd2(st.best.net) : '–', st.best ? st.best.sym : '', st.best ? sign(st.best.net) : '');
     tile(g, 'Worst trade', st.worst ? usd2(st.worst.net) : '–', st.worst ? st.worst.sym : '', st.worst ? sign(st.worst.net) : '');
-    const breakdown = SRApp.disclosure(root, 'trading-breakdown', 'Results by rule and asset class');
+    const breakdown = root;
     const group = (key, names) => { const G = {}; for (const p of M.positions) { const o = G[key(p)] = G[key(p)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.open++; o.run += p.pl; o.expo += p.expo; } for (const c of M.closed) { const o = G[key(c)] = G[key(c)] || { open: 0, run: 0, expo: 0, n: 0, won: 0, net: 0, r: 0, rn: 0 }; o.n++; o.won += c.net > 0 ? 1 : 0; o.net += c.net; if (c.r != null) { o.r += c.r; o.rn++; } }
       const tb = breakdown.appendChild(el('div', 't-table')); const hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['', 'Open', 'Running', 'Closed', 'Gain %', 'Result', 'Per trade']) hd.appendChild(el('span', '', h));
       for (const [k, o] of Object.entries(G).sort((a, b) => (b[1].net + b[1].run) - (a[1].net + a[1].run))) { const r = tb.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', (names && names[k]) || k)); r.appendChild(el('span', '', String(o.open))); r.appendChild(el('span', sign(o.run), o.open ? usd2(o.run) : '–')); r.appendChild(el('span', '', String(o.n))); r.appendChild(el('span', '', o.n ? Math.round(100 * o.won / o.n) + '%' : '–')); r.appendChild(el('span', sign(o.net), o.n ? usd2(o.net) : '–')); r.appendChild(el('span', '', o.rn ? `${o.r / o.rn >= 0 ? '+' : '−'}${Math.abs(o.r / o.rn).toFixed(2)} R` : '–')); }
@@ -448,17 +459,16 @@
       group((x) => (!(x.t && x.t.fast) ? 'Other trades' : x.t.faded ? 'Signal faded or reversed' : 'Signal held'));
       breakdown.appendChild(el('div', 'g-hint', 'The program checks fast signals hourly. It does not close a trade when the signal fades.'));
     }
-    root.appendChild(el('div', 'g-hint', 'eToro\'s own figures, read every 5 seconds. Orders come only from the program on your VM. Virtual money, not advice.'));
     return true;
   }
 
   // ---- Positions ----
   function positions(root) {
-    const M = calc(); root.textContent = ''; status(root, M);
+    const M = calc(); root.textContent = '';
+    head(root, `Open positions (${M.positions.length})`);
     const bar = root.appendChild(el('div', 't-chips')); bar.appendChild(el('span', 't-chip-l', 'Sort'));
     for (const [k, l] of [['pl', 'Result'], ['pct', 'Move %'], ['size', 'Size'], ['stop', 'Nearest stop'], ['age', 'Newest']]) { const b = bar.appendChild(el('button', 't-chip' + (ui.sort === k ? ' on' : ''), l)); b.type = 'button'; b.addEventListener('click', () => { ui.sort = k; SRApp.renderDraw('tradepos'); }); }
     const key = { pl: (p) => -p.pl, pct: (p) => -p.move, size: (p) => -p.expo, stop: (p) => (p.stop > 0 ? Math.abs(p.now / p.stop - 1) : 9), age: (p) => -p.opened }[ui.sort], pos = M.positions.slice().sort((a, b) => key(a) - key(b));
-    head(root, `Open positions (${pos.length})`);
     if (!pos.length) root.appendChild(el('div', 'g-hint', M.live ? 'No open position.' : 'Waiting for eToro.'));
     for (const p of pos) {
       const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(p));
@@ -478,8 +488,7 @@
       if (ex2.length) b.appendChild(el('div', 't-l2', ex2.join(' · ')));
       if (p.soft) b.appendChild(el('div', 't-l2 g-warn', `Stop watched by the program at ${px(p.stop)} (eToro's own: ${px(p.etoroStop)}).`));
     }
-    head(root, `Orders waiting for the market (${M.waiting.length})`);
-    if (!M.waiting.length) root.appendChild(el('div', 'g-hint', 'None.'));
+    if (M.waiting.length) head(root, `Orders waiting for the market (${M.waiting.length})`);
     for (const w of M.waiting) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(w)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, w.id, w.sym, 22); l1.appendChild(el('span', 'g-pill ' + (w.side > 0 ? 'g-buy' : 'g-sell'), w.sym)); l1.appendChild(el('span', 't-tag', w.side > 0 ? 'Buy order' : 'Short order')); l1.appendChild(el('span', 't-tag t-arm', ARM[w.arm] || w.arm)); l1.appendChild(el('span', 't-pl', usd(w.amount)));
       b.appendChild(el('div', 't-l2', `${isFinite(w.placed) ? 'Sent ' + when(w.placed) + ' · ' : ''}opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`)); }
     const stuck = (M.P.open || []).filter((t) => t.status !== 'open' && M.live && !M.waiting.some((w) => w.t === t) && !M.positions.some((p) => p.t === t));
@@ -489,43 +498,65 @@
 
   // ---- History ----
   function history(root) {
-    const M = calc(); root.textContent = ''; status(root, M);
-    const arms = ['all', ...new Set(M.closed.map((c) => c.arm))], bar = root.appendChild(el('div', 't-chips'));
-    for (const k of arms) { const b = bar.appendChild(el('button', 't-chip' + (ui.arm === k ? ' on' : ''), k === 'all' ? 'All rules' : ARM[k] || k)); b.type = 'button'; b.addEventListener('click', () => { ui.arm = k; SRApp.renderDraw('tradehist'); }); }
+    const M = calc(); root.textContent = '';
+    const arms = ['all', ...new Set(M.closed.map((c) => c.arm))];
     const list = M.closed.filter((c) => ui.arm === 'all' || c.arm === ui.arm), net = list.reduce((x, c) => x + c.net, 0), won = list.filter((c) => c.net > 0).length;
     head(root, `Closed trades (${list.length})`);
+    if (arms.length > 2) { const bar = root.appendChild(el('div', 't-chips'));
+      for (const k of arms) { const b = bar.appendChild(el('button', 't-chip' + (ui.arm === k ? ' on' : ''), k === 'all' ? 'All rules' : ARM[k] || k)); b.type = 'button'; b.addEventListener('click', () => { ui.arm = k; ui.histAll = false; SRApp.renderDraw('tradehist'); }); } }
     if (list.length) root.appendChild(el('div', 'g-line', `${won} with a gain (${Math.round(100 * won / list.length)}%), ${usd2(net)} after costs.`)); else root.appendChild(el('div', 'g-hint', 'No trade has closed yet. Each one will appear here with its entry, exit, result and how it ended.'));
-    for (const c of list.slice(0, 80)) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(c)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, c.id, c.sym, 22); l1.appendChild(el('span', 'g-pill ' + (c.side > 0 ? 'g-buy' : 'g-sell'), c.sym)); l1.appendChild(el('span', 't-tag', `${c.side > 0 ? 'Long' : 'Short'}${c.lev > 1 ? ' ×' + c.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[c.arm] || c.arm));
+    for (const c of list.slice(0, ui.histAll ? 80 : 10)) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(c)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, c.id, c.sym, 22); l1.appendChild(el('span', 'g-pill ' + (c.side > 0 ? 'g-buy' : 'g-sell'), c.sym)); l1.appendChild(el('span', 't-tag', `${c.side > 0 ? 'Long' : 'Short'}${c.lev > 1 ? ' ×' + c.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[c.arm] || c.arm));
       const r = l1.appendChild(el('span', 't-pl ' + sign(c.net))); r.appendChild(el('b', '', usd2(c.net))); if (c.r != null) r.appendChild(el('span', '', ` ${c.r >= 0 ? '+' : '−'}${Math.abs(c.r).toFixed(2)} R`));
       b.appendChild(el('div', 't-l2', `${px(c.entry)} → ${px(c.exit)} (${pc(100 * c.side * (c.exit / c.entry - 1))}) · ended by ${c.how}${isFinite(c.opened) ? ` · held ${span(c.at - c.opened)}` : ''} · closed ${when(c.at)}${c.fees ? ` · fees ${usd2(-c.fees).replace('−', '')}` : ''}`)); }
-    // what the program did, look by look
+    if (!ui.histAll && list.length > 10) { const b = root.appendChild(el('button', 'btn t-more', `Show all ${Math.min(80, list.length)}`)); b.type = 'button'; b.addEventListener('click', () => { ui.histAll = true; SRApp.renderDraw('tradehist'); }); }
+    return true;
+  }
+
+  // ---- Log: what the program did, one fold a day with its count on the fold (the audit of 24 Nov 2026: a wall of "skipped") ----
+  const dayKey = (t) => new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const reasonOf = (x) => { const i = x.indexOf(': '); return i < 0 ? ['', x] : [x.slice(0, i), x.slice(i + 2).replace(/\s*\([^)]*\)/g, '').trim()]; };
+  function programLog(root) {
+    const M = calc(), V = S().review(), E = V && V.entries ? V.entries : []; root.textContent = '';
+    // what the last review asks of Matteo, first on the page (it was inside the review's text, under "Next")
+    const asks = E.length ? (E[E.length - 1].next || []).filter((x) => /^Matteo\b/.test(x)).map((x) => x.replace(/^Matteo\s*:\s*/, '')) : [];
+    if (asks.length) { head(root, `For you (${asks.length})`); for (const x of asks) root.appendChild(el('div', 'g-line t-ask', x.charAt(0).toUpperCase() + x.slice(1))); }
     head(root, 'What the program did');
-    // a dry run that would have sent orders is shown too, with its reason: the page must say when the program is not trading, and why
-    const all = (M.P.log || []).slice().reverse(), log = all.filter((l) => l.sent || l.dry || (l.closed || []).length || (l.skipped || []).length || (l.notes || []).length).slice(0, 25);
+    const all = (M.P.log || []).slice().reverse(), log = all.filter((l) => l.sent || l.dry || (l.opened || []).length || (l.closed || []).length || (l.skipped || []).length || (l.notes || []).length).slice(0, 60);
     const lastRun = all[0];
     if (lastRun && lastRun.mode === 'dry') root.appendChild(el('div', 'g-hint g-warn t-drywhy', `The program is on dry runs: it looks, but sends no order.${lastRun.why ? ' Reason: ' + lastRun.why + '.' : ''}`));
     // looks with nothing to do are not listed; when that is all there is, say so (20 Nov 2026: 40 quiet looks read "Nothing recorded yet")
-    if (!log.length) root.appendChild(el('div', 'g-hint t-logquiet', all.length ? `Nothing to do in its last ${all.length} look${all.length === 1 ? '' : 's'} (since ${when(all[all.length - 1].at)}): no order sent, no trade closed.` : 'Nothing recorded yet.'));
-    for (const l of log) { const d = root.appendChild(el('div', 't-log')); d.appendChild(el('b', '', when(l.at))); const parts = [];
-      if ((l.opened || []).length) parts.push('sent ' + l.opened.map((x) => x.replace(' fast-short', ' (fast short)').replace(' fast-buy', ' (fast buy)').replace(' short', ' (short)').replace(' buy', ' (buy)')).join(', '));
-      for (const c of l.closed || []) parts.push(`${c.s} closed by ${c.how}${c.net != null ? ' ' + usd2(c.net) : ''}`);
-      for (const s of l.skipped || []) parts.push('skipped ' + s); for (const n of l.notes || []) parts.push(n);
-      if (l.mode === 'dry' && l.dry) parts.push(`dry run: would have sent ${l.dry} order${l.dry === 1 ? '' : 's'}, sent none`);
-      d.appendChild(el('span', '', ' ' + parts.join(' · '))); }
+    if (!log.length) { root.appendChild(el('div', 'g-hint t-logquiet', all.length ? `Nothing to do in its last ${all.length} look${all.length === 1 ? '' : 's'} (since ${when(all[all.length - 1].at)}): no order sent, no trade closed.` : 'Nothing recorded yet.')); return true; }
+    const days = new Map(); for (const l of log) { const k = dayKey(l.at); if (!days.has(k)) days.set(k, []); days.get(k).push(l); }
+    let first = true;
+    for (const [k, L] of days) {
+      const sent = L.reduce((x, l) => x + (l.opened || []).length, 0), closed = L.reduce((x, l) => x + (l.closed || []).length, 0), skipped = L.reduce((x, l) => x + (l.skipped || []).length, 0), dry = L.reduce((x, l) => x + (l.mode === 'dry' && l.dry ? l.dry : 0), 0);
+      const d = fold(root, 'log:' + k, 't-logday', `${k} · ${[sent ? `${sent} sent` : null, closed ? `${closed} closed` : null, skipped ? `${skipped} skipped` : null, dry ? `${dry} on a dry run` : null].filter(Boolean).join(' · ') || 'notes only'}`, first); first = false;
+      for (const l of L) {
+        const x = d.appendChild(el('div', 't-log')); x.appendChild(el('b', '', clock(new Date(l.at).getTime()))); const parts = [];
+        if ((l.opened || []).length) parts.push('sent ' + l.opened.map((y) => y.replace(' fast-short', ' (fast short)').replace(' fast-buy', ' (fast buy)').replace(' short', ' (short)').replace(' buy', ' (buy)')).join(', '));
+        for (const c of l.closed || []) parts.push(`${c.s} closed by ${c.how}${c.net != null ? ' ' + usd2(c.net) : ''}`);
+        // the skipped ones grouped by their reason: "not enough cash left: VAR.OL, SU, CNQ"
+        const by = new Map(); for (const y of l.skipped || []) { const [sym, why] = reasonOf(y); if (!by.has(why)) by.set(why, []); by.get(why).push(sym); }
+        for (const [why, syms] of by) parts.push(`skipped ${syms.length > 1 ? syms.length + ' ' : ''}(${why || 'no reason given'}): ${syms.filter(Boolean).join(', ')}`);
+        if (l.mode === 'dry' && l.dry) parts.push(`dry run: would have sent ${l.dry} order${l.dry === 1 ? '' : 's'}, sent none`);
+        if (parts.length) x.appendChild(el('span', '', ' ' + parts.join(' · ')));
+        if ((l.notes || []).length) x.appendChild(el('div', 'g-hint', l.notes.join(' · ')));
+      }
+    }
     return true;
   }
 
   // ---- Rules and review ----
   function review(root) {
-    const M = calc(), P = M.P, R = M.rules, V = S().review(), E = V && V.entries ? V.entries.slice().reverse() : []; root.textContent = ''; status(root, M);
+    const M = calc(), P = M.P, R = M.rules, V = S().review(), E = V && V.entries ? V.entries.slice().reverse() : []; root.textContent = '';
     head(root, 'Daily review');
     if (!E.length) root.appendChild(el('div', 'g-hint', 'The first review appears here after its first morning run (06:47).'));
-    E.slice(0, 7).forEach((e, i) => { const d = root.appendChild(el('details', 't-rev')); if (!i) d.open = true; d.appendChild(el('summary', '', `Review of ${e.date}${e.account && e.account.equity ? ` · ${usd(e.account.equity)}` : ''}${(e.decisions || []).length ? ` · ${e.decisions.length} decision${e.decisions.length > 1 ? 's' : ''}` : ''}`));
+    E.slice(0, 7).forEach((e) => { const d = fold(root, 'rev:' + e.date, 't-rev', '', false); d.firstChild.remove(); d.appendChild(el('summary', '', `${dayKey(e.date + 'T12:00:00Z')}${e.account && e.account.equity ? ` · ${usd(e.account.equity)}` : ''}${(e.decisions || []).length ? ` · ${e.decisions.length} decision${e.decisions.length > 1 ? 's' : ''}` : ''}`));
       for (const [k, t] of [['health', 'Health'], ['decisions', 'Decisions'], ['questions', 'Questions asked'], ['next', 'Next']]) { if (!(e[k] || []).length) continue; d.appendChild(el('div', 't-revh', t)); for (const x of e[k]) d.appendChild(el('div', /^ALERT/.test(x) ? 'g-line g-warn' : 'g-line', x)); } });
     const A = S().audit();
     if (A && A.live) {
-      head(root, 'Check of the orders');
       const tr = A.live.trades || [], bad = tr.filter((x) => (x.issues || []).length), ms = A.live.missed || [];
+      const outer = root; root = fold(outer, 'audit', 't-rev t-audit', `Check of the orders · ${tr.length} trade${tr.length === 1 ? '' : 's'}, ${bad.length ? bad.length + ' with a difference' : 'no difference'}, ${ms.length} signal${ms.length === 1 ? '' : 's'} not taken`, false);
       root.appendChild(el('div', 'g-line' + (bad.length ? ' g-warn' : ''), `${when(A.made)}: ${tr.length} fast trade${tr.length === 1 ? '' : 's'} compared with a replay of the rule on eToro's 1-hour candles: ${bad.length ? bad.length + ' with a difference' : 'no difference'}${tr.length ? `; opened ${Math.round(tr.reduce((x, y) => x + (y.delay || 0), 0) / tr.length)} seconds after the signal on average` : ''}.`));
       for (const x of bad) root.appendChild(el('div', 'g-line g-warn', `${x.s} ${x.side > 0 ? 'buy' : 'short'} of ${when(x.signal)}: ${x.issues.join('; ')}`));
       root.appendChild(el('div', 'g-line' + (ms.length ? ' g-warn' : ''), ms.length ? `Signals the program did not take: ${ms.map((x) => `${x.s} ${x.side > 0 ? 'buy' : 'short'} ${when(x.signal)}`).join(', ')}.` : 'No signal of the replay was left untaken.'));
@@ -534,12 +565,14 @@
         const tb = root.appendChild(el('div', 't-table t-t4')); const hd = tb.appendChild(el('div', 't-tr t-th')); for (const h of ['While a trade is on', 'Trades', 'Gain %', 'Per trade']) hd.appendChild(el('span', '', h));
         for (const [k, v] of Object.entries(V)) { const r = tb.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', k.charAt(0).toUpperCase() + k.slice(1))); r.appendChild(el('span', '', String(v.n))); r.appendChild(el('span', '', v.share != null ? Math.round(v.share * 100) + '%' : '–')); r.appendChild(el('span', sign(v.avgR), v.avgR != null ? `${v.avgR >= 0 ? '+' : '−'}${Math.abs(v.avgR).toFixed(2)} R` : '–')); }
         root.appendChild(el('div', 'g-hint', 'R is the money risked on a trade. Costs take about 0.02 to 0.07 R per trade, and on this many trades anything within 0.07 R of zero is chance. Run again every night on the VM.')); }
+      root = outer;
     }
-    head(root, 'The rules in force');
+    const base = root; root = fold(base, 'rules', 't-rev', `The rules in force · version ${(R && R.version) || 1}`, false);
     if (R.arms) for (const [k, v] of Object.entries(R.arms)) root.appendChild(el('div', 'g-line', `${ARM[k] || k}${(P.paused || {})[k] ? ' (PAUSED)' : ''}: ${v}`));
     if (R.risk) { const F = R.fast || {}; root.appendChild(el('div', 'g-hint', `Nightly trades: ${(R.risk * 100).toFixed(2)}% of the account at risk each, at most ${(R.maxPosition * 100).toFixed(0)}% per position, ${R.maxNew} new a night, ${R.maxOpen} open, stop and target ${R.stopATR} ATR away, ${R.days} days at most, no leverage, companies of at least $${(R.minCap / 1e9).toFixed(0)} billion${R.resultsDays ? `, no new share when its results are due within ${R.resultsDays} trading days` : ''}.`));
       if (F.risk) root.appendChild(el('div', 'g-hint', `Fast trades: ${(F.risk * 100).toFixed(2)}% at risk each, about ${(F.margin * 100).toFixed(0)}% set aside (so with leverage), at most ${F.maxOpen} open and ${F.maxNew} new per hour, ${F.hours} hours at most, nothing new around the nightly rollover, flat for the weekend.`));
       root.appendChild(el('div', 'g-hint', `A rule with ${R.pauseAfter} closed trades and an average under ${R.pauseBelow} R is paused by the program itself. Rules version ${R.version}.`)); }
+    root = base;
     head(root, 'System');
     const g = root.appendChild(el('div', 'g-stats'));
     tile(g, 'eToro reading', M.live ? 'live' : 'not live', M.live ? `every 5 seconds · ${clock(M.L.at)}` : String(M.L.err || 'connecting'), M.live ? 'up' : 'down');
@@ -606,7 +639,9 @@
   }
 
   function progress(root) {
-    const M = calc(), P = M.P, V = S().review(), A = S().audit(); root.textContent = ''; status(root, M);
+    const M = calc(), P = M.P, V = S().review(), A = S().audit(); root.textContent = '';
+    // the verdict open; each question after it is a fold, its title on the fold (the audit of 24 Nov 2026: 4.8 screens of tables)
+    const base = root, sec = (t) => { root = fold(base, 'prog:' + t, 't-rev t-progsec', t, false); };
     const mine = M.closed.filter((c) => c.t && c.r != null), all = judge(mine.map((c) => c.r));
     // 1. the verdict
     head(root, 'Is there an edge yet?');
@@ -620,7 +655,7 @@
     rowsOf('All rules', mine);
     root.appendChild(el('div', 'g-hint', 'R is the money risked on a trade: +1 R is a trade that won what it risked. "Give or take" is the range chance alone can produce on this many trades; a rule is said to earn only when its result stays above zero after taking that range off. A rule with 30 trades and a clearly negative result pauses itself.'));
     // 2. week by week, and by version of the rules
-    head(root, 'Week by week');
+    sec('Week by week');
     const wk = new Map(); for (const c of mine) { const d = new Date(c.at); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const k = d.toISOString().slice(0, 10); if (!wk.has(k)) wk.set(k, []); wk.get(k).push(c); }
     if (!wk.size) root.appendChild(el('div', 'g-hint', 'No closed trade of the program yet.'));
     else { const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Week of', 'Trades', 'In R', 'In money']) h2.appendChild(el('span', '', h));
@@ -630,7 +665,7 @@
       for (const [k, list] of [...vers.entries()].sort((a, b) => b[0] - a[0])) { const j = judge(list.map((c) => c.r)), r = w.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', `Version ${k}${M.rules && M.rules.version === k ? ' (in force)' : ''}`)); r.appendChild(el('span', '', String(j.n))); r.appendChild(el('span', '', Math.round(100 * list.filter((c) => c.net > 0).length / list.length) + '%')); r.appendChild(el('span', sign(j.mean), rtxt(j.mean))); } }
     else root.appendChild(el('div', 'g-hint', `Rules: version ${M.rules && M.rules.version ? M.rules.version : 1}, unchanged since the start. When a review changes a rule, the versions are compared here.`));
     // 3. does the program do what its rule says?
-    head(root, 'Does the program follow its rule?');
+    sec('Does the program follow its rule?');
     const H = A && A.history ? A.history.slice().reverse() : [];
     if (!H.length) root.appendChild(el('div', 'g-hint', 'The first nightly check appears here tomorrow morning.'));
     else { const last = H[0]; root.appendChild(el('div', 'g-line' + (last.differences || last.missed ? ' g-warn' : ''), `Last check (${last.date}): ${last.trades} trades compared with the rule replayed on eToro's candles; ${last.differences} with a difference, ${last.missed} signal${last.missed === 1 ? '' : 's'} not taken${last.delay != null ? `; orders opened ${Math.round(last.delay)} seconds after the signal` : ''}${last.slipR != null ? `, ${Math.abs(last.slipR).toFixed(2)} R ${last.slipR <= 0 ? 'lost' : 'gained'} on the price` : ''}.`));
@@ -639,20 +674,20 @@
       const fastMine = mine.filter((c) => c.t.fast), fj = judge(fastMine.map((c) => c.r));
       if (last.replayR != null) root.appendChild(el('div', 'g-line', `What the replay expects from the fast rule: ${rtxt(last.replayR)} per trade before costs, on ${last.replayN} trades. What the real fast trades gave: ${fj.n ? rtxt(fj.mean) + ' after costs, on ' + fj.n + (fj.n < NEED ? ' (too few to compare)' : '') : 'none closed yet'}.`)); }
     // 4. the question left open on purpose: closing when the signal fades
-    head(root, 'Would closing on a faded signal have helped?');
+    sec('Would closing on a faded signal have helped?');
     const fd = mine.filter((c) => c.t.fast && c.t.fadedPx > 0 && c.t.stop > 0 && c.t.entry > 0 && Math.abs(c.t.entry - c.t.stop) > 0), shadow = (c) => c.side * (c.t.fadedPx - c.t.entry) / Math.abs(c.t.entry - c.t.stop);
     if (!fd.length) root.appendChild(el('div', 'g-hint', 'No closed trade yet whose signal faded while it was on. The program reads the signal every 5 minutes and notes the price when it first stops holding; the comparison appears here.'));
     else { const got = fd.reduce((a, c) => a + c.r, 0), sh = fd.reduce((a, c) => a + shadow(c), 0); root.appendChild(el('div', 'g-line', `${fd.length} closed trade${fd.length === 1 ? '' : 's'} whose signal faded while on: left alone they gave ${rtxt(got)} in all; closed at that moment they would have given ${rtxt(sh)} (before the cost of closing). ${fd.length < 20 ? 'Too few to decide.' : sh > got ? 'Closing would have been better so far.' : 'Leaving them alone was better so far.'}`)); }
     // 4b. against a yardstick, the twin without a target, and how far trades went
-    head(root, 'Against a yardstick');
+    sec('Against a yardstick');
     const B = P.bench, lastC = (P.curve || []).filter((p) => p.length > 2).slice(-1)[0];
     if (B && lastC && B.px > 0 && B.value > 0) { const a = 100 * (lastC[1] / B.value - 1), b = 100 * (lastC[2] / B.px - 1); root.appendChild(el('div', 'g-line', `Since ${when(B.t)}: the account ${pc(a)}, the S&P 500 ${pc(b)}. The account keeps most of its money in cash, so on a strong day for shares it will lag, and on a weak day it will fall less.`)); }
     else root.appendChild(el('div', 'g-hint', 'The S&P 500 is recorded beside the account from the next half hour on; the comparison appears here.'));
     const withCost = mine.filter((c) => c.t.riskMoney > 0 && c.t.cost), costR = withCost.length ? withCost.reduce((a, c) => a + ((c.fees || 0) + (c.t.cost.spread || 0)) / c.t.riskMoney, 0) / withCost.length : null;
     root.appendChild(el('div', 'g-line', costR == null ? 'A coin flip on the same trades would lose their costs; the figure appears with the first closed trades.' : `A coin flip on the same ${withCost.length} trades (same assets, same moments, same stops and targets) would have given about ${rtxt(-costR)} per trade: it loses the costs and nothing else. The program gave ${rtxt(judge(withCost.map((c) => c.r)).mean)}.`));
     // the owner's question (12 Nov): would short trades improve the Sharpe ratio of a plain 1x S&P 500 holding?
-    head(root, 'Does the trading improve a plain S&P 500 holding?'); sharpeTest(root, M, A, costR);
-    head(root, 'Do targets cut the winners?');
+    sec('Does the trading improve a plain S&P 500 holding?'); sharpeTest(root, M, A, costR);
+    sec('Do targets cut the winners?');
     const tw = (P.shadow || []).filter((x) => x.status === 'closed' && x.real && x.real.r != null && x.r != null), twOpen = (P.shadow || []).filter((x) => x.status === 'open').length;
     if (!tw.length) root.appendChild(el('div', 'g-hint', `Every trade has a twin on paper with the same entry, stop and time limit but no target (${twOpen} running now). When both have ended they are compared here, pair by pair. No order is sent for a twin.`));
     else { const d = judge(tw.map((x) => x.r - x.real.r)), a = judge(tw.map((x) => x.real.r)), b = judge(tw.map((x) => x.r)), w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Same entries', 'Pairs', 'Gain %', 'Per trade']) h2.appendChild(el('span', '', h));
@@ -661,7 +696,7 @@
     // the twins' two other exits (from 13 November): a stop moved to the entry once a trade is ahead by its risk, and a trailing stop
     {
       const vb = (P.shadow || []).filter((x) => x.real && x.real.r != null && x.be && x.be.status === 'closed' && x.tr && x.tr.status === 'closed'), vOpen = (P.shadow || []).filter((x) => x.be && x.be.status === 'open').length;
-      head(root, 'Other exits, tried on paper');
+      sec('Other exits, tried on paper');
       if (!vb.length) root.appendChild(el('div', 'g-hint', `From 13 November each twin also follows two other exits, still without a target: its stop moved to the entry once the trade has been ahead by its risk, and a stop that trails one risk behind the best price. ${vOpen} running now. When the trade and its twins have ended they are compared here with the trade as it was made. No order is sent for them.`));
       else {
         const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Exit', 'Trades', 'Gain %', 'Per trade']) h2.appendChild(el('span', '', h));
@@ -672,14 +707,14 @@
         root.appendChild(el('div', 'g-line', `Against the trade as made, pair by pair: stop at the entry ${rtxt(dB.mean)} per trade (${say(dB)}), trailing stop ${rtxt(dT.mean)} (${say(dT)}). ${vb.length} of ${NEED} pairs needed. ${vOpen} still running.`));
       }
     }
-    head(root, 'How far trades went before they ended');
+    sec('How far trades went before they ended');
     const ex = mine.filter((c) => c.t.best != null && c.t.worst != null), wn = ex.filter((c) => c.r > 0), ls = ex.filter((c) => c.r <= 0), avg = (a, f) => (a.length ? a.reduce((x, c) => x + f(c), 0) / a.length : null);
     if (!ex.length) root.appendChild(el('div', 'g-hint', 'From today each trade keeps its best and its worst point, in units of its risk. With the first closed trades this shows whether losers had been ahead and whether winners had to survive a fall first.'));
     else { const w = root.appendChild(el('div', 't-table t-t4')), h2 = w.appendChild(el('div', 't-tr t-th')); for (const h of ['Trades', 'Number', 'Best point', 'Worst point']) h2.appendChild(el('span', '', h));
       for (const [nm, a] of [['That ended with a gain', wn], ['That ended with a loss', ls]]) { const r = w.appendChild(el('div', 't-tr')); r.appendChild(el('span', 't-name', nm)); r.appendChild(el('span', '', String(a.length))); r.appendChild(el('span', 'up', rtxt(avg(a, (c) => c.t.best)))); r.appendChild(el('span', 'down', rtxt(avg(a, (c) => c.t.worst)))); }
       const ahead = ls.filter((c) => c.t.best >= 0.5).length; root.appendChild(el('div', 'g-line', `${ahead} of the ${ls.length} losing trade${ls.length === 1 ? '' : 's'} had been ahead by half their risk or more before turning.`)); }
     // 5. faults found and fixed
-    head(root, 'Faults found and fixed');
+    sec('Faults found and fixed');
     const E = V && V.entries ? V.entries : [], days = new Map(); for (const e of E) { const n = (e.decisions || []).filter((x) => /^(Found|Fixed|ALERT)/i.test(x)).length; days.set(e.date, (days.get(e.date) || 0) + n); }
     if (!days.size) root.appendChild(el('div', 'g-hint', 'No review yet.'));
     else { const w = root.appendChild(el('div', 't-fix')); for (const [d, n] of [...days.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14)) { const r = w.appendChild(el('div', 't-fixrow')); r.appendChild(el('span', '', new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))); const b = r.appendChild(el('span', 't-fixbar')); b.appendChild(el('i')).style.width = Math.min(100, n * 12) + '%'; r.appendChild(el('span', '', n ? String(n) : 'none')); }
@@ -696,7 +731,7 @@
     if (watching) return; watching = true;
     S().demoWatch(() => { let any = false; for (const k in roots) { const [r, f] = roots[k]; if (r.isConnected && !r.closest('[hidden]')) { any = true; if (!document.body.classList.contains('sheet-open')) f(r); } } if (!any) watching = false; return any; });
   });
-  live('trade', overview); live('tradepos', positions); live('tradehist', history); live('tradereview', review); live('tradeprog', progress);
+  live('trade', overview); live('tradepos', positions); live('tradehist', history); live('tradelog', programLog); live('tradereview', review); live('tradeprog', progress);
   // for the morning brief on Today: the demo account in a few figures (worked out at most every 10 seconds)
   let briefMemo = null;
   window.SRTrade = { brief() {

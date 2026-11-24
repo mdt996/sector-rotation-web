@@ -409,7 +409,8 @@
     } else { if (detView) detView.destroy(); detView = null; selId = null; left = null; detail = null; outer.replaceChildren(); }
     load(); loadWide();
     const R = rows(), ALL = all();
-    box.appendChild(el('h2', 'g-h2', 'Screener'));
+    // the list near the top (the audit of 24 Nov 2026: it started after 1.5 screens): the search, the world's markets as one row
+    // to swipe, the sort and the filters, then the list; the sectors' tiles, the health ranking and how it all works come after it
     const sb = box.appendChild(el('button', 'sc-search', 'Search eToro assets')); sb.type = 'button';
     sb.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
     const rec = wide ? wide.record || {} : {}, U = wide && wide.universe ? wide.universe : null;
@@ -425,18 +426,18 @@
       if (short) t.appendChild(el('small', '', short));
       if (m) t.style.background = `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;
     };
-    const map = box.appendChild(el('div', 'sc-map'));
+    const map = box.appendChild(el('div', 'sc-map sc-strip')), extra = el('div', 'sc-extra');
     for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m);
     const bySym = new Map(R.map((r) => [r.sym, r]));
-    const sectors = SRApp.disclosure(box, 'market-sectors', 'Sectors and industries', 'weakest to strongest today');
+    const sectors = SRApp.disclosure(extra, 'market-sectors', 'Sectors and industries', 'weakest to strongest today');
     for (const [head, list] of TILES) {
       sectors.appendChild(el('div', 'sc-maph', head)); const m2 = sectors.appendChild(el('div', 'sc-map sc-map2'));
       for (const x of sorted(list.map(([sym, short, name]) => ({ r: bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short })))) tile(m2, x.r, x.short, x.m);
     }
-    const how = box.appendChild(howBox());
+    finCard(SRApp.disclosure(extra, 'market-health', 'Financial health', 'the healthiest and least healthy companies'));
+    const how = extra.appendChild(howBox());
     const scan = wide ? `Scan: ${wide.scanned} assets on ${String(wide.made).slice(0, 10)}. Ideas: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wider scan is unavailable.';
     how.insertBefore(el('p', '', scan + (U && U.next > U.limit ? ` Adds up to ${U.next - U.limit} assets per night.` : '')), how.children[1]);
-    finCard(box);
     // filters: every choice is one tap; the list below answers at once
     const nOn = Object.keys(F0).filter((k) => k !== 'sort' && F[k]).length;
     const bar = box.appendChild(el('div', 'sc-bar')), fb = el('div', 'sc-filters');
@@ -476,6 +477,7 @@
     if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `Show ${Math.min(60, L.length - shown)} more (${L.length - shown} left)`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...R.map((r) => r.id), ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)].filter(Boolean));
+    box.appendChild(extra);
     box.appendChild(el('p', 'g-hint', 'The score is that of the latest daily candle. Stop and target are 2 ATR either side of that close. Support and resistance are the nearest zones made of averages, pivots, Fibonacci levels, trendlines and gaps. Market value, revenue and P/E are eToro\'s figures, in dollars. Scanned assets show the price of the scan until their live price arrives. Analysis, not advice.'));
     if (two && selId == null && outer.offsetParent !== null) { const first = L.find((r) => r.id); if (first) select(first); }   // the best-ranked asset is shown first
   });

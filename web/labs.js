@@ -864,5 +864,22 @@
     if (!LB.untick && window.SRLive && SRLive.onTick) LB.untick = SRLive.onTick(tick);
   }
   dash.draw('tradelab', start);
-  window.SRLabs = { state: LB, load, paint, tick, valueOf, valued, barsFor };   // for the tests
+  // for Today: each lab in a few figures, from the small files only (the summary and the live file; no lab's own file)
+  let briefAt = 0;
+  async function loadBrief() {
+    if (LB.loading || Date.now() - briefAt < 60000) return; briefAt = Date.now();
+    const [a, b] = await Promise.all([read('lab-live.json'), LB.sum && Date.now() - LB.sumAt < 150000 ? null : read('lab.json')]);
+    if (a && Array.isArray(a.labs) && Number.isFinite(Date.parse(a.made)) && (!LB.live || Date.parse(a.made) >= Date.parse(LB.live.made))) { LB.live = a; LB.liveAt = LB.liveOk = Date.now(); }
+    if (validSum(b)) { LB.sum = b; LB.sumAt = Date.now(); }
+    if (window.SRApp) SRApp.renderDraw('today');
+  }
+  function brief() {
+    if (!LB.sum) { loadBrief(); return null; }
+    loadBrief();
+    const age = LB.live ? (Date.now() - Date.parse(LB.live.made)) / 60e3 : null;
+    return { slow: age == null || age > 20, age, labs: keysOf().map((key) => { const L = sumLab(key), V = valued(key); if (!L || !V) return null; const P = L.top && L.top.proof;
+      return { key, name: L.name, equity: V.equity, total: V.total, pct: 100 * V.total / L.start, open: V.N.open.length, word: P && P.bar ? VERDICT[P.verdict] || VERDICT.holding : null, verdict: P && P.verdict }; }).filter(Boolean) };
+  }
+  const pick = (key) => { LB.sel = key; LB.pane = 'now'; keep(); LB.bodySig = ''; };
+  window.SRLabs = { state: LB, load, paint, tick, valueOf, valued, barsFor, brief, pick };   // brief and pick for Today; the rest for the tests
 })();

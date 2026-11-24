@@ -424,7 +424,7 @@
   function practiceCard(box) {
     if (!window.SRScreen || !window.SRScreen.loadPractice) return;
     window.SRScreen.loadPractice();
-    const c = card(box, 'practice', 'Demo account (eToro)'), body = c.appendChild(el('div'));
+    const c = card(box, 'practice', 'Demo account (eToro) · virtual money'), body = c.appendChild(el('div'));
     const usd = (x) => (x < 0 ? '−$' : '$') + Math.round(Math.abs(x)).toLocaleString('en-US'), usd2 = (x) => (x < 0 ? '−$' : '+$') + Math.abs(x).toFixed(2), px = (x) => (x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3) : x.toFixed(4));
     const hhmm = (t, s) => new Date(t).toLocaleTimeString('en-GB', s ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' });
     const paint = () => {
@@ -451,29 +451,49 @@
         if (B && B.day != null && B.dayBase > 0) tile('Today', usd2(B.day), pct(B.day, B.dayBase), sign(B.day));
         tile('Open positions', usd2(run), `${pos.length} open, ${wait.length} waiting`, sign(run));
         tile('Closed trades', usd2(real), H0.length ? `${H0.length} closed, ${wins.length} with a gain (${Math.round(100 * wins.length / H0.length)}%)` : 'none closed yet', sign(real));
-        for (const o of pos) {
+        // the three that moved most, not all of them (the audit of 24 Nov 2026: 27 rows on Today); the rest is on Trading
+        const big = pos.map((o) => [o, Math.abs(plOf(o).pl)]).sort((a, b) => b[1] - a[1]).slice(0, 3).map((x) => x[0]);
+        if (big.length) body.appendChild(el('div', 'g-sec', pos.length > 3 ? `Biggest moves of the ${pos.length} open` : 'Open now'));
+        for (const o of big) {
           const t = known(o), LP = plOf(o), pl = LP.pl, now = LP.rate, d = (r) => (r > 0 && now > 0 ? `${(Math.abs(r / now - 1) * 100).toFixed(1)}%` : null), lev = +o.leverage > 1 ? ` ×${o.leverage}` : '';
           row(o, t, `${o.isBuy ? 'Long' : 'Short'}${lev} ${px(+o.openRate)}${now ? ` → now ${px(now)}` : ''} · stop ${d(+o.stopLossRate) || 'not set yet'} · target ${d(+o.takeProfitRate) || 'not set yet'}${t ? '' : ' · not opened by the program'}`, `${usd2(pl)}`, sign(pl));
         }
-        for (const o of wait) { const t = known(o); row(o, t, `${o.isBuy ? 'Buy' : 'Short'} order ${usd(+o.amount)}, waits for its market${t ? ` · planned stop ${px(t.stop)}` : ''}`, 'waiting'); }
-        body.appendChild(el('div', 'g-hint g-live', `Live from eToro · ${hhmm(L.at, true)}${L.err ? ' (the last reading failed; trying again)' : ''}`));
+        body.appendChild(el('div', 'g-hint g-live', `Live from eToro · ${hhmm(L.at, true)}${L.err ? ' (the last reading failed; trying again)' : ''}${wait.length ? ` · ${wait.length} order${wait.length === 1 ? '' : 's'} waiting for the market` : ''}`));
       } else {
         const A = P.account || {}, on = rec.filter((t) => t.status === 'open');
         body.appendChild(el('div', 'g-line', `${usd(A.equity || 0)} of virtual money. ${on.length} open, ${rec.length - on.length} waiting for the market.`));
-        for (const t of rec.slice(0, 12)) row(t, t, `${t.side > 0 ? 'Bought' : 'Sold short'}${t.status === 'open' ? ` at ${px(t.entry)}` : ', waiting for the open'} · stop ${px(t.stop)} · target ${px(t.target)}`, usd(t.size));
-        body.appendChild(el('div', 'g-line g-warn', `Not live: ${L.err === 'no keys' ? 'this device has no eToro keys' : L.err ? `eToro did not give the demo account (answer ${L.err}); the key in this app may not have the "Trading – Demo, Read" right` : 'waiting for eToro'}. Showing the VM's record of ${hhmm(P.made)}.`));
+        for (const t of rec.slice(0, 3)) row(t, t, `${t.side > 0 ? 'Bought' : 'Sold short'}${t.status === 'open' ? ` at ${px(t.entry)}` : ', waiting for the open'} · stop ${px(t.stop)} · target ${px(t.target)}`, usd(t.size));
+        body.appendChild(el('div', 'g-hint g-warn', `Not live (${L.err === 'no keys' ? 'no eToro keys on this device' : L.err ? `eToro answered ${L.err}` : 'waiting for eToro'}): the VM's record of ${hhmm(P.made)}.`));
       }
       if (P.made) {
         const age = (Date.now() - Date.parse(P.made)) / 3600e3;
         if (P.mode !== 'live') body.appendChild(el('div', 'g-line g-warn', `The VM is in dry run: it sends no order (${P.why || 'the switch is off'}).`));
         if (age > 30) body.appendChild(el('div', 'g-line g-warn', `The VM has not run for ${Math.round(age)} hours: no new orders are being sent.`));
       }
-      { const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1]; if (e) for (const x of (e.health || []).slice(0, 2)) body.appendChild(el('div', 'g-line g-warn', x)); }   // the review's warnings only; the rest is on Trading
-      body.appendChild(el('div', 'g-hint', 'Orders come only from the program on your VM. Virtual money, not advice.'));
-      { const go = body.appendChild(el('button', 't-go', 'Positions, history and review on Trading →')); go.type = 'button'; go.addEventListener('click', () => { const b = document.querySelector('#tabbar [data-tab="trading"]'); if (b) b.click(); }); }
+      // the review's own alarms, and what it asks of Matteo, as one line each; its long report is under Trading, Log
+      { const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1];
+        if (e) { for (const x of (e.health || []).filter((y) => /^ALERT/.test(y)).slice(0, 2)) body.appendChild(el('div', 'g-line g-warn', x));
+          const asks = (e.next || []).filter((y) => /^Matteo\b/.test(y)).length;
+          if (asks) { const a = body.appendChild(el('button', 'g-link g-ask', `The review of ${e.date} asks you ${asks} thing${asks === 1 ? '' : 's'}`)); a.type = 'button'; a.addEventListener('click', () => go('trading', 3)); } } }
+      { const g2 = body.appendChild(el('button', 't-go', `All ${D ? (D.positions || []).length : rec.length} positions on Trading`)); g2.type = 'button'; g2.addEventListener('click', () => go('trading', 0)); }
       return true;
     };
     paint(); window.SRScreen.demoWatch(paint);
+  }
+
+  // ---- Today: the paper labs in one line each (paper only; their pages are under Trading, Labs) ----
+  function labsCard(box) {
+    const B = window.SRLabs && window.SRLabs.brief ? window.SRLabs.brief() : null; if (!B || !B.labs.length) return;
+    const c = card(box, 'labsc', 'Paper labs · no order is ever sent');
+    for (const x of B.labs) {
+      const b = c.appendChild(el('button', 'g-wrow g-labrow')); b.type = 'button'; b.dataset.lab = x.key;
+      b.addEventListener('click', () => { window.SRLabs.pick(x.key); go('trading', 1); });
+      b.appendChild(el('span', 'g-wrow-t', x.name));
+      if (x.word) b.appendChild(el('span', 'g-labword', x.word)).dataset.verdict = x.verdict || '';
+      const v = b.appendChild(el('b', 'g-wrow-g ' + (x.total > 0 ? 'up' : x.total < 0 ? 'down' : ''), `${x.pct >= 0 ? '+' : '−'}${Math.abs(x.pct).toFixed(1)}%`));
+      v.title = `$${x.equity.toFixed(2)}${x.open ? ` · ${x.open} open` : ''}`;
+    }
+    c.appendChild(el('div', 'g-hint' + (B.slow ? ' g-warn' : ''), B.slow ? (B.age == null ? 'No report from the VM yet.' : `The VM's last lab report is ${Math.round(B.age)} minutes old: check the lab runner.`) : 'Since each lab started. Tap one for its page.'));
   }
 
   // ---- Today, card 2: holdings outside the plan (no deadline), with what-if ----
@@ -579,6 +599,7 @@
     watchCard(box, H, st);
     setupCard(box, H, st);
     practiceCard(right);
+    labsCard(right);
     moneyCard(box, H, st);
     scoutCard(right);
   });
@@ -666,7 +687,7 @@
     { const T = window.SRTax ? (() => { try { return window.SRTax.summary(); } catch (e) { return null; } })() : null;
       if (T) { const c = card(box, 'tax'); const both = T.comb ? T.comb.tax : T.R.due.tax, all = T.combAll ? T.combAll.tax : T.R.all.tax;
         c.appendChild(el('div', 'g-line', `Tax for ${T.y} so far: ${eurc(both)}${T.comb ? ' (Revolut and eToro)' : ''} · if you sold everything now: ${eurc(all)}`));
-        c.appendChild(btn('Taxes', '', () => go('portfolio', 2))); } }
+        c.appendChild(btn('Taxes', '', () => go('portfolio', 1))); } }
     const toolbar = right.appendChild(el('div', 'g-holdings-head'));
     toolbar.appendChild(el('h2', '', 'Holdings'));
     toolbar.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
