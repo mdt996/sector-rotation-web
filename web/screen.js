@@ -393,7 +393,8 @@
     const y = b.appendChild(el('span', 'sc-y'));
     if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));
     y.appendChild(el('span', 'sc-t', `${r.buy || r.ms == null ? '' : 'score ' + sc100(r.ms) + ' · '}RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}`));
-    if (r.buy) b.appendChild(el('span', 'sc-rec', oddsText(r) + (r.stop && r.target ? ` · stop ${fmt(r.stop)} · target ${fmt(r.target)}` : '')));
+    // the test's odds are the same for every buy row: said once above the list (the audit of 24 Nov 2026), the row keeps its own levels
+    if (r.buy && r.stop && r.target) b.appendChild(el('span', 'sc-rec', `stop ${fmt(r.stop)} · target ${fmt(r.target)}`));
     return b;
   }
   dash.draw('screener', (outer) => {
@@ -464,6 +465,7 @@
       : msN ? ALL.filter(pass).filter((r) => r[msN.k] != null && isFinite(r[msN.k])).sort((a, b) => (msN.lo ? a[msN.k] - b[msN.k] : b[msN.k] - a[msN.k]))
       : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
     const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : msN ? `${L.length.toLocaleString('en-US')} assets ranked by their distance from the ${MA[msN.k]}${msN.lo ? ', from the last place up' : ''}` : dsN ? `${L.length.toLocaleString('en-US')} assets with a ${DV[dsN]} now, strongest first (score 0-100)` : `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
+    { const st = MST()['1D']; if (!fsN && !msN && !dsN && st && st.buy && L.some((r) => r.buy)) cnt.appendChild(el('span', 'sc-odds', `Buy signals worked ${p0(st.buy.win)} of the time in the test${st.strong ? `, strong ones ${p0(st.strong.win)}` : ''} (any day ${p0(st.buy.base)})`)); }
     if (active || F.sort !== 'rank') { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
     finPos.clear(); if (fsN) L.forEach((r, k) => finPos.set(r.id, [fsN.lo ? L.length - k : k + 1, L.length]));
     maPos.clear(); if (msN) L.forEach((r, k) => maPos.set(r.id, [msN.lo ? L.length - k : k + 1, L.length]));

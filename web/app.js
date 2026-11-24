@@ -8,6 +8,7 @@
   const fmtDay = (d) => (d ? new Date(d + 'T00:00:00Z').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '—');
   const sheet = $('settings');
 
+  let showPartial = false;
   function status() {
     const st = SRApp.state;
     $('btn-refresh').classList.toggle('spin', !!st.loading);
@@ -18,14 +19,20 @@
     else s.textContent = 'No data yet';
     s.title = st.at ? `Last refresh: ${fmtTime(st.at)}` : '';
     const b = $('app-banner');
-    if (st.error && !st.loading) {
+    // a few assets that did not update is a note, not an alarm (the audit of 24 Nov 2026: a banner on every tab took a line of
+    // every screen): the header says how many, a tap shows which
+    const partial = !!(st.error && !st.loading && st.error.kind === 'partial');
+    s.classList.toggle('is-warn', partial); s.onclick = partial ? () => { showPartial = !showPartial; status(); } : null; s.setAttribute('role', partial ? 'button' : 'status'); s.tabIndex = partial ? 0 : -1;
+    // the date and the count only: the source name would push the note out of a phone's header
+    if (partial) { s.textContent = `${asof ? 'Closes to ' + fmtDay(asof) : 'Last data'} · ${st.error.n || parseInt(st.error.message, 10) || 1} not updated`; s.setAttribute('aria-expanded', String(showPartial)); s.title = 'Tap to see which. ' + (s.title || ''); }
+    if (st.error && !st.loading && (!partial || showPartial)) {
       b.hidden = false;
       $('app-banner-text').textContent = st.error.message;
       $('app-banner-action').hidden = !(st.error.kind === 'keys' || st.error.kind === 'network');
       b.classList.toggle('is-info', st.error.kind === 'partial');
     } else b.hidden = true;
   }
-  SRApp.onChange(status);
+  SRApp.onChange(status); window.appStatus = status;
 
   function selectedSource() {
     const r = document.querySelector('input[name="source"]:checked');

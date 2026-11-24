@@ -61,7 +61,7 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, fold: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
   try { const k = localStorage.getItem('sr.labSel'); if (/^[a-z0-9]{3,12}$/.test(k || '')) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = c.ref == null ? true : !!c.ref; } catch (e) { /* the gold lab, 5-minute candles */ }   // the market's line is on unless switched off (Matteo, 22 Nov 2026: the comparison "also in the chart")
   // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
   // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
@@ -489,25 +489,34 @@
     for (const o of W) { row(tb, `${o.sym} buy at ${px(o.lim)}`, `${short(o.rule)} · ${ALIGN_S[o.align] || ''} · waiting order, no fee`, [span(Date.now() - o.t), 'waiting'], 't-labwait'); }
     box.appendChild(el('div', 'g-hint', V.live ? 'Valued here from live prices, as the lab does: the price to close at, minus costs.' : 'Values as of the VM\'s last report.'));
   }
+  // a folded part that stays open or closed across the redraws (every new report rebuilds the lab's parts)
+  function fold(box, k, title) {
+    const d = box.appendChild(el('details', 't-labfold')); d.dataset.fold = k; d.open = !!LB.fold[k];
+    d.appendChild(el('summary', '', title)); d.addEventListener('toggle', () => { LB.fold[k] = d.open; }); return d;
+  }
   function statsBox(box, L, D) {
     const t = (D && D.report && D.report.top) || L.top; if (!t) return;
     head(box, 'Statistics of its own trades');
+    // four on show, the rest folded (the audit of 24 Nov 2026: twelve tiles made the first part of the lab four screens long)
     const g = box.appendChild(el('div', 'g-stats t-labstats')), n = t.n || 0;
     tile(g, 'Trades', String(n), n ? `${t.w} won · ${pct0(t.winRate)} success` : 'none closed yet', '');
     tile(g, 'Result', usd2(t.net || 0), n ? `${rtxt(t.meanR)} per trade after costs` : '', sign(t.net));
-    tile(g, 'Profit factor', t.pf == null ? '–' : t.pf.toFixed(2), 'gains ÷ losses; above 1 earns', t.pf == null ? '' : sign(t.pf - 1));
-    tile(g, 'Sharpe ratio', t.sharpe ? t.sharpe.v.toFixed(1) : '–', t.sharpe ? (t.sharpe.basis === 'days' ? `from ${t.sharpe.n} days, on a year` : `from ${t.sharpe.n} hours: rough until 8 days`) : 'needs half a day of history', t.sharpe ? sign(t.sharpe.v) : '');
-    tile(g, 'Average win / loss', t.avgWin == null && t.avgLoss == null ? '–' : `${t.avgWin == null ? '–' : usd2(t.avgWin)} / ${t.avgLoss == null ? '–' : usd2(t.avgLoss)}`, t.payoff ? `a win is ${t.payoff.toFixed(2)}× a loss` : '', '');
-    tile(g, 'Largest fall', t.maxDD ? '−$' + t.maxDD.toFixed(2) : '$0', `${pc(-100 * (t.maxDD || 0) / L.start, 1)} of the start · now ${pc(-(t.dd || 0), 1)} from the 3-day high`, t.maxDD ? 'down' : '');
     tile(g, 'Costs', '$' + (t.cost || 0).toFixed(2), t.costShare != null ? `${pct0(t.costShare)} of what the winners made` : 'spreads and fees', '');
-    tile(g, 'Best / worst trade', t.best == null ? '–' : `${usd2(t.best)} / ${usd2(t.worst)}`, t.hold != null ? `${t.hold < 90 ? t.hold + ' min' : (t.hold / 60).toFixed(1) + ' h'} in a trade on average` : '', '');
-    tile(g, 'Losses in a row', String(t.streak || 0), `longest run ${t.worstStreak || 0}`, t.streak >= 3 ? 'down' : '');
-    tile(g, 'Daily swing', t.volDay == null ? '–' : t.volDay.toFixed(2) + '%', 'how much the value moves in a day', '');
+    tile(g, 'Largest fall', t.maxDD ? '−$' + t.maxDD.toFixed(2) : '$0', `${pc(-100 * (t.maxDD || 0) / L.start, 1)} of the start · now ${pc(-(t.dd || 0), 1)} from the 3-day high`, t.maxDD ? 'down' : '');
+    const more = fold(box, 'stats', 'More statistics'), g2 = more.appendChild(el('div', 'g-stats t-labstats'));
+    tile(g2, 'Profit factor', t.pf == null ? '–' : t.pf.toFixed(2), 'gains ÷ losses; above 1 earns', t.pf == null ? '' : sign(t.pf - 1));
+    // a Sharpe ratio is a yearly figure: not worked out from a few days or hours (never a yearly figure from days or weeks)
+    const shOk = t.sharpe && t.sharpe.basis === 'days' && t.sharpe.n >= 60;
+    tile(g2, 'Sharpe ratio', shOk ? t.sharpe.v.toFixed(1) : '–', shOk ? `from ${t.sharpe.n} days, on a year` : `needs 60 days of history${t.sharpe && t.sharpe.basis === 'days' ? ` (${t.sharpe.n} so far)` : ''}`, shOk ? sign(t.sharpe.v) : '');
+    tile(g2, 'Average win / loss', t.avgWin == null && t.avgLoss == null ? '–' : `${t.avgWin == null ? '–' : usd2(t.avgWin)} / ${t.avgLoss == null ? '–' : usd2(t.avgLoss)}`, t.payoff ? `a win is ${t.payoff.toFixed(2)}× a loss` : '', '');
+    tile(g2, 'Best / worst trade', t.best == null ? '–' : `${usd2(t.best)} / ${usd2(t.worst)}`, t.hold != null ? `${t.hold < 90 ? t.hold + ' min' : (t.hold / 60).toFixed(1) + ' h'} in a trade on average` : '', '');
+    tile(g2, 'Losses in a row', String(t.streak || 0), `longest run ${t.worstStreak || 0}`, t.streak >= 3 ? 'down' : '');
+    tile(g2, 'Daily swing', t.volDay == null ? '–' : t.volDay.toFixed(2) + '%', 'how much the value moves in a day', '');
     // could it be luck, and what if the fills were worse (a VM not updated yet does not send them)
     if (t.luck !== undefined || t.stress !== undefined) {
       const lk = t.luck, gain = lk && t.meanR > 0;
-      tile(g, 'Could it be luck?', gain ? (lk.p < 0.01 ? 'under 1%' : pct0(lk.p)) : '–', !lk ? 'needs 5 closed trades' : gain ? `how often luck alone does this well; under 5% starts to count${lk.need ? ` · about ${lk.need.toLocaleString('en-US')} trades to tell` : ''}` : 'no gain to test so far', gain && lk.p < 0.05 ? 'up' : '');
-      tile(g, 'If fills were twice as bad', t.stress == null ? '–' : usd2(t.stress), 'the spread and slippage counted double', t.stress == null ? '' : sign(t.stress));
+      tile(g2, 'Could it be luck?', gain ? (lk.p < 0.01 ? 'under 1%' : pct0(lk.p)) : '–', !lk ? 'needs 5 closed trades' : gain ? `how often luck alone does this well; under 5% starts to count${lk.need ? ` · about ${lk.need.toLocaleString('en-US')} trades to tell` : ''}` : 'no gain to test so far', gain && lk.p < 0.05 ? 'up' : '');
+      tile(g2, 'If fills were twice as bad', t.stress == null ? '–' : usd2(t.stress), 'the spread and slippage counted double', t.stress == null ? '' : sign(t.stress));
     }
   }
   // the backtest and its walk-forward: did what the learner picked go on to earn?
@@ -715,7 +724,7 @@
       : `Too early to say: ${withT.n} signals with the trend and ${agT.n} against it so far (30 of each for a first answer, a few hundred to trust it).`;
     box.appendChild(el('div', 'g-line', verdict));
     if (total) {
-      const tb = table(box, ['Paper signals', 'Count', 'Won', 'Per signal'], 't-t4 t-labtrend');
+      const tb = table(fold(box, 'trend', 'Every kind of signal, with or against the trend'), ['Paper signals', 'Count', 'Won', 'Per signal'], 't-t4 t-labtrend');
       for (const a of ['with', 'pullback', 'reversal', 'against']) for (const sd of sides) {
         const r = R[a + '|' + sd], x = X[a + '|' + sd]; if (!r && !x) continue;
         row(tb, `${sd === 'long' ? 'Buys' : 'Shorts'} · ${ALIGN[a]}`, x && x.n ? `random entries: ${rtxt(x.sR / x.n)} over ${x.n}` : '', [String(r ? r.n : 0), r && r.n ? pct0(r.w / r.n) : '–', [r && r.n ? rtxt(r.sR / r.n) : '–', r && r.n ? sign(r.sR) : '']]);

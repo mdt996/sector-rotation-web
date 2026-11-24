@@ -503,7 +503,8 @@
     const fvText = side.appendChild(el('p', 'av-note', '')); fvText.hidden = true;
     const sFvK = sFv.parentElement.querySelector('dt'); let fairWhy = '';   // why there is no value, when there is none
     // the value as a picture instead of two lines of figures: the band from bear to bull, the base, and where the price stands
-    const gauge = side.insertBefore(el('div', 'fv-g'), stats); gauge.hidden = true;
+    // the fair value at the top of the page's details, right under the signal (the audit of 24 Nov 2026: it sat under the technical lists)
+    const gauge = side.insertBefore(el('div', 'fv-g'), aboutBox); gauge.hidden = true;
     const paintGauge = (fv, px) => {
       if (!fv && fairWhy) { gauge.hidden = false; if (gauge.dataset.key !== fairWhy) { gauge.dataset.key = fairWhy; gauge.replaceChildren(el('div', 'fv-g-none', fairWhy)); gauge.removeAttribute('role'); gauge.removeAttribute('aria-label'); gauge.title = ''; } return; }
       gauge.hidden = !fv || !(px > 0); if (gauge.hidden) return;
@@ -746,7 +747,7 @@
     // support / resistance from the last year's turning points (daily highs and lows that are the extreme of +/-5 days),
     // grouped within 2%; plus the app's own action levels for this fund (swing buy/sell, the semis trend line)
     // technical analysis of this asset, now: levels, signals, and the same history test run on its own candles
-    let taKey = '', taVal = null, taBt = null;
+    let taKey = '', taVal = null, taBt = null; const taOpen = {};
     let TR = [], scoreNow = null;   // the entries drawn on the chart; the model's score of the last candle when no buy is open
     const horizon = () => (frame.sec >= 604800 ? 'Long-term trade (weekly candles)' : frame.sec >= 86400 ? 'Swing trade (daily candles)' : `Day trade (${frame.k} candles)`);
     const dayOf = (i) => new Date(bars[i].time * 1000).toISOString().slice(0, frame.sec >= 86400 ? 10 : 16).replace('T', ' ');
@@ -827,15 +828,17 @@
       return taVal;
     }
     function drawTA() {
-      taBox.replaceChildren();
+      taBox.replaceChildren();   // folds keep their state when the analysis is drawn again (taOpen)
       const A = taNow(); if (!A) { if (daily.length) taBox.appendChild(el('p', 'av-note', 'Technical analysis needs about four months of daily history (80 days).')); return; }
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';
       taBox.appendChild(el('div', 'ta-h', 'Technical analysis' + (frame.k === '1D' ? '' : ' · daily candles')));
       taBox.appendChild(el('div', 'ta-line', `${A.above200 == null ? 'No 200-day average yet' : (A.above200 ? 'Above' : 'Below') + ' its 200-day average'}, ${A.above50 ? 'above' : 'below'} its 50-day · RSI ${Math.round(A.rsi)} · 5 days ${pc(A.chg5)} · 20 days ${pc(A.chg20)}`));
       if (A.young) taBox.appendChild(el('div', 'ta-line ta-muted', `Young asset: ${A.days} days of history. Levels and signals are read from what exists; its own history test needs about 16 months.`));
       if (geo && (geo.lines.length || geo.gaps.length)) {
-        const tl = taBox.appendChild(el('div', 'ta-tl'));
-        tl.appendChild(el('div', 'ta-line', `Trendlines and gaps on the ${frame.k} chart` + (geo.pattern ? ` · ${geo.pattern}: the two edges converge; a break out of it is one of the tested signals.` : '')));
+        // folded: the nearest levels below say the same in short; the list is there for who wants every line (audit, 24 Nov 2026)
+        const tl = taBox.appendChild(el('details', 'ta-tl ta-rest')); tl.open = !!taOpen.tl; tl.addEventListener('toggle', () => { taOpen.tl = tl.open; });
+        tl.appendChild(el('summary', '', `Trendlines and gaps on the ${frame.k} chart (${geo.lines.length + geo.gaps.length})`));
+        if (geo.pattern) tl.appendChild(el('div', 'ta-line', `${geo.pattern}: the two edges converge; a break out of it is one of the tested signals.`));
         for (const x of geo.lines) { const r = tl.appendChild(el('div', 'ta-tlr ' + (x.kind === 'sup' ? 'is-sup' : 'is-res') + (x.agree && x.agree.length ? ' is-agree' : ''))); r.appendChild(el('span', 'ta-tlp', fmtP(x.now))); r.appendChild(el('span', 'ta-tld', fmtPct(x.now / px - 1))); r.appendChild(el('span', 'ta-tlt', x.text || lineText(x))); }
         for (const g of geo.gaps) { const mid = (g.top + g.bottom) / 2, r = tl.appendChild(el('div', 'ta-tlr ' + (mid < px ? 'is-sup' : 'is-res'))); r.appendChild(el('span', 'ta-tlp', fmtP(mid))); r.appendChild(el('span', 'ta-tld', fmtPct(mid / px - 1))); r.appendChild(el('span', 'ta-tlt', `open gap ${g.dir}, ${fmtP(g.bottom)} to ${fmtP(g.top)}`)); }
       }

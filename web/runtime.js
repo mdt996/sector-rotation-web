@@ -275,7 +275,7 @@
       for (const e of errors) if (!(rows[e.sym] && rows[e.sym].length)) nd[e.sym] = (nd[e.sym] || 0) + 1;
       ls.set('sr.nodata', nd);
       const warn = state.failed.filter((x) => (rows[x] && rows[x].length) || (nd[x] || 0) < 3);
-      if (warn.length) state.error = { kind: 'partial', message: `${warn.length} of ${DATASETS.length} assets didn't update (${warn.join(', ')}); showing the last data for them.` };
+      if (warn.length) state.error = { kind: 'partial', n: warn.length, message: `${warn.length} of ${DATASETS.length} assets didn't update (${warn.join(', ')}); showing the last data for them.` };
       setDatasets(rows, { at: Date.now(), source: src }, { closedOnly: !!opts.closedOnly });
       emit();
       return true;
