@@ -203,8 +203,8 @@
     const hm = head.appendChild(el('div', 'ab-hm')), title = hm.appendChild(el('b', 'ab-t', 'About ' + (inst.symbol || ''))), sub = hm.appendChild(el('span', 'ab-sub', ''));
     const desc = box.appendChild(el('p', 'ab-d g-muted', '…')), more = box.appendChild(el('button', 'ab-more', 'More')), src = box.appendChild(el('div', 'ab-src'));
     more.type = 'button'; more.hidden = true; more.addEventListener('click', () => { const on = box.classList.toggle('is-open'); more.textContent = on ? 'Less' : 'More'; });
-    const perf = box.appendChild(el('div', 'ab-perf')), maBox = box.appendChild(el('div', 'ab-ma')), grid = box.appendChild(el('dl', 'ab-grid'));
-    maCard(maBox, id);
+    const perf = box.appendChild(el('div', 'ab-perf')), maBox = box.appendChild(el('div', 'ab-ma')), dvBox = box.appendChild(el('div', 'ab-dvc')), grid = box.appendChild(el('dl', 'ab-grid'));
+    maCard(maBox, id); dvCard(dvBox, id);
     // the text: the app's own or Wikipedia's when there is one, else eToro's (both readings arrive in any order)
     let wiki, eto, wikiDone = false, etoDone = false;
     const showText = () => {
@@ -387,6 +387,25 @@
     }
     C.appendChild(el('div', 'ab-fin-n', 'The bar runs from the average (the middle) to the price, up to 30% either way. Averages of the daily closes, ranked among all the assets with one; the price is live.'));
   }
+  // an RSI divergence going on now, its score (0-100) and its place among all the assets that have one; hidden when there is none
+  function dvCard(C, id, again) {
+    const S = window.SRScreen, R = S && S.dv ? S.dv(id) : null;
+    if (!R || (!R.dvb && !R.dve)) { C.hidden = true; if (!again && S) setTimeout(() => { if (C.isConnected) dvCard(C, id, true); }, 3000); return; }
+    C.hidden = false; C.replaceChildren(); const fmt = (x) => x.toLocaleString('en-US');
+    const h = C.appendChild(el('div', 'ab-rk-h')); h.appendChild(el('b', '', 'RSI divergence')); h.appendChild(el('span', '', 'score 0-100, place 1 = strongest'));
+    for (const [k, label, bull] of [['dvb', 'Bullish', true], ['dve', 'Bearish', false]]) {
+      const e = R[k]; if (!e) continue;
+      const [d, rank] = e, row = C.appendChild(el('button', 'ab-ma-r ab-dv-r')); row.type = 'button'; row.dataset.k = k;
+      row.setAttribute('aria-label', `${label} RSI divergence, score ${d.s} of 100, place ${rank} of ${R.n[k]}: ${S.dvSay(d, bull)}. Opens the list`);
+      row.appendChild(el('span', 'ab-rk-k', label));
+      const t = row.appendChild(el('span', 'ab-dv-t')), f = t.appendChild(el('i', bull ? 'up' : 'down')); f.style.width = d.s + '%';
+      row.appendChild(el('b', 'ab-ma-v ' + (bull ? 'up' : 'down'), String(d.s)));
+      const p = row.appendChild(el('span', 'ab-rk-p')); p.appendChild(el('b', '', '#' + fmt(rank))); p.appendChild(el('small', '', ' of ' + fmt(R.n[k])));
+      C.appendChild(el('div', 'ab-dv-w', S.dvSay(d, bull) + ` (lows of ${d.d1} and ${d.d2})`.replace('lows', bull ? 'lows' : 'highs')));
+      row.addEventListener('click', () => S.showRank(id, k));
+    }
+    C.appendChild(el('div', 'ab-fin-n', 'Bullish: a lower low in the price with a higher low in RSI; bearish: a higher high with a lower RSI high. The score weighs how far they disagree, how stretched RSI was, how far the price has turned since and how fresh it is (gone after 20 days, or once the price goes back beyond the second low or high). A reading, not a signal to act on.'));
+  }
   // ---- names that open their asset's page ----
   const NOLINK = new Set('US UK EU ETF ETFS RSI ATR VM UTC OK AI CEO ID PE EPS IPO USD EUR GBP HKD NOK AUD JPY CHF CAD SEK DKK FX TA SMA EMA MA PM AM NY ON IT ALL ARE BE NOW SO GO OR AN AT BY DO IF IN IS ME MY NO OF TO UP WE TP SL CFD NAV GDP CPI FED API APP NEW TOP BIG ONE'.split(' '));
   const SKIP = 'button, a, input, textarea, select, option, label, svg, canvas, code, pre, script, style, .ch, #search, .g-sheet, [contenteditable], .sr-asset, [role="button"], [data-nolink]';
@@ -436,5 +455,5 @@
   document.addEventListener('keydown', (e) => { if (e.key !== 'Enter' || !e.target || !e.target.closest) return; const a = e.target.closest('.sr-asset'); if (a) { e.preventDefault(); go(a); } }, true);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 
-  window.SRAbout = { facts: factsOf, valuation, sectorPE, assetValue, sectorPS, financials: financialsOf, target: targetOf, render, text: (id) => TEXT[id] || null, linked: () => (K ? [...K.keys()] : []) };
+  window.SRAbout = { maCard, dvCard, facts: factsOf, valuation, sectorPE, assetValue, sectorPS, financials: financialsOf, target: targetOf, render, text: (id) => TEXT[id] || null, linked: () => (K ? [...K.keys()] : []) };
 })();

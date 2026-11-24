@@ -211,8 +211,34 @@
       if (dn && G0.pattern === 'Triangle') add2('tri_brk_dn');
       if (dn && G0.pattern === 'Rising wedge') add2('wedge_rise_brk');
     }
-    return { price: px, date: bars[t].date, rsi: P.rsi[t], atr: P.atr[t], above50: px > P.s50[t], above200: P.s200[t] == null ? null : px > P.s200[t], young, days: n, s50: P.s50[t], s200: P.s200[t], levels, below, above,
+    return { price: px, date: bars[t].date, rsi: P.rsi[t], atr: P.atr[t], above50: px > P.s50[t], above200: P.s200[t] == null ? null : px > P.s200[t], young, days: n, s50: P.s50[t], s200: P.s200[t], levels, below, above, div: divergence(P, t, bars),
       sup: below[0] || null, res: above[0] || null, rr: below[0] && above[0] ? above[0].dist / -below[0].dist : null, signals, chg5: c[t] / c[t - 5] - 1, chg20: c[t] / c[t - 20] - 1 };
+  }
+  // RSI divergences scored 0 to 100, for ranking every asset (Matteo, 24 Nov 2026: "Implement RSI bull and bear divergencies ranking
+  // score for all assets"). Bullish: the price makes a lower low (pivot lows, 5 bars each side, so known 5 bars later) while RSI
+  // makes a higher low; bearish: a higher high with a lower RSI high. Pairs of pivots 5 to 60 bars apart, the second within the
+  // last 20 bars and not broken since (a close beyond its low or high ends it). The score weighs how far RSI disagrees (35%:
+  // 2 points of RSI give 0, 15 give all), how far the price went (20%: 6% gives all), how stretched RSI was at the first pivot
+  // (25%: from 40 down to 25 for a bull, 60 up to 75 for a bear) and how far the price has turned since (20%: 2 ATR gives all),
+  // all times how fresh it is (from 1 when the second pivot is known, down to 0 at 20 bars). The strongest pair is kept.
+  function divergence(P, t, bars) {
+    const { c, h, l, rsi, atr } = P, cl = (x) => Math.max(0, Math.min(1, x)), A = atr[t] > 0 ? atr[t] : null, out = { bull: null, bear: null };
+    const side = (piv, bull) => {
+      const known = piv.filter((p) => p + K <= t), p2 = known[known.length - 1]; if (p2 == null || t - p2 > 20 || rsi[p2] == null) return null;
+      for (let j = p2 + 1; j <= t; j++) if (bull ? c[j] < l[p2] : c[j] > h[p2]) return null;   // broken since
+      let best = null;
+      for (let k = known.length - 2; k >= Math.max(0, known.length - 4); k--) {
+        const p1 = known[k]; if (p2 - p1 > 60) break; if (p2 - p1 < 5 || rsi[p1] == null) continue;
+        const x1 = bull ? l[p1] : h[p1], x2 = bull ? l[p2] : h[p2], r1 = rsi[p1], r2 = rsi[p2];
+        if (bull ? !(x2 < x1 && r2 > r1 + 2 && r1 < 45) : !(x2 > x1 && r2 < r1 - 2 && r1 > 55)) continue;
+        if (Math.abs(x2 / x1 - 1) > 0.35) continue;   // a move that big between two pivots is a bad candle or a split, not a divergence
+        const gap = Math.abs(r2 - r1), mv = Math.abs(x2 / x1 - 1), st = bull ? (40 - r1) / 15 : (r1 - 60) / 15, turn = A ? (bull ? c[t] - x2 : x2 - c[t]) / (2 * A) : 0;
+        const fresh = cl(1 - (t - p2 - K) / (20 - K)), s = Math.round(100 * fresh * (0.35 * cl((gap - 2) / 13) + 0.2 * cl(mv / 0.06) + 0.25 * cl(st) + 0.2 * cl(turn)));
+        if (s > 0 && (!best || s > best.s)) best = { s, r1: +r1.toFixed(1), r2: +r2.toFixed(1), x1, x2, move: x2 / x1 - 1, d1: bars[p1].date, d2: bars[p2].date, age: t - p2 };
+      }
+      return best;
+    };
+    out.bull = side(P.pl, true); out.bear = side(P.ph, false); return out;
   }
   // The history test for ONE asset on its own candles (same rule as the big test: next open, +2 ATR before -2 ATR within 20 days),
   // with its first half against its second half as a walk-forward check.
