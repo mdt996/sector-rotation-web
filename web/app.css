@@ -1415,3 +1415,93 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .app-banner.is-info { margin: 8px var(--cds-gap-md) 0; padding: 0 4px; border: 0; background: none; font-size: 12px; line-height: 1.35; }
 .app-banner.is-info span { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .app-banner, .app-banner.is-info { margin-left: max(var(--cds-gap-md), env(safe-area-inset-left)); margin-right: max(var(--cds-gap-md), env(safe-area-inset-right)); }   /* an iPhone held sideways */
+
+/* ---- The lab look (24 Nov 2026) ----
+   Matteo: "Provide the app a better overall design, you can even change from the current one, and make it look like it is more
+   professional"; the app is meant to be sold one day, so it needs a face of its own. The idea: the app is a litmus test for trading
+   ideas. Litmus paper is red at one end, blue-green at the other and VIOLET while nothing is decided, so violet is the app's own
+   colour: what can be tapped, what is chosen, and every verdict that is "not proven" yet. Green and red stay for gains and losses
+   only. Ink on paper, hairlines instead of shadows, text tabs instead of pills. This layer comes last; change the look here. */
+:root { --accent: #5a3fe0; --accent-ink: #4530b8; --accent-tint: color-mix(in srgb, var(--accent) 9%, transparent);
+  --color-fg: #101826; --color-fg-muted: #566175; --color-bg: #eef0f4; --color-border-line: #dfe3ea; --pro-well: #f3f4f8; }
+@media (prefers-color-scheme: dark) { :root { --accent: #a897ff; --accent-ink: #c3b8ff; --color-fg: #e9ebf0; --color-fg-muted: #9aa3b2; --color-bg: #0c0e12; --color-border-line: #242932; --pro-well: #1b1f27; } }
+
+/* the parts of a tab: words with a line under the chosen one (the blue pills took a row and could not hold four on a phone) */
+.subtabs { gap: 22px; padding: 0 2px; margin: -4px 0 14px; border-bottom: 1px solid var(--color-border-line); }
+.subtabs button, .subtabs[data-tab] button { border: 0; background: none; border-radius: 0; padding: 11px 0 10px; min-height: 44px; font-size: 14.5px; font-weight: 600; color: var(--color-fg-muted); position: relative; }
+.subtabs button[aria-selected="true"] { background: none; color: var(--color-fg); font-weight: 700; }
+.subtabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+/* the bar at the bottom: the chosen tab in ink, its mark in the app's colour */
+.tabbar button[aria-selected="true"] { color: var(--color-fg); }
+.tabbar button[aria-selected="true"]::before { background: var(--accent); width: 26px; margin-left: -13px; }
+.tabbar button[aria-selected="true"] svg { color: var(--accent); }
+/* what can be tapped is violet; what is chosen is ink */
+.g-link, .t-go, .sr-more, .t-labwords > summary, .t-labfold > summary, .t-statusd > summary::after, .t-labback { color: var(--accent); }
+.t-chip.on, .g-chip.on { background: var(--color-fg); border-color: var(--color-fg); color: var(--color-panel); }
+.t-labcard.on { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.t-go { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-tint); }
+.t-ask { border-left-color: var(--accent); background: var(--accent-tint); }
+.t-labnew { color: var(--accent); } .t-labnew.on { border-color: var(--accent); }
+/* a verdict that is not decided yet is violet (litmus); a gain is green, a loss red */
+.t-labword, .g-labword { color: var(--accent-ink); background: var(--accent-tint); }
+.t-labword.t-labgone { color: var(--color-fg-muted); background: color-mix(in srgb, var(--color-fg) 8%, transparent); }
+/* cards: a sheet with a hairline, a little squarer */
+.g-card, .sr-card { border-radius: 14px; }
+.g-h2 { font-size: 20px; font-weight: 740; letter-spacing: -.012em; margin: 2px 0 6px; }
+
+/* ---- Labs: the list of portfolios, then one portfolio's page ---- */
+.t-labhead { display: grid; gap: 2px; margin: 2px 0 10px; } .t-labh { margin: 0; } .t-labcount { font-size: 12.5px; color: var(--color-fg-muted); }
+.t-labback { display: none; justify-self: start; align-items: center; gap: 5px; border: 0; background: none; font: inherit; font-weight: 650; font-size: 14px; padding: 6px 8px 6px 0; min-height: 40px; cursor: pointer; }
+.t-labback::before { content: "\2039"; font-size: 22px; line-height: .8; margin-top: -3px; }
+.is-lab .t-labback { display: inline-flex; }
+.is-lab .t-labh, .is-lab .t-labcount, .is-lab .t-labfoot, .is-lab .t-labnew, .is-lab .t-labdel-row, .is-lab .t-labmk, .is-lab .t-labvm, .is-lab .t-labspark, .is-lab .t-labcards .g-stat-s, .is-lab .t-labcards .t-labword, .is-lab .t-labwait { display: none; }
+.is-lab .t-labhead { margin: -4px 0 4px; }
+/* the page: the portfolios as a row to swipe */
+.is-lab .g-stats.t-labcards { display: flex; overflow-x: auto; gap: 6px; scrollbar-width: none; margin: 0 -4px 12px; padding: 0 4px 2px; }
+.is-lab .t-labcards::-webkit-scrollbar { display: none; }
+.is-lab .t-labcards .t-labcard { flex: 0 0 auto; min-width: 104px; max-width: 150px; padding: 7px 10px 6px; }
+.is-lab .t-labcards .g-stat-v { font-size: 15px; }
+/* the list: a row each */
+.is-list .g-stats.t-labcards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.is-list .t-labcards .t-labcard { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 3px 8px; padding: 13px 14px 11px; background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: 14px; text-align: left; }
+.is-list .t-labcards .t-labcard.on { box-shadow: none; border-color: var(--color-border-line); }
+.is-list .t-labcards .t-labcard { min-width: 0; } .is-list .t-labcards .t-labcard > * { min-width: 0; }
+.is-list .t-labcards .g-stat-k { flex: 1 1 30%; font-size: 15.5px; font-weight: 700; color: var(--color-fg); }
+.is-list .t-labcards .g-stat-v { font-size: 19px; }
+.is-list .t-labcards .g-stat-s { flex: 0 0 100%; display: flex; gap: 2px 10px; flex-wrap: wrap; font-size: 12.5px; } .is-list .t-labcards .g-stat-s > * { white-space: normal; font-stretch: inherit; }
+.is-list .t-labcards .t-labmk { flex: 0 0 100%; max-width: 100%; order: 3; font-size: 12px; color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-list .t-labcards .g-stat-s { order: 2; } .is-list .t-labcards .t-labword, .t-labvm { order: 4; margin-top: 2px; }
+.t-labspark { flex: 0 0 auto; width: 72px; height: 24px; margin-left: auto; } .t-labspark path { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.t-labspark.up path { stroke: var(--color-ok); } .t-labspark.down path { stroke: var(--color-bad); } .t-labspark.flat path { stroke: var(--color-fg-muted); }
+.t-labvm { font-size: 11px; font-weight: 600; color: var(--color-fg-muted); display: inline-flex; align-items: center; gap: 5px; }
+.t-labvm::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--color-ok); }
+.t-labdel-row { order: 5; margin-left: auto; min-height: 36px; padding: 6px 12px; }
+.is-list .t-labnew { min-height: 52px; border-radius: 14px; font-size: 14px; }
+.is-list .t-labwait { opacity: 1; } .is-list .t-labwait .g-stat-s { color: var(--accent-ink); font-weight: 600; }
+.t-labfoot { margin: 10px 2px 0; display: grid; gap: 6px; } .t-labgonemsg { color: var(--color-fg); font-weight: 600; }
+
+/* ---- Markets, Rankings: each ranking's first three ---- */
+.rk-note { margin: 0 0 6px; } .rk-g { margin: 16px 0 0; } .rk-gh { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+.rk-cols { display: grid; grid-template-columns: 1fr; gap: 8px; } @media (min-width: 700px) { .rk-cols { grid-template-columns: 1fr 1fr; } }
+.rk-c { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: 14px; padding: 4px 12px 6px; }
+.rk-h { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; border: 0; background: none; padding: 0; font: inherit; font-size: 14.5px; font-weight: 700; color: var(--color-fg); cursor: pointer; text-align: left; }
+.rk-all { font-size: 12.5px; font-weight: 650; color: var(--accent); } .rk-all::after { content: " \203A"; }
+.rk-r { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 40px; border: 0; border-top: 1px solid var(--color-border-line); background: none; padding: 5px 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.rk-n { font-size: 12px; color: var(--color-fg-muted); font-weight: 600; } .rk-a { display: flex; align-items: center; gap: 7px; min-width: 0; } .rk-a b { font-size: 14px; flex: none; } .rk-a .g-muted { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-v { font-size: 13.5px; font-stretch: 92%; white-space: nowrap; } .rk-v.up { color: var(--color-ok); } .rk-v.down { color: var(--color-bad); }
+
+/* ---- Today: each card's title is the way into its tab ---- */
+.g-card-go { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; border: 0; background: none; padding: 0; margin-bottom: 8px; min-height: 30px; font: inherit; font-size: 16.5px; font-weight: 700; color: inherit; text-align: left; cursor: pointer; }
+.g-card-go small { margin-left: 8px; font-size: 12px; font-weight: 500; color: var(--color-fg-muted); }
+.g-card-open { flex: none; font-size: 12.5px; font-weight: 650; color: var(--accent); } .g-card-open::after { content: " \203A"; }
+.g-labrow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; min-height: 44px; padding: 6px 0; }
+.g-labrow .g-wrow-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-labrow .g-labword { justify-self: end; }
+
+/* ---- An asset's page: its parts one tap away, a row that stays on top while the details scroll ---- */
+.av-jump { position: sticky; top: 0; z-index: 6; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: none; margin: 10px -4px 6px; padding: 0 4px; background: var(--color-bg); border-bottom: 1px solid var(--color-border-line); }
+.av-jump::-webkit-scrollbar { display: none; } .av-jump[hidden] { display: none; }
+.av-jump button { flex: none; border: 0; background: none; padding: 11px 0 10px; min-height: 42px; font: inherit; font-size: 14px; font-weight: 620; color: var(--color-fg-muted); cursor: pointer; }
+.av-jump button:active { color: var(--accent); }
+.av-page.is-wide .av-jump { display: none; }
+.av-verdict, .fv-g, .av-about, .av-ta, .av-stats { scroll-margin-top: 50px; }

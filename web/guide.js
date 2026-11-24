@@ -17,7 +17,7 @@
   const plan = () => Object.assign({ id: null, done: {} }, cfg().plan || {});
   function savePlan(p) { const c = cfg(); c.plan = p; SRApp.saveConfig(c); if (window.SRSync) window.SRSync.pushSoon(); redraw(); }
   const redraw = () => { for (const n of ['today', 'pfolio', 'plan']) SRApp.renderDraw(n); };
-  const go = (tab, sub) => { if (window.appShowTab) window.appShowTab(tab, sub); };
+  const go = (name) => { if (window.appGo) window.appGo(name); };   // by the place's name (app.js DEST), never by a part's number
   // what stays as it is between two redraws (the screens are redrawn every 10 seconds with live prices)
   const ui = { setupOpen: false, moneyOpen: false, add: 500, busy: false };
 
@@ -328,9 +328,10 @@
     c.title = 'Live, from eToro';
     return h;
   }
-  function card(box, kind, title) {
+  function card(box, kind, title, dest, sub) {
     const c = box.appendChild(el('div', 'g-card g-' + kind));
-    if (title) c.appendChild(el('div', 'g-card-t', title));
+    if (title && dest) { const h = c.appendChild(el('button', 'g-card-t g-card-go')); h.type = 'button'; const t = h.appendChild(el('span', '', title)); if (sub) t.appendChild(el('small', '', sub)); h.appendChild(el('span', 'g-card-open', 'Open')); h.addEventListener('click', () => go(dest)); }
+    else if (title) c.appendChild(el('div', 'g-card-t', title));
     return c;
   }
 
@@ -371,7 +372,7 @@
     if (!st.P) {
       const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'No plan chosen'));
       c.appendChild(el('div', 'g-line g-muted', 'Choose a plan to see its daily signals.'));
-      c.appendChild(btn('Choose a plan', 'primary', () => go('plan', 0))); return;
+      c.appendChild(btn('Choose a plan', 'primary', () => go('plan'))); return;
     }
     if (st.inn == null) { const c = card(box, 'verd is-idle'); c.appendChild(el('div', 'g-verd-h', 'Checking the semis signal…')); if (sig && sig.error) c.appendChild(el('div', 'g-line g-muted', sig.error)); return; }
     const acts = [...st.orders.filter((o) => o.kind === 'signal' || o.kind === 'reset'), ...swingOrders(H, st)];
@@ -414,7 +415,7 @@
     }
     if (T.length) c.appendChild(el('div', 'g-hint', `How often such signals worked on cases the model had never seen (any day: ${st ? p0(st.buy.base) : '54%'}). Tap for the chart.`));
     const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
-    const l = c.appendChild(el('button', 'g-link', 'Open screener')); l.type = 'button'; l.addEventListener('click', () => go('markets', 0));
+    const l = c.appendChild(el('button', 'g-link', 'Open screener')); l.type = 'button'; l.addEventListener('click', () => go('screener'));
     const l2 = c.appendChild(el('button', 'g-link g-link2', 'Search assets')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
   }
 
@@ -424,7 +425,7 @@
   function practiceCard(box) {
     if (!window.SRScreen || !window.SRScreen.loadPractice) return;
     window.SRScreen.loadPractice();
-    const c = card(box, 'practice', 'Demo account (eToro) · virtual money'), body = c.appendChild(el('div'));
+    const c = card(box, 'practice', 'Demo account', 'demo', 'eToro · virtual money'), body = c.appendChild(el('div'));
     const usd = (x) => (x < 0 ? '−$' : '$') + Math.round(Math.abs(x)).toLocaleString('en-US'), usd2 = (x) => (x < 0 ? '−$' : '+$') + Math.abs(x).toFixed(2), px = (x) => (x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(3) : x.toFixed(4));
     const hhmm = (t, s) => new Date(t).toLocaleTimeString('en-GB', s ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' });
     const paint = () => {
@@ -474,8 +475,8 @@
       { const V = window.SRScreen.review(), e = V && V.entries && V.entries[V.entries.length - 1];
         if (e) { for (const x of (e.health || []).filter((y) => /^ALERT/.test(y)).slice(0, 2)) body.appendChild(el('div', 'g-line g-warn', x));
           const asks = (e.next || []).filter((y) => /^Matteo\b/.test(y)).length;
-          if (asks) { const a = body.appendChild(el('button', 'g-link g-ask', `The review of ${e.date} asks you ${asks} thing${asks === 1 ? '' : 's'}`)); a.type = 'button'; a.addEventListener('click', () => go('trading', 3)); } } }
-      { const g2 = body.appendChild(el('button', 't-go', `All ${D ? (D.positions || []).length : rec.length} positions on Trading`)); g2.type = 'button'; g2.addEventListener('click', () => go('trading', 0)); }
+          if (asks) { const a = body.appendChild(el('button', 'g-link g-ask', `The review of ${e.date} asks you ${asks} thing${asks === 1 ? '' : 's'}`)); a.type = 'button'; a.addEventListener('click', () => go('log')); } } }
+
       return true;
     };
     paint(); window.SRScreen.demoWatch(paint);
@@ -484,16 +485,16 @@
   // ---- Today: the paper labs in one line each (paper only; their pages are under Trading, Labs) ----
   function labsCard(box) {
     const B = window.SRLabs && window.SRLabs.brief ? window.SRLabs.brief() : null; if (!B || !B.labs.length) return;
-    const c = card(box, 'labsc', 'Paper labs · no order is ever sent');
+    const c = card(box, 'labsc', 'Paper labs', 'labs', 'no order is ever sent');
     for (const x of B.labs) {
       const b = c.appendChild(el('button', 'g-wrow g-labrow')); b.type = 'button'; b.dataset.lab = x.key;
-      b.addEventListener('click', () => { window.SRLabs.pick(x.key); go('trading', 1); });
+      b.addEventListener('click', () => { window.SRLabs.pick(x.key); go('labs'); });
       b.appendChild(el('span', 'g-wrow-t', x.name));
       if (x.word) b.appendChild(el('span', 'g-labword', x.word)).dataset.verdict = x.verdict || '';
       const v = b.appendChild(el('b', 'g-wrow-g ' + (x.total > 0 ? 'up' : x.total < 0 ? 'down' : ''), `${x.pct >= 0 ? '+' : '−'}${Math.abs(x.pct).toFixed(1)}%`));
       v.title = `$${x.equity.toFixed(2)}${x.open ? ` · ${x.open} open` : ''}`;
     }
-    c.appendChild(el('div', 'g-hint' + (B.slow ? ' g-warn' : ''), B.slow ? (B.age == null ? 'No report from the VM yet.' : `The VM's last lab report is ${Math.round(B.age)} minutes old: check the lab runner.`) : 'Since each lab started. Tap one for its page.'));
+    if (B.slow) c.appendChild(el('div', 'g-hint g-warn', B.age == null ? 'No report from the VM yet.' : `The VM's last lab report is ${Math.round(B.age)} minutes old: check the lab runner.`));
   }
 
   // ---- Today, card 2: holdings outside the plan (no deadline), with what-if ----
@@ -681,13 +682,13 @@
       const v0 = mixVol(partsNow(all)), v1 = mixVol(partsPlan(all, st)), vs = mixVol([{ sym: 'SPY', eur: 1 }]);
       if (v0 && vs) c.appendChild(el('div', 'g-line g-vol', `Volatility (past year): ${p0(v0)} now${v1 ? ` · ${p0(v1)} on plan` : ''} · ${p0(vs)} for the S&P 500.`));
     } else if (!st.P) {
-      const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan', 0)));
+      const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan')));
     }
     // the tax so far this year and if everything were sold now (live), from tax.js; tap for the Taxes tab
     { const T = window.SRTax ? (() => { try { return window.SRTax.summary(); } catch (e) { return null; } })() : null;
       if (T) { const c = card(box, 'tax'); const both = T.comb ? T.comb.tax : T.R.due.tax, all = T.combAll ? T.combAll.tax : T.R.all.tax;
         c.appendChild(el('div', 'g-line', `Tax for ${T.y} so far: ${eurc(both)}${T.comb ? ' (Revolut and eToro)' : ''} · if you sold everything now: ${eurc(all)}`));
-        c.appendChild(btn('Taxes', '', () => go('portfolio', 1))); } }
+        c.appendChild(btn('Taxes', '', () => go('taxes'))); } }
     const toolbar = right.appendChild(el('div', 'g-holdings-head'));
     toolbar.appendChild(el('h2', '', 'Holdings'));
     toolbar.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
@@ -834,7 +835,7 @@
       }
     }
     tc.appendChild(el('div', 'g-hint', st.P.risk));
-    box.appendChild(btn('See the 26-year test', '', () => go('plan', 1)));
+    box.appendChild(btn('See the 26-year test', '', () => go('test')));
   });
 
   // live: Today and Portfolio follow the prices (every 10 s while open); the semis signal every 30 minutes

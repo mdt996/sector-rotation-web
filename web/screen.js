@@ -42,7 +42,7 @@
     await Promise.all(todo.map(async ([sym, id]) => {
       try { const r = await window.SRLive.candles(id, 'OneDay', 400, 1.5); extra.set(sym, r.map(({ date, open, high, low, close }) => ({ date, open, high, low, close }))); stale.delete(sym); if (r.length) keep(sym); } catch (e) { failAt.set(sym, Date.now()); }   // asked again a minute later, not given up for the session
     }));
-    busy = false; if (todo.length) { SRApp.renderDraw('screener'); SRApp.renderDraw('today'); prepare(); }
+    busy = false; if (todo.length) { SRApp.renderDraw('screener'); SRApp.renderDraw('ranks'); SRApp.renderDraw('today'); prepare(); }
   }
   // last night's wide scan (a job in the private sync repository writes scan.json; see scan.js there)
   let wide = null, wideAt = 0, wideBusy = false;
@@ -55,7 +55,7 @@
     async set(v) { const db = await this.open(); if (!db) return; try { db.transaction('s', 'readwrite').objectStore('s').put(v, 'scan'); } catch (e) { /* not kept: read again next time */ } },
   };
   const useWide = (j) => { wide = j; packSet = new Set(j.packs || []); allMemo = null; };
-  let warm = SDB.get().then((j) => { if (j && j.rows && !wide) { useWide(j); SRApp.renderDraw('screener'); SRApp.renderDraw('today'); } }).catch(() => {});
+  let warm = SDB.get().then((j) => { if (j && j.rows && !wide) { useWide(j); SRApp.renderDraw('screener'); SRApp.renderDraw('ranks'); SRApp.renderDraw('today'); } }).catch(() => {});
   async function loadWide(force) {
     if (wideBusy || !window.SRSync || !window.SRSync.getFile || (!force && Date.now() - wideAt < 20 * 60e3)) return;
     wideBusy = true;
@@ -65,7 +65,7 @@
       if (wide && !force) { const m = await window.SRSync.getFile('scanmeta.json'); if (m && m.made && m.made === wide.made) need = false; }
       if (need) { const j = await window.SRSync.getFile('scan.json'); if (j && j.rows) { useWide(j); SDB.set(j); } }
     } catch (e) { /* keeps the last one */ }
-    wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('today');
+    wideAt = Date.now(); wideBusy = false; SRApp.renderDraw('screener'); SRApp.renderDraw('ranks'); SRApp.renderDraw('today');
   }
   // ---- the practice portfolio (eToro demo account) and its daily review: two small files from the private folder ----
   let prac = null, review = null, audit = null, pracAt = 0, pracBusy = false;
@@ -243,7 +243,7 @@
   function pass(r) {
     if (F.cls === '@mine' ? !r.mine : F.cls && r.cls !== F.cls) return false;
     if (F.sec && !(r.cls === 'Stocks' && r.sec === F.sec)) return false;
-    if (F.size && !inB(r.cap, SIZE[F.size])) return false;
+    if (F.size === 'liq' ? !liquid(r) : F.size && !inB(r.cap, SIZE[F.size])) return false;
     if (F.sales && !inB(r.sales, SALES[F.sales])) return false;
     if (F.rsi && !inB(r.rsi, RSIB[F.rsi])) return false;
     if (F.sig === 'buy' && !r.buy) return false;
@@ -372,7 +372,7 @@
       place = sector ? P.top.filter((r) => (r.sec || 'Other') === sector).filter((r) => r.f[i] != null).sort(finOrder({ i, lo: false })).findIndex((r) => r.id === +id) + 1 : pl[i];
     }
     shown = Math.max(60, Math.ceil((place + 10) / 60) * 60); hlId = +id;
-    if (!(isMac() && left && left.offsetParent !== null)) { try { if (window.SRLive && SRLive.close) SRLive.close(); } catch (e) { /* the page stays */ } if (window.appShowTab) window.appShowTab('markets', 0); }
+    if (!(isMac() && left && left.offsetParent !== null)) { try { if (window.SRLive && SRLive.close) SRLive.close(); } catch (e) { /* the page stays */ } if (window.appGo) window.appGo('screener'); }
     // from the top: a redraw puts the page back where it was (runtime.js renderDraw), and the list is then scrolled to the company
     window.scrollTo(0, 0); SRApp.renderDraw('screener');
     setTimeout(() => { const x = document.querySelector(`#screener .sc-list [data-id="${+id}"]`); if (!x) return; x.scrollIntoView({ block: 'center' }); x.classList.add('is-hl'); setTimeout(() => { x.classList.remove('is-hl'); }, 2600); }, 200);
@@ -457,7 +457,7 @@
     sel('sig', 'All signals', Object.entries(SIG));
     sel('cls', 'All asset classes', [['@mine', 'Yours'], ...uniq((r) => r.cls).map((c) => [c, c])]);
     if (!F.cls || F.cls === 'Stocks' || F.cls === '@mine') sel('sec', 'All sectors', uniq((r) => (r.cls === 'Stocks' ? r.sec : null)).map((c) => [c, c]));
-    sel('size', 'Any market value', Object.entries(SIZE).map(([k, x]) => [k, x[0]]));
+    sel('size', 'Any market value', [['liq', 'No shares under $2B']].concat(Object.entries(SIZE).map(([k, x]) => [k, x[0]])));
     sel('sales', 'Any revenue', Object.entries(SALES).map(([k, x]) => [k, x[0]]));
     sel('rsi', 'Any RSI', Object.entries(RSIB).map(([k, x]) => [k, x[0]]));
     const fsN = finSort(), msN = maSort(), dsN = dvSort(), P0 = fsN ? finRanks() : null;
@@ -510,5 +510,52 @@
   // 20 s after the start (what the screen needs first goes first), then every 30 minutes: the likely next pages are loaded ahead
   const ahead = () => { try { const ids = [...((prac && prac.open) || []).map((t) => +t.id), ...top(6).map((r) => +r.id)]; if (window.SRLive && SRLive.preload) SRLive.preload(ids); } catch (e) { /* not ready */ } };
   setTimeout(ahead, 20000); setInterval(ahead, 30 * 60e3);
-  window.SRScreen = { fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+
+  // ---- Rankings (Markets, second part; Matteo, 24 Nov 2026: "organisation of the tabs, so that info are easier to reach") ----
+  // Every ranking the app keeps was a line in a list of 25 sorts. Here each one shows its first three, and a tap opens the whole
+  // list in the screener, sorted that way. Shares under $2 billion are left out of these lists, here and in the list a tap opens
+  // (the size choice "No shares under $2B"): a list led by penny shares says little.
+  const RANKS = [
+    ['Signals', [['rank', 'Strongest buy signals', (r) => 'score ' + sc100(r.ms)], ['rr', 'Best reward for the risk', (r) => (r.rr != null ? r.rr.toFixed(1) + '×' : '')]]],
+    ['RSI divergence', [['div:dvb', 'Bullish divergence', (r) => 'score ' + Math.round(r.dvb.s)], ['div:dve', 'Bearish divergence', (r) => 'score ' + Math.round(r.dve.s)]]],
+    ['Distance from the 200-day average', [['ma:m200:lo', 'Furthest below', (r) => pct(r.m200)], ['ma:m200', 'Furthest above', (r) => pct(r.m200)]]],
+    ['Distance from the 50-day average', [['ma:m50:lo', 'Furthest below', (r) => pct(r.m50)], ['ma:m50', 'Furthest above', (r) => pct(r.m50)]]],
+    ['Financial health', [['fin:all', 'Healthiest', (r) => String(r.f[0])], ['fin:all:lo', 'Least healthy', (r) => String(r.f[0])]]],
+    ['RSI', [['rsiLo', 'Lowest (oversold)', (r) => 'RSI ' + Math.round(r.rsi)], ['rsiHi', 'Highest (overbought)', (r) => 'RSI ' + Math.round(r.rsi)]]],
+    ['Today', [['day', 'Best today', (r) => pct(r.chg)], ['dayLo', 'Worst today', (r) => pct(r.chg)]]],
+    ['One month', [['c20', 'Best month', (r) => pct(r.c20)]]],
+  ];
+  function topOf(sort, n) {
+    const A = all().filter(liquid), fm = /^fin:(\w+)(:lo)?$/.exec(sort), mm = /^ma:(m50|m200)(:lo)?$/.exec(sort), dm = /^div:(dvb|dve)$/.exec(sort);
+    let L;
+    if (fm) { const i = finIx(fm[1]), P = finRanks(); if (i < 0 || !P) return []; L = A.filter((r) => { const pl = P.by.get(r.id); return pl && pl[i]; }).sort(finOrder({ i, lo: !!fm[2] })); }
+    else if (dm) L = A.filter((r) => r[dm[1]]).sort(dvCmp(dm[1]));
+    else if (mm) L = A.filter((r) => r[mm[1]] != null && isFinite(r[mm[1]])).sort((a, b) => (mm[2] ? a[mm[1]] - b[mm[1]] : b[mm[1]] - a[mm[1]]));
+    else if (sort === 'rank') L = A.filter((r) => r.buy).sort(rankOrder);
+    else if (sort === 'rr') L = A.filter((r) => r.buy && r.rr != null && isFinite(r.rr)).sort(SORTS.rr[1]);
+    else { const f = { rsiLo: 'rsi', rsiHi: 'rsi', day: 'chg', dayLo: 'chg', c20: 'c20' }[sort]; L = A.filter((r) => !f || (r[f] != null && isFinite(r[f]))).sort((SORTS[sort] || SORTS.rank)[1]); }
+    return L.slice(0, n);
+  }
+  function openRank(sort) { Object.assign(F, F0, { sort, size: 'liq', sig: sort === 'rr' ? 'buy' : '' }); saveF(); shown = 60; if (window.appGo) window.appGo('screener'); else if (window.appShowTab) window.appShowTab('markets', 0); window.scrollTo(0, 0); SRApp.renderDraw('screener'); }
+  dash.draw('ranks', (root) => {
+    const box = d3.select(root).html('').node();
+    if (!all().length) { box.appendChild(el('div', 'g-hint', 'The rankings come with the list of assets: one moment.')); return true; }
+    box.appendChild(el('h2', 'g-h2', 'Rankings'));
+    box.appendChild(el('p', 'g-hint rk-note', `The first three of each list. A tap on a title opens the whole list.${wide && wide.made ? ` From the scan of ${new Date(wide.made).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, moved with live prices.` : ''}`));
+    for (const [group, lists] of RANKS) {
+      const tops = lists.map(([k, t, say]) => [k, t, say, topOf(k, 3)]).filter((x) => x[3].length); if (!tops.length) continue;
+      const g = box.appendChild(el('section', 'rk-g')); g.appendChild(el('h3', 'rk-gh', group));
+      const cols = g.appendChild(el('div', 'rk-cols'));
+      for (const [k, t, say, L] of tops) {
+        const c = cols.appendChild(el('div', 'rk-c')); c.dataset.rank = k;
+        const h = c.appendChild(el('button', 'rk-h')); h.type = 'button'; h.appendChild(el('span', '', t)); h.appendChild(el('span', 'rk-all', 'All')); h.addEventListener('click', () => openRank(k));
+        L.forEach((r, i) => { const b = c.appendChild(el('button', 'rk-r')); b.type = 'button'; b.dataset.id = r.id; b.addEventListener('click', () => open(r));
+          b.appendChild(el('span', 'rk-n', String(i + 1))); const a = b.appendChild(el('span', 'rk-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 20); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group || ''));
+          let v = ''; try { v = say(r); } catch (e) { v = ''; } const vv = b.appendChild(el('b', 'rk-v', v)); if (/^[+−-]/.test(v)) vv.classList.add(/^\+/.test(v) ? 'up' : 'down'); });
+      }
+    }
+    box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
+    return true;
+  });
+  window.SRScreen = { fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();

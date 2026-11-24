@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 140, "text": "A cleaner app: 11 parts instead of 16 (Trading: Account, Labs, Progress, Log), short cards on Today with the labs, one status line on Trading, long lists and tests folded under their titles, the screener's list near the top."};
+window.SR_NOTES = {"build": 141, "text": "A new layout and look: five tabs (Today, Portfolio, Markets, Demo, Labs). Labs opens on the list of your paper portfolios, with Delete on each of yours; Markets has a Rankings part; the plan is in Portfolio."};

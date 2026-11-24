@@ -242,12 +242,18 @@
   // blocks, shown in the page's order; "+" folds a block under its own title (a long table that most visits do not need)
   const TABS = {
     today: [['', ['today']]],
-    portfolio: [['Holdings', ['pfolio', '+portfolio']], ['Taxes', ['ptax', 'petax']]],
-    markets: [['Screener', ['screener']], ['Sectors', ['rotboard', '+ranking']]],
-    trading: [['Account', ['trade', 'tradepos', 'tradehist']], ['Labs', ['tradelab']], ['Progress', ['tradeprog']], ['Log', ['tradelog', 'tradereview']]],
-    plan: [['Plan', ['plan']], ['26-year test', ['backtest']]],
+    portfolio: [['Holdings', ['pfolio', '+portfolio']], ['Plan', ['plan']], ['Taxes', ['ptax', 'petax']], ['26-year test', ['backtest']]],
+    markets: [['Screener', ['screener']], ['Rankings', ['ranks']], ['Sectors', ['rotboard', '+ranking']]],
+    demo: [['Account', ['trade', 'tradepos', 'tradehist']], ['Progress', ['tradeprog']], ['Log', ['tradelog', 'tradereview']]],
+    labs: [['', ['tradelab']]],
   };
-  const NAV_V = 2;   // the parts' numbers changed with the reorganisation: a part kept from before is not reused
+  // Second reorganisation, the same day (Matteo: "a better design and organisation of the tabs, so that info are easier to reach"):
+  // one tab for each thing he comes to look at. The plan sits with the money it steers (Portfolio); the eToro demo account and the
+  // paper labs, two different things under "Trading", are a tab each (Labs was three levels down); Markets has a Rankings part.
+  // Code goes to a place by its NAME (appGo), never by a part's number, so the parts can move again.
+  const DEST = { today: ['today', 0], holdings: ['portfolio', 0], plan: ['portfolio', 1], taxes: ['portfolio', 2], test: ['portfolio', 3],
+    screener: ['markets', 0], rankings: ['markets', 1], sectors: ['markets', 2], demo: ['demo', 0], progress: ['demo', 1], log: ['demo', 2], labs: ['labs', 0] };
+  const NAV_V = 3;   // the parts' numbers changed with each reorganisation: a part kept from before is not reused
   const FOLDS = { portfolio: 'Every figure for each holding', ranking: 'All sector and theme funds, ranked over the last month' };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
   const blocks = [...document.querySelectorAll('#dash-root .sr > *')];
@@ -296,6 +302,8 @@
   for (const b of tabBtns) b.addEventListener('click', () => { cameFrom = null; const id = b.getAttribute('data-tab'), t0 = performance.now(); showTab(id); requestAnimationFrame(() => requestAnimationFrame(() => { if (window.SRSpeed) window.SRSpeed.mark('tab:' + id, performance.now() - t0); })); });   // the time until the tab is on screen
   // opening a chart (a row in Holdings, the ranking, the map…) switches to the Chart tab; Back returns
   window.appShowTab = (t, s) => { cameFrom = null; showTab(t, s); };
+  window.appGo = (name) => { const d = DEST[name]; if (!d) return false; cameFrom = null; showTab(d[0], d[1]); return true; };
+  window.appWhere = () => { const e = Object.entries(DEST).find(([, d]) => d[0] === nav.tab && d[1] === (nav.sub[nav.tab] || 0)); return e ? e[0] : nav.tab; };
   if (window.SR) {
     SR.open = (sym) => {
       const id = SRApp.idOf(sym); if (!id || !window.SRLive || !window.SRLive.openAsset) return;

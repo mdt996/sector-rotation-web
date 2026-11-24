@@ -384,6 +384,15 @@
     const pageRO = window.ResizeObserver ? new ResizeObserver(fitPage) : null; if (pageRO) pageRO.observe(page); fitPage();
     const wrap = page.appendChild(el('div', 'av'));
     const side = page.appendChild(el('div', 'av av-side'));
+    // The page's parts one tap away (Matteo, 24 Nov 2026: "so that info are easier to reach"): a row of names between the chart and
+    // the details, which stays on top while they scroll. Only the parts this asset has; not on the wide two-column page.
+    const jump = page.insertBefore(el('nav', 'av-jump'), side); jump.setAttribute('aria-label', 'Parts of this page'); jump.hidden = true;
+    const drawJump = () => {
+      if (dead) return; const parts = [['Signal', verdictEl], ['Value', gauge], ['About', aboutBox], ['Analysis', taBox], ['Figures', stats]].filter(([, e]) => e && !e.hidden && e.offsetHeight > 20);
+      const sig = parts.map((x) => x[0]).join(); if (jump.dataset.sig === sig) return; jump.dataset.sig = sig; jump.replaceChildren(); jump.hidden = parts.length < 3;
+      for (const [t, e] of parts) { const b = jump.appendChild(el('button', '', t)); b.type = 'button'; b.addEventListener('click', () => e.scrollIntoView({ block: 'start', behavior: 'smooth' })); }
+    };
+    for (const ms of [1200, 3000, 7000, 15000]) setTimeout(drawJump, ms);
     const top = wrap.appendChild(el('div', 'av-top'));
     const idt = top.appendChild(el('div', 'av-id'));
     idt.appendChild(el('div', 'av-sym', inst.symbol));
@@ -828,6 +837,7 @@
       return taVal;
     }
     function drawTA() {
+      setTimeout(drawJump, 50);
       taBox.replaceChildren();   // folds keep their state when the analysis is drawn again (taOpen)
       const A = taNow(); if (!A) { if (daily.length) taBox.appendChild(el('p', 'av-note', 'Technical analysis needs about four months of daily history (80 days).')); return; }
       const G = (window.SR_TASTATS || {}).by || {}, B = taBt, q = live(), px = q ? q.price : A.price, pc = (x) => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%';

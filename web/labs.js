@@ -61,17 +61,18 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, fold: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', view: 'list', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, fold: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
   try { const k = localStorage.getItem('sr.labSel'); if (/^[a-z0-9]{3,12}$/.test(k || '')) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = c.ref == null ? true : !!c.ref; } catch (e) { /* the gold lab, 5-minute candles */ }   // the market's line is on unless switched off (Matteo, 22 Nov 2026: the comparison "also in the chart")
   // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
   // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
   const PANES = [['now', 'Now'], ['trades', 'Trades'], ['history', 'History'], ['learning', 'Learning'], ['all', 'All']];
   try { const q = JSON.parse(localStorage.getItem('sr.labPane') || 'null'); if (PANES.some((x) => x[0] === q)) LB.pane = q; } catch (e) { /* the first part */ }
+  try { if (localStorage.getItem('sr.labView') === 'lab') LB.view = 'lab'; } catch (e) { /* the list */ }
   // any eToro asset as the line over a lab's chart (Matteo, 22 Nov 2026: "offer the possibility of comparing with any asset, in the
   // paper trading"), chosen per lab and remembered on this device; none chosen: the lab's own market
   try { const v = JSON.parse(localStorage.getItem('sr.labVs') || '{}'); for (const [k, a] of Object.entries(v || {})) if (/^[a-z0-9]{3,12}$/.test(k) && a && +a.id > 0 && a.symbol) LB.vs[k] = { id: +a.id, symbol: String(a.symbol).slice(0, 24), name: String(a.name || '').slice(0, 60) }; } catch (e) { /* the labs' own markets */ }
   const keepVs = () => { try { localStorage.setItem('sr.labVs', JSON.stringify(LB.vs)); } catch (e) { /* not kept */ } };
-  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style, ref: LB.bench })); } catch (e) { /* not kept */ } };
+  const keep = () => { try { localStorage.setItem('sr.labPane', JSON.stringify(LB.pane)); localStorage.setItem('sr.labSel', LB.sel); localStorage.setItem('sr.labView', LB.view); localStorage.setItem('sr.labChart', JSON.stringify({ tf: LB.tf, style: LB.style, ref: LB.bench })); } catch (e) { /* not kept */ } };
 
   // ---- reading ----
   const read = async (name) => { try { return window.SRSync && window.SRSync.getFile ? await window.SRSync.getFile(name) : null; } catch (e) { return null; } };
@@ -253,7 +254,7 @@
     const tv = LB.tv;
     if (mode === 'full') {
       const H = tv.hdr; H.textContent = '';
-      const fv = H.appendChild(el('div', 't-fullval')); fv.appendChild(el('b', '', L.name + ' ')); tv.fullV = fv.appendChild(el('span', 't-fullv')); tv.fullS = fv.appendChild(el('span'));
+      const fv = H.appendChild(el('div', 't-fullval')); fv.appendChild(el('b', '', shown(L) + ' ')); tv.fullV = fv.appendChild(el('span', 't-fullv')); tv.fullS = fv.appendChild(el('span'));
       const bar = H.appendChild(el('div', 't-chips t-tfs')), chip = (k, val, label) => { const b = bar.appendChild(el('button', 't-chip' + (LB[k] === val ? ' on' : ''), label)); b.type = 'button'; b.dataset.k = k + ':' + val; b.addEventListener('click', () => { LB[k] = val; keep(); chart(B, key, valued(key), 'full'); }); };
       for (const [k, l] of TFS) chip('tf', k, l);
       bar.appendChild(el('span', 't-sep', '·')); chip('style', 'candles', 'Candles'); chip('style', 'line', 'Line');
@@ -299,8 +300,11 @@
   // ---- the page ----
   function skeleton(root) {
     root.textContent = '';
-    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), cards: root.appendChild(el('div', 'g-stats t-labcards')), form: root.appendChild(el('div', 't-labform')), top: root.appendChild(el('div', 't-labtop')),
-      tabs: root.appendChild(el('div', 't-labtabs')), chart: root.appendChild(el('div', 't-labchartbox')), body: root.appendChild(el('div', 't-labbody')) };
+    // The Labs tab (24 Nov 2026): first the list of every portfolio, a row each, with what the VM is doing with it and, for the ones
+    // made in the app, Delete in plain sight; a tap opens the portfolio's page, where the same cards are a row to swipe.
+    const R = { status: root.appendChild(el('div', 't-status t-labstatus')), warn: root.appendChild(el('div', 't-labwarn')), head: root.appendChild(el('div', 't-labhead')), cards: root.appendChild(el('div', 'g-stats t-labcards')), foot: root.appendChild(el('div', 't-labfoot')), form: root.appendChild(el('div', 't-labform')) };
+    R.page = root.appendChild(el('div', 't-labpage'));
+    Object.assign(R, { top: R.page.appendChild(el('div', 't-labtop')), tabs: R.page.appendChild(el('div', 't-labtabs')), chart: R.page.appendChild(el('div', 't-labchartbox')), body: R.page.appendChild(el('div', 't-labbody')) });
     R.tabs.setAttribute('role', 'tablist'); R.tabs.setAttribute('aria-label', 'Parts of this lab');
     for (const [k, name] of PANES) { const b = R.tabs.appendChild(el('button', 't-labtab', name)); b.type = 'button'; b.dataset.pane = k; b.setAttribute('role', 'tab'); b.addEventListener('click', () => { if (LB.pane === k) return; LB.pane = k; keep(); panes(R); }); }
     LB.R = R; LB.bodySig = ''; return R;
@@ -329,20 +333,48 @@
     R.cards.textContent = '';
     for (const key of keysOf()) {
       const L = sumLab(key), V = valued(key); if (!L || !V) continue;
-      const P = L.top && L.top.proof, d = tile(R.cards, L.name, usd(V.equity), ' ', sign(V.total)); tileSub(d.querySelector('.g-stat-s'), L, V);
+      const P = L.top && L.top.proof, d = tile(R.cards, shown(L), usd(V.equity), ' ', sign(V.total)); tileSub(d.querySelector('.g-stat-s'), L, V);
       // where it stands, in a word: the VM's own verdict (the "Proof so far" line under the lab's value says why)
       if (P && P.bar) { const c = d.appendChild(el('span', 't-labword', VERDICT[P.verdict] || VERDICT.holding)); c.dataset.verdict = P.verdict; d.dataset.verdict = P.verdict; }
       d.classList.add('t-labcard'); d.dataset.lab = key; if (key === LB.sel) d.classList.add('on'); d.setAttribute('role', 'button'); d.tabIndex = 0;
-      const pick = () => { if (LB.sel === key) return; LB.sel = key; keep(); LB.bodySig = ''; paint(); load(false); };
+      const pick = () => { if (LB.sel === key && LB.view === 'lab') return; LB.sel = key; LB.view = 'lab'; keep(); LB.bodySig = ''; if (LB.R) LB.R.chart.dataset.for = ''; paint(); load(false); window.scrollTo(0, 0); };
       d.addEventListener('click', pick); d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') pick(); });
-      if (L.custom && LB.cust && !custList().some((c) => c.key === key)) d.appendChild(el('span', 't-labword t-labgone', 'Stopping'));   // deleted here, still running until the VM restarts it
+      // its value day by day, as a small line (a picture says "rising" faster than a figure does)
+      { const pts = (L.daily || []).map((x) => +x[1]).filter((x) => x > 0).concat(V.equity); if (pts.length >= 3) { const lo = Math.min(...pts), hi = Math.max(...pts), w = 72, h = 24, sp = hi - lo || 1;
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', `0 0 ${w} ${h}`); svg.setAttribute('class', 't-labspark ' + (V.total > 0 ? 'up' : V.total < 0 ? 'down' : 'flat')); svg.setAttribute('aria-hidden', 'true');
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', pts.map((v, i) => `${i ? 'L' : 'M'}${(2 + i * (w - 4) / (pts.length - 1)).toFixed(1)} ${(h - 3 - (v - lo) / sp * (h - 6)).toFixed(1)}`).join(' ')); svg.appendChild(path);
+          d.insertBefore(svg, d.querySelector('.g-stat-v')); } }
+      const mine = L.custom && custList().some((c) => c.key === key), going = L.custom && LB.cust && !mine;
+      if (L.custom) d.appendChild(el('span', 't-labmk', `${(L.assets || []).join(', ')} · ${usd0(L.start)} at the start`));
+      if (going) d.appendChild(el('span', 't-labword t-labgone', 'Stopping on the VM'));   // deleted here, still running until the VM restarts without it
+      else if (L.custom) d.appendChild(el('span', 't-labvm', 'Running on the VM'));
+      if (mine && canWrite()) {
+        const sure = LB.del && LB.del.key === key, b = d.appendChild(el('button', 'btn t-labdel t-labdel-row' + (sure ? ' is-sure' : ''), LB.del && LB.del.busy && sure ? 'Deleting…' : sure ? 'Tap again to delete' : 'Delete')); b.type = 'button'; b.disabled = !!(LB.del && LB.del.busy);
+        b.setAttribute('aria-label', `Delete the paper portfolio ${L.name}`); b.addEventListener('click', (ev) => { ev.stopPropagation(); remove(key); }); b.addEventListener('keydown', (ev) => ev.stopPropagation());
+      }
     }
-    if (!(window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite())) return;
-    for (const c of custList()) if (!sumLab(c.key)) { const w = R.cards.appendChild(el('div', 'g-stat t-labcard t-labwait')); w.dataset.lab = c.key; w.appendChild(el('span', 'g-stat-k', `${c.name} · ${c.venue === 'revx' ? 'Revolut X' : 'eToro'}`)); w.appendChild(el('span', 'g-stat-v', usd(c.start > 0 ? c.start : 2000))); w.appendChild(el('span', 'g-stat-s', 'Starting on the VM…')); }
+    // the head of the list: how many, and what all of them have traded so far
+    { const ks = keysOf().filter((k) => sumLab(k) && valued(k)), n = ks.reduce((x, k) => x + ((sumLab(k).port && sumLab(k).port.n) || 0), 0), mineN = custList().length;
+      R.head.textContent = ''; const back = R.head.appendChild(el('button', 't-labback', 'All portfolios')); back.type = 'button'; back.addEventListener('click', () => { LB.view = 'list'; keep(); paint(); window.scrollTo(0, 0); });
+      R.head.appendChild(el('h2', 'g-h2 t-labh', 'Paper portfolios')); R.head.appendChild(el('span', 't-labcount', `${ks.length} running · ${n.toLocaleString('en-US')} paper trades closed${mineN ? ` · ${mineN} of your own (up to ${CUSTOM_MAX})` : ''}`));
+      R.foot.textContent = ''; if (LB.gone) R.foot.appendChild(el('div', 'g-hint t-labgonemsg', LB.gone));
+      R.foot.appendChild(el('div', 'g-hint t-labsync', 'Each portfolio learns from its own trades. One you add or delete here reaches the VM within about 5 minutes; a deleted one is cleared from the VM with its record.')); }
+    if (!canWrite()) return;
+    for (const c of custList()) if (!sumLab(c.key)) { const w = R.cards.appendChild(el('div', 'g-stat t-labcard t-labwait')); w.dataset.lab = c.key; w.appendChild(el('span', 'g-stat-k', `${c.name} · ${c.venue === 'revx' ? 'Revolut X' : 'eToro'}`)); w.appendChild(el('span', 'g-stat-v', usd(c.start > 0 ? c.start : 2000))); w.appendChild(el('span', 'g-stat-s', 'Starting on the VM…'));
+      const sure = LB.del && LB.del.key === c.key, b = w.appendChild(el('button', 'btn t-labdel t-labdel-row' + (sure ? ' is-sure' : ''), sure ? 'Tap again to delete' : 'Delete')); b.type = 'button'; b.addEventListener('click', (ev) => { ev.stopPropagation(); remove(c.key); }); }
     const full = custList().length >= CUSTOM_MAX, nb = R.cards.appendChild(el('button', 'g-stat t-labnew' + (LB.form ? ' on' : ''))); nb.type = 'button'; nb.disabled = full && !LB.form;
     nb.appendChild(el('span', 't-labnew-p', '+')); nb.appendChild(el('span', '', full ? `Up to ${CUSTOM_MAX} portfolios of your own` : 'New paper portfolio'));
     nb.addEventListener('click', () => { LB.form = LB.form ? null : { name: '', venue: 'etoro', assets: [], versus: '', start: 2000, msg: '' }; drawForm(R); cards(R); });
   }
+  // "My eToro · eToro" three times over says nothing: a portfolio left with the default name is shown by its markets
+  const shown = (L) => { if (!L || !L.custom || !/^My (eToro|crypto)\b/.test(L.name || '')) return L ? L.name : ''; const a = L.assets || []; return (a.length <= 2 ? a.join(', ') : `${a[0]} + ${a.length - 1} more`) + (L.venue === 'revx' ? ' · Revolut X' : ' · eToro'); };
+  const canWrite = () => !!(window.SRSync && window.SRSync.canWrite && window.SRSync.canWrite());
+  // the name when none is typed: the markets themselves ("Gold", "Gold, Silver", "6 markets"); three portfolios all called "My eToro" could not be told apart (24 Nov 2026)
+  const autoName = (F) => { const t = F.assets.map((id) => (MARKETS[F.venue].find((m) => m[0] === id) || [])[1]).filter(Boolean); return (t.length === 0 ? (F.venue === 'revx' ? 'My crypto' : 'My eToro') : t.length <= 2 ? t.join(', ') : `${t[0]} + ${t.length - 1} more`).slice(0, 32); };
+  // the same markets as a portfolio that runs already, on the same venue: the same rules give the same signals, so it teaches nothing new
+  const twinOf = (F) => { if (!F.assets.length || !LB.sum) return null; const want = F.assets.map((id) => (MARKETS[F.venue].find((m) => m[0] === id) || [])[0]).sort().join();
+    for (const c of custList()) if (c.venue === F.venue && (c.assets || []).map(String).sort().join() === want) return c.name;
+    if (F.venue === 'etoro' && want === '18') return 'Gold · eToro'; return null; };
   const custList = () => (LB.cust && Array.isArray(LB.cust.labs) ? LB.cust.labs.filter((c) => c && /^u[a-z0-9]{3,10}$/.test(c.key)) : []);
   // the form of a new portfolio: a name, eToro or Revolut X, its markets, the market it is set against. Drawn only when something in it
   // changes (never by the live repaints, which would take the keyboard away while typing).
@@ -350,7 +382,7 @@
     const B = R.form, F = LB.form; B.textContent = ''; B.hidden = !F; if (!F) return;
     B.appendChild(el('b', 't-labform-h', 'New paper portfolio'));
     const nm = B.appendChild(el('label', 't-labform-f')); nm.appendChild(el('span', '', 'Name'));
-    const inp = nm.appendChild(el('input', '')); inp.type = 'text'; inp.maxLength = 32; inp.value = F.name; inp.placeholder = F.venue === 'revx' ? 'My crypto' : 'My eToro'; inp.addEventListener('input', () => { F.name = inp.value; });
+    const inp = nm.appendChild(el('input', '')); inp.type = 'text'; inp.maxLength = 32; inp.value = F.name; inp.placeholder = autoName(F); inp.addEventListener('input', () => { F.name = inp.value; });
     const vrow = B.appendChild(el('div', 't-labform-f')); vrow.appendChild(el('span', '', 'Where'));
     const vs = vrow.appendChild(el('div', 't-chips t-labform-v'));
     for (const [v, t] of [['etoro', 'eToro: leveraged, long and short'], ['revx', 'Revolut X: crypto, buy only']]) { const b = vs.appendChild(el('button', 't-chip' + (F.venue === v ? ' on' : ''), t)); b.type = 'button'; b.setAttribute('aria-pressed', String(F.venue === v)); b.addEventListener('click', () => { if (F.venue === v) return; F.venue = v; F.assets = []; F.versus = ''; drawForm(R); }); }
@@ -374,7 +406,8 @@
     for (const v of STARTS) { const b = sc.appendChild(el('button', 't-chip' + (F.start === v ? ' on' : ''), usd0(v))); b.type = 'button'; b.setAttribute('aria-pressed', String(F.start === v)); b.addEventListener('click', () => { F.start = v; drawForm(R); }); }
     sin.addEventListener('input', () => { const v = Math.round(+sin.value); F.start = okStart(v) ? v : NaN; for (const c of sc.children) { const on = c.textContent === usd0(F.start); c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); } go.disabled = !!F.busy || !F.assets.length || !okStart(F.start); amt.classList.toggle('bad', !okStart(F.start)); });
     amt.classList.toggle('bad', !okStart(F.start));
-    B.appendChild(el('p', 'g-hint', `Between ${usd0(START[0])} and ${usd0(START[1])}. The ${F.venue === 'revx' ? 'Revolut X' : 'eToro'} lab's rules and costs. Paper only: no order is ever sent. Starts within 20 min.`));
+    B.appendChild(el('p', 'g-hint', `Between ${usd0(START[0])} and ${usd0(START[1])}. The ${F.venue === 'revx' ? 'Revolut X' : 'eToro'} lab's rules and costs. Paper only: no order is ever sent. Starts on the VM within about 5 minutes.`));
+    { const tw = twinOf(F); if (tw) B.appendChild(el('p', 'g-hint g-warn t-labform-twin', `${tw} already trades exactly these markets with the same rules: this one would repeat its signals and teach nothing new. Other markets add more.`)); }
     const act = B.appendChild(el('div', 't-labform-a')), go = act.appendChild(el('button', 'btn btn-primary', F.busy ? 'Saving…' : 'Create')), no = act.appendChild(el('button', 'btn', 'Cancel'));
     go.type = no.type = 'button'; go.disabled = !!F.busy || !F.assets.length || !okStart(F.start); no.addEventListener('click', () => { LB.form = null; drawForm(R); cards(R); });
     if (F.msg) act.appendChild(el('span', 'g-hint t-labform-msg', F.msg));
@@ -382,7 +415,7 @@
       F.busy = true; F.msg = ''; drawForm(R);
       const fresh = await read('lab/custom.json'), list = fresh && Array.isArray(fresh.labs) ? fresh.labs : custList();   // another device may have changed it
       if (list.length >= CUSTOM_MAX) { F.busy = false; F.msg = `There are already ${CUSTOM_MAX}: delete one first.`; drawForm(R); return; }
-      const item = { key: 'u' + Date.now().toString(36).slice(-7), name: (F.name.trim() || (F.venue === 'revx' ? 'My crypto' : 'My eToro')).slice(0, 32), venue: F.venue, assets: F.assets.slice(), versus: F.versus || F.assets[0], start: F.start, at: Date.now() };
+      const item = { key: 'u' + Date.now().toString(36).slice(-7), name: (F.name.trim() || autoName(F)).slice(0, 32), venue: F.venue, assets: F.assets.slice(), versus: F.versus || F.assets[0], start: F.start, at: Date.now() };
       const doc = { v: 1, about: 'Paper portfolios made in the app; lab/engine.js setCustom checks every field. Paper only.', labs: list.concat(item) };
       const r = await window.SRSync.putFile('lab/custom.json', doc, 'Paper portfolio added in the app: ' + item.name);
       if (r.ok) { LB.cust = doc; LB.form = null; drawForm(R); cards(R); } else { F.busy = false; F.msg = 'Not saved: ' + r.why; drawForm(R); }
@@ -395,7 +428,7 @@
     const fresh = await read('lab/custom.json'), list = (fresh && Array.isArray(fresh.labs) ? fresh.labs : custList()).filter((c) => c && c.key !== key);
     const doc = { v: 1, about: 'Paper portfolios made in the app; lab/engine.js setCustom checks every field. Paper only.', labs: list };
     const r = await window.SRSync.putFile('lab/custom.json', doc, 'Paper portfolio deleted in the app');
-    LB.del = null; if (r.ok) { LB.cust = doc; LB.gone = 'Deleted. It stops on the VM in about 10 to 20 minutes, and its record goes with it.'; } else LB.gone = 'Not deleted: ' + r.why; setTimeout(() => { LB.gone = null; paint(); }, 20000);
+    LB.del = null; if (r.ok) { LB.cust = doc; LB.gone = 'Deleted. The VM stops it within about 5 minutes and clears its record and files.'; if (LB.sel === key) { LB.sel = 'gold'; LB.view = 'list'; keep(); } } else LB.gone = 'Not deleted: ' + r.why; setTimeout(() => { LB.gone = null; paint(); }, 20000);
     paint();
   }
   // under a tile's value: its return, then its trades, each on one line of its own (the same at every reading and between two:
@@ -409,7 +442,7 @@
   const VERDICT = { few: 'Too early', losing: 'Losing', luck: 'Not proven', ahead: 'Ahead so far', holding: 'Holding up' };
   function top(R, L, V) {
     const T = R.top; T.textContent = '';
-    head(T, L.name);
+    head(T, shown(L));
     const box = T.appendChild(el('div', 't-top')), v = box.appendChild(el('div', 't-value', usd(V.equity))); v.dataset.live = 'equity';
     const sub = box.appendChild(el('div', 't-sub'));
     sub.appendChild(el('b', sign(V.total), `${usd2(V.total)} (${pc(100 * V.total / L.start)})`)); sub.appendChild(document.createTextNode(L.cycle > 1 ? ` in cycle ${L.cycle}` : ' since the start'));
@@ -825,7 +858,11 @@
     if (!sumLab(LB.sel)) LB.sel = 'gold';
     const R = LB.R && root.contains(LB.R.body) ? LB.R : skeleton(root), key = LB.sel, L = sumLab(key), V = valued(key), D = LB.det[key];
     if (!!LB.form !== !R.form.hidden || (LB.form && !R.form.childElementCount)) drawForm(R);
-    want(); status(R); cards(R); top(R, L, V);
+    const list = LB.view !== 'lab';   // the list of portfolios, or one portfolio's page
+    root.classList.toggle('is-list', list); root.classList.toggle('is-lab', !list); R.page.hidden = list;
+    want(); status(R); cards(R);
+    if (list) { LB.lastPaint = Date.now(); return; }
+    top(R, L, V);
     const cf = key + '|' + LB.sum.made + '|' + (D ? D.made : '') + '|' + V.N.open.length; chart(R.chart, key, V, R.chart.dataset.for === cf ? 'tick' : 'data'); R.chart.dataset.for = cf;
     const sig = [key, LB.sum.made, D ? D.made : '', LB.live ? LB.live.made : '', LB.bt ? LB.bt.made : '', LB.scan ? LB.scan.made : '', JSON.stringify(LB.more)].join('|');
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
@@ -851,7 +888,7 @@
     const big = R.top.querySelector('[data-live="equity"]'); if (big) { const t = usd(V.equity); if (big.textContent !== t) big.textContent = t; }
     const sub = R.top.querySelectorAll('.t-sub b'); if (sub[0]) { sub[0].textContent = `${usd2(V.total)} (${pc(100 * V.total / L.start)})`; sub[0].className = sign(V.total); } if (sub[1] && V.day != null) { sub[1].textContent = usd2(V.day); sub[1].className = sign(V.day); }
     V.N.open.forEach((o, i) => { const r = R.body.querySelector(`[data-open="${o.id}"]`); if (!r) return; const cells = r.querySelectorAll(':scope > span'), v = V.rows[i]; if (cells[2]) { const t = px(v[1]); cells[2].textContent = t; cells[2].className = t.length > 9 ? 't-long' : ''; } if (cells[3]) { cells[3].textContent = usd2(v[0]); cells[3].className = sign(v[0]); } });
-    if (LB.tv && LB.tv.key === key && !LB.tv.host.hidden) chart(R.chart, key, V, 'tick');
+    if (LB.view === 'lab' && LB.tv && LB.tv.key === key && !LB.tv.host.hidden) chart(R.chart, key, V, 'tick');
     const st = R.status.children[1]; if (st && /^Live/.test(st.textContent)) st.textContent = `Live · ${clock(Date.now())}`;
   }
   function start(root) {
@@ -878,8 +915,8 @@
     loadBrief();
     const age = LB.live ? (Date.now() - Date.parse(LB.live.made)) / 60e3 : null;
     return { slow: age == null || age > 20, age, labs: keysOf().map((key) => { const L = sumLab(key), V = valued(key); if (!L || !V) return null; const P = L.top && L.top.proof;
-      return { key, name: L.name, equity: V.equity, total: V.total, pct: 100 * V.total / L.start, open: V.N.open.length, word: P && P.bar ? VERDICT[P.verdict] || VERDICT.holding : null, verdict: P && P.verdict }; }).filter(Boolean) };
+      return { key, name: shown(L), equity: V.equity, total: V.total, pct: 100 * V.total / L.start, open: V.N.open.length, word: P && P.bar ? VERDICT[P.verdict] || VERDICT.holding : null, verdict: P && P.verdict }; }).filter(Boolean) };
   }
-  const pick = (key) => { LB.sel = key; LB.pane = 'now'; keep(); LB.bodySig = ''; };
+  const pick = (key) => { LB.sel = key; LB.view = 'lab'; LB.pane = 'now'; keep(); LB.bodySig = ''; if (LB.R) LB.R.chart.dataset.for = ''; };
   window.SRLabs = { state: LB, load, paint, tick, valueOf, valued, barsFor, brief, pick };   // brief and pick for Today; the rest for the tests
 })();
