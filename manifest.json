@@ -3,9 +3,9 @@
  "min_native": 9,
  "native": {
   "mac": 71,
-  "android": 71
+  "android": 73
  },
- "published": "2026-11-25T22:15:55Z",
+ "published": "2026-11-25T23:34:52Z",
  "files": {
   "about.js": "e5c720fdf82b9417e38b92de50518ceab77c4d52471d1e8d4c69601039e4b81c",
   "account.js": "e7e587d7244e5ad4714c4d7a1f5d8fe2fc403e0a7a6a235a4c8d6ec138af3e71",
