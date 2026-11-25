@@ -320,13 +320,38 @@
   }
 
   // ---- pieces ----
+  const TL = (k) => (window.SRI18n ? window.SRI18n.t(k) : k);   // a label in the chosen language (i18n.js)
   function hero(box, H) {
     const T = totals(H), h = box.appendChild(el('div', 'g-hero'));
-    h.appendChild(el('div', 'g-hero-k', 'Your portfolio'));
+    h.appendChild(el('div', 'g-hero-k', TL('yourPortfolio')));
     h.appendChild(el('div', 'g-hero-v', eurc(T.total)));
-    const c = h.appendChild(el('div', 'g-hero-chg ' + (T.today > 0 ? 'up' : T.today < 0 ? 'down' : ''), T.today == null ? 'Waiting for live prices' : `${eurc(T.today, true)}  ${pct(T.todayPct, 2)} today`));
+    const c = h.appendChild(el('div', 'g-hero-chg ' + (T.today > 0 ? 'up' : T.today < 0 ? 'down' : '')));
+    if (T.today == null) c.textContent = 'Waiting for live prices';
+    else { c.appendChild(el('span', 'g-hero-abs', eurc(T.today, true))); c.appendChild(document.createTextNode('  ')); c.appendChild(el('span', 'g-hero-pill', pct(T.todayPct, 2))); c.appendChild(el('span', 'g-hero-day', ' ' + TL('todayWord'))); }
     c.title = 'Live, from eToro';
     return h;
+  }
+  // ---- the phone design on Today: the signals worth a look as cards to swipe (Markets' own cards and sheet), then the holdings
+  // that moved most today ----
+  let deckX = 0;
+  function lookDeck(box) {
+    if (!window.SRScreen || !window.SRScreen.deckCard || !window.SRTA) return;
+    window.SRScreen.load(); window.SRScreen.loadWide();
+    const P = window.SRScreen.top(5); if (!P.length) return;
+    const s = box.appendChild(el('section', 'g-look')), hd = s.appendChild(el('div', 'g-look-h')); hd.appendChild(el('h3', '', TL('look'))); hd.appendChild(el('span', 'g-look-n', String(P.length)));
+    const all = hd.appendChild(el('button', 'g-link g-look-all', TL('markets'))); all.type = 'button'; all.addEventListener('click', () => go('screener'));
+    const d = s.appendChild(el('div', 'g-deck')); for (const r of P) d.appendChild(window.SRScreen.deckCard(r));
+    d.addEventListener('scroll', () => { deckX = d.scrollLeft; }, { passive: true }); d.scrollLeft = deckX;
+  }
+  function moversBlock(box, H, st) {
+    const M = H.filter((h) => h.value > 0 && h.ticker !== 'CASH' && h.chg != null && Math.abs(h.chg) >= 0.00005).sort((a, b) => Math.abs(b.chg) - Math.abs(a.chg)).slice(0, 3); if (!M.length) return;
+    const s = box.appendChild(el('section', 'g-movers')); s.appendChild(el('h3', '', TL('movers')));
+    for (const h of M) {
+      const r = s.appendChild(el('button', 'g-row g-mrow')); r.type = 'button'; r.dataset.ticker = h.ticker; r.addEventListener('click', () => holdingSheet(h, st, H));
+      { const l = window.SRLive && SRLive.liveOf ? SRLive.liveOf(h) : null, lg = window.SRLogo ? window.SRLogo.logo(l ? l.id : 0, h.ticker, 38) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
+      const a = r.appendChild(el('div', 'g-row-a')); a.appendChild(el('b', '', h.ticker)); a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || ''));
+      const v = r.appendChild(el('div', 'g-row-v')); v.appendChild(el('b', '', eurc(h.value))); v.appendChild(el('span', 'g-mpill ' + (h.chg > 0 ? 'up' : 'down'), pct(h.chg, 2)));
+    }
   }
   function card(box, kind, title, dest, sub) {
     const c = box.appendChild(el('div', 'g-card g-' + kind));
@@ -595,6 +620,7 @@
       if (!c0.syncToken && !c0.acct) r.appendChild(btn('Sign in or create account', '', () => window.appOpenSettings && window.appOpenSettings('acct')));
     }
     if (st.P && st.P.signal && !sig) loadSignal();
+    lookDeck(box); moversBlock(box, H, st);
     verdictCard(box, H, st);
     briefCard(box, H, st);
     watchCard(box, H, st);

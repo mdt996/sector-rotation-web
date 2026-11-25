@@ -1647,3 +1647,36 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .sc-sheet-stats b { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .sc-sheet-stats b.up { color: var(--av-up); } .sc-sheet-stats b.down { color: var(--av-down); }
 .sc-sheet-open { min-height: 52px; border-radius: 18px; border: 0; background: var(--accent); color: var(--color-bg); font: inherit; font-size: 16px; font-weight: 800; cursor: pointer; }
 :root[data-theme="light"] .sc-sheet-open { color: #fff; }
+
+/* ---- Today and Portfolio: the value first, large; the day's change as a pill ---- */
+.g-hero { padding: 4px 2px 18px; display: grid; gap: 6px; }
+.g-hero-k { font-size: 13px; font-weight: 600; }
+.g-hero-v { font-size: 46px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
+.g-hero-chg { display: flex; align-items: center; flex-wrap: wrap; gap: 0 2px; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); white-space: pre-wrap; }
+.g-hero-chg.up .g-hero-abs, .g-hero-chg.down .g-hero-abs, .g-hero-day { color: var(--color-fg-muted); }
+.g-hero-pill { order: -1; margin-inline-end: 8px; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: var(--pro-well); }
+.g-hero-chg.up .g-hero-pill { color: var(--av-up); background: color-mix(in srgb, var(--av-up) 15%, transparent); } .g-hero-chg.down .g-hero-pill { color: var(--av-down); background: color-mix(in srgb, var(--av-down) 15%, transparent); }
+/* Today: the signals worth a look, as cards to swipe */
+.g-look, .g-movers { display: grid; gap: 10px; margin: 0 0 22px; min-width: 0; }
+.g-look h3, .g-movers h3 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--color-fg); }
+.g-look-h { display: flex; align-items: center; gap: 8px; } .g-look-n { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 10px; color: var(--accent); background: var(--accent-tint); }
+.g-look-all { margin-inline-start: auto; min-height: 44px; padding: 0 2px; color: var(--accent); }
+.g-deck { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; margin: 0 -12px; padding: 0 12px 2px; } .g-deck::-webkit-scrollbar { display: none; }
+.sc-card { flex: 0 0 min(286px, 78vw); scroll-snap-align: center; box-sizing: border-box; display: grid; gap: 12px; padding: 16px; border-radius: 22px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); font: inherit; text-align: start; cursor: pointer; min-width: 0; }
+.sc-card-h { display: flex; align-items: center; gap: 12px; min-width: 0; } .sc-card-id { flex: 1 1 0; min-width: 0; display: grid; gap: 2px; } .sc-card-id b { font-size: 17px; font-weight: 800; } .sc-card-id span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-card .sc-key { width: 52px; } .sc-card .sc-key small { display: none; } .sc-card .sc-ring { width: 52px; height: 52px; } .sc-card .sc-ring b { color: var(--accent); }
+.sc-card .sc-spark { height: 56px; } .sc-card .sc-y { align-items: center; gap: 8px; } .sc-card-t { font-size: 12px; font-weight: 600; }
+/* Today: the holdings that moved most */
+.g-mrow { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--color-border-line); border-radius: 0; background: none; box-shadow: none; }
+.g-mrow .g-row-a { flex: 1 1 0; min-width: 0; display: grid; gap: 2px; text-align: start; } .g-mrow .g-row-a b { font-size: 15px; font-weight: 700; } .g-mrow .g-row-n { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-mrow .g-row-v { display: grid; justify-items: end; gap: 3px; } .g-mrow .g-row-v b { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.g-mpill { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; font-variant-numeric: tabular-nums; } .g-mpill.up { color: var(--av-up); background: color-mix(in srgb, var(--av-up) 15%, transparent); } .g-mpill.down { color: var(--av-down); background: color-mix(in srgb, var(--av-down) 15%, transparent); }
+/* ---- Labs: the road to proof as one ring ---- */
+.t-labhero { display: flex; align-items: center; gap: 18px; padding: 18px; margin: 0 0 16px; border-radius: 24px; background: var(--color-panel); border: 1px solid var(--color-border-line); } .t-labhero[hidden] { display: none; }
+.t-labring { position: relative; flex: 0 0 116px; height: 116px; } .t-labring svg { width: 100%; height: 100%; display: block; }
+.t-labring-t { fill: none; stroke: color-mix(in srgb, var(--accent) 20%, transparent); stroke-width: 4.5; } .t-labring-v { fill: none; stroke: var(--accent); stroke-width: 4.5; stroke-linecap: round; }
+.t-labring-m { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 1px; } .t-labring-m b { font-size: 26px; font-weight: 800; letter-spacing: -.02em; color: var(--accent); } .t-labring-m small { font-size: 11.5px; font-weight: 600; color: var(--color-fg-muted); }
+.t-labhero-w { flex: 1 1 0; min-width: 0; display: grid; gap: 7px; justify-items: start; } .t-labhero-w b { font-size: 19px; font-weight: 800; } .t-labhero-w > .g-muted { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* ---- the asset's full page: the price first, large ---- */
+.av-last { font-size: 42px; font-weight: 800; letter-spacing: -.03em; }
+.t-labhero-word { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--pro-well); color: var(--color-fg-muted); }

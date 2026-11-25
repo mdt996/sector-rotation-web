@@ -329,7 +329,23 @@
     const et = H ? H.etoro : hs && hs.etoro && hs.etoro.state, rx = H ? H.revx : hs && hs.revx && hs.revx.state;
     if (!slow && ((et && et !== 'streaming') || (rx && rx !== 'live'))) R.warn.appendChild(el('div', 'g-hint', `Prices on the VM: eToro ${et || '?'}, Revolut X ${rx || '?'}.`));
   }
+  // the phone design: the list opens on one picture, how far the portfolio nearest to proof has come (its trades so far of the
+  // number the VM asks for; the verdict stays the VM's own word)
+  function heroRing(R) {
+    if (!R.hero) { R.hero = el('div', 't-labhero'); R.cards.parentNode.insertBefore(R.hero, R.cards); }
+    let best = null;
+    for (const key of keysOf()) { const L = sumLab(key), P = L && L.top && L.top.proof, need = P && (P.need || (P.bar && P.bar.n)); if (!P || !(need > 0)) continue; const f = Math.min(1, P.n / need); if (!best || f > best.f) best = { L, P, need, f }; }
+    R.hero.textContent = ''; R.hero.hidden = !best || LB.view !== 'list'; if (!best) return;
+    const TL = (k) => (window.SRI18n ? window.SRI18n.t(k) : k), NS = 'http://www.w3.org/2000/svg', C = 2 * Math.PI * 18;
+    const ring = R.hero.appendChild(el('span', 't-labring')), svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 44 44'); svg.setAttribute('aria-hidden', 'true');
+    for (const [cls, dash] of [['t-labring-t', ''], ['t-labring-v', `${(C * best.f).toFixed(1)} ${C.toFixed(1)}`]]) { const c = document.createElementNS(NS, 'circle'); c.setAttribute('cx', 22); c.setAttribute('cy', 22); c.setAttribute('r', 18); c.setAttribute('class', cls); if (dash) { c.setAttribute('stroke-dasharray', dash); c.setAttribute('transform', 'rotate(-90 22 22)'); } svg.appendChild(c); }
+    ring.appendChild(svg); const mid = ring.appendChild(el('span', 't-labring-m')); mid.appendChild(el('b', '', Math.round(best.f * 100) + '%')); mid.appendChild(el('small', '', TL('toProof')));
+    const w = R.hero.appendChild(el('span', 't-labhero-w')); w.appendChild(el('b', '', shown(best.L))); w.appendChild(el('span', 'g-muted', `${best.P.n.toLocaleString('en-US')} / ${best.need.toLocaleString('en-US')}`));
+    { const v = w.appendChild(el('span', 't-labhero-word', VERDICT[best.P.verdict] || VERDICT.holding)); v.dataset.verdict = best.P.verdict; }   // not .t-labword: that class is each tile's own word
+    R.hero.setAttribute('role', 'img'); R.hero.setAttribute('aria-label', `${shown(best.L)}: ${best.P.n} of ${best.need} trades towards proof`);
+  }
   function cards(R) {
+    heroRing(R);
     R.cards.textContent = '';
     for (const key of keysOf()) {
       const L = sumLab(key), V = valued(key); if (!L || !V) continue;

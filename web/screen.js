@@ -502,6 +502,16 @@
     if (fs && Array.isArray(r.f)) finStrip(b, r, fs); else if (ms) maStrip(b, r, ms); else if (ds && r[ds]) dvStrip(b, r, ds);
     return b;
   }
+  // a signal as a card for Today's deck: who it is, the test's record as a ring, the last three months, one tap to the sheet
+  function deckCard(r) {
+    const b = el('button', 'sc-card'); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => (wideView() ? open(r) : openSheet(r)));
+    const h = b.appendChild(el('span', 'sc-card-h')); if (window.SRLogo) window.SRLogo.lead(h, r.id, r.sym, 40);
+    const id = h.appendChild(el('span', 'sc-card-id')); id.appendChild(el('b', '', r.sym)); id.appendChild(el('span', 'g-muted', r.name || r.group || ''));
+    if (r.od) h.appendChild(ringBox(r));
+    b.appendChild(sparkBox(r));
+    const y = b.appendChild(el('span', 'sc-y')); y.appendChild(el('span', 'sc-tag sc-tag-sig', T('buy'))); if (r.od) y.appendChild(el('span', 'sc-card-t g-muted', `${p0(r.od.win)} ${T('tested')}`));
+    return b;
+  }
   // ---- the asset in a sheet: what the row left out, and the way to its full page ----
   let sheetEl = null;
   const sheetKey = (e) => { if (e.key === 'Escape') closeSheet(); };
@@ -544,7 +554,7 @@
     const R = rows(), ALL = all();
     // the list near the top (the audit of 24 Nov 2026: it started after 1.5 screens): the search, the world's markets as one row
     // to swipe, the sort and the filters, then the list; the sectors' tiles, the health ranking and how it all works come after it
-    const sb = box.appendChild(el('button', 'sc-search', 'Search eToro assets')); sb.type = 'button';
+    const sb = box.appendChild(el('button', 'sc-search', T('search'))); sb.type = 'button';
     sb.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
     const rec = wide ? wide.record || {} : {}, U = wide && wide.universe ? wide.universe : null;
     const later = [], keep = (node, key) => { node.addEventListener('scroll', () => { scrollX[key] = node.scrollLeft; }, { passive: true }); later.push(() => { node.scrollLeft = scrollX[key] || 0; }); };
@@ -710,5 +720,5 @@
     box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
     return true;
   });
-  window.SRScreen = { closeSheet, sheet: openSheet, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
