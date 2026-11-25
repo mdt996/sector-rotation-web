@@ -36,8 +36,8 @@
   if (theme === 'light') root.setAttribute('data-theme', 'light'); else root.removeAttribute('data-theme');
   const info = LIST.find((x) => x[0] === lang);
   root.lang = lang === 'zh' ? 'zh-Hans' : lang === 'zt' ? 'zh-Hant' : lang;
-  // the browser's bar (iPhone home-screen app, Chrome) takes the page's colour
-  const paint = () => { const bg = getComputedStyle(root).getPropertyValue('--color-bg').trim(); if (!bg) return; let any = false; for (const m of document.querySelectorAll('meta[name="theme-color"]')) { m.removeAttribute('media'); m.content = bg; any = true; } if (!any && document.head) { const m = document.createElement('meta'); m.name = 'theme-color'; m.content = bg; document.head.appendChild(m); } };
+  // the browser's bar (iPhone home-screen app, Chrome) takes the page's colour; so do the phone app's two strips (phone app 1.0.73 and later)
+  const paint = () => { const bg = getComputedStyle(root).getPropertyValue('--color-bg').trim(); if (!bg) return; let any = false; for (const m of document.querySelectorAll('meta[name="theme-color"]')) { m.removeAttribute('media'); m.content = bg; any = true; } try { if (window.Native && window.Native.setBars) window.Native.setBars(bg, theme === 'light'); } catch (e) { /* an older phone app: its strips follow the phone's own setting */ } if (!any && document.head) { const m = document.createElement('meta'); m.name = 'theme-color'; m.content = bg; document.head.appendChild(m); } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paint); else paint();
   window.SRI18n = { t: (k) => T[lang][k] || T.en[k] || k, has: (k) => !!T.en[k], lang: () => lang, locale: () => info[2], list: LIST, keys: () => Object.keys(T.en), table: T,
     set(id) { if (!T[id] || id === lang) return; save('sr.lang', id); reload(); } };

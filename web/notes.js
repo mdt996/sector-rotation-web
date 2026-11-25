@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 145, "text": "A new design, built for the phone, starts with this build: dark by default (light is in Settings), four tabs (the demo account moved into Labs), and Markets with compact rows: tap one to slide the asset up, then open its full page. 19 languages in Settings, English by default; the other screens follow in the next builds."};
+window.SR_NOTES = {"build": 146, "text": "Ready for phone app 1.0.73: the top and bottom strips of the phone will take the app's colour (dark, or light if chosen in Settings) once that phone app is installed."};
