@@ -120,28 +120,73 @@
   setTimeout(() => { loadPractice(); if (!demoAt) demoRead(); }, 1200);
   // ---- the ranking: the buy model's score of the last candle (ta.js mscore; its record is in tastats.js, "model") ----
   const MDL = () => (window.SRTA && window.SRTA.model && window.SRTA.model()) || null, MST = () => ((window.SR_TASTATS || {}).model || {});
+  // ---- which signals count, and what each is worth (Matteo, 25 Nov 2026: "sometimes you propose very strange assets with strange
+  // graphs and terrible financials....what is your logic?"). The model reads the chart only: no size, no finances. Measured that day
+  // with the shipped model on the 869 assets it was not fitted on, from 2013 (/tmp harness, figures in AGENTS.md):
+  //  - a "strong" signal worked no more often than a plain one (57.1% against 57.0%; the strict test said 54.2% against 54.4%);
+  //  - the ugly charts are where the edge is (below the 200-day average: edge +6.0 points, above: +4.2; after a fall of over 20% in a
+  //    month: 61.9% worked), so a signal is NOT dropped for its chart;
+  //  - the odds grow with the company's size (53% under $2B, 55% at $2B to $10B, 57% at $10B to $50B, 59% over $50B);
+  //  - no company under $317M was in any test, and that day 132 of the 208 "strong buy" shares were smaller than that.
+  // So: no "strong" label any more; a share under $300M or with weak finances is not counted as a signal unless the user asks for
+  // them (F.q = 'all'); signals come in the order of how their kind of asset did in the test, and each row shows that figure.
+  // Finances are a choice, not a tested rule: there is no history of them to test on.
+  const KIND = (r) => (r.cls === 'ETF' ? 'ETF' : r.cls === 'Crypto' ? 'Crypto' : r.cls !== 'Stocks' ? null : /\./.test(r.sym || '') ? 'non-US shares' : r.cap >= 10e9 ? 'US large (over $10B)' : r.cap >= 2e9 ? 'US medium ($2B to $10B)' : 'US small (under $2B)');
+  const KINDSAY = { ETF: 'funds', Crypto: 'crypto', 'non-US shares': 'shares outside the US', 'US large (over $10B)': 'US companies over $10B', 'US medium ($2B to $10B)': 'US companies of $2B to $10B', 'US small (under $2B)': 'US companies under $2B' };
+  // the test's record for this kind of asset: { win, base, kind } (the strict test: fitted on 79 assets to 2012, judged on 869 others from 2013)
+  function oddsOf(r) {
+    const W = MST().wide, k = KIND(r), t = W && W.tiers && k ? W.tiers[k] : null;
+    if (t) return { win: t.win, base: t.base, kind: k };
+    if (W && W.all) return { win: W.all.win, base: W.all.base, kind: null };
+    const d = MST()['1D']; return d && d.buy ? { win: d.buy.win, base: d.buy.base, kind: null } : null;
+  }
+  const TESTED_FROM = 3e8;   // the smallest company of the tests was worth $317M
+  const tooSmall = (r) => r.cls === 'Stocks' && !!r.scanned && !(r.cap >= TESTED_FROM);
+  // a company's finances in a word, from the nightly ranking (fin.js: overall score 0-100); without a ranking, a loss says "weak"
+  const health = (r) => (r.cls !== 'Stocks' ? null : Array.isArray(r.f) && r.f[0] != null ? (r.f[0] >= 60 ? 'good' : r.f[0] >= 40 ? 'mid' : 'weak') : r.pe < 0 ? 'weak' : null);
+  const sound = (r) => !tooSmall(r) && health(r) !== 'weak';
+  const isSig = (r) => !!r.buy && (F.q === 'all' || r.q);
+  // the chart in a few words, from figures every row has: [words, 'up' | 'down' | '']
+  function shape(r) {
+    if (r.c20 != null && r.c20 <= -0.1) return ['Fell ' + Math.round(-r.c20 * 100) + '% in a month', 'down'];
+    if (r.rsi != null && r.rsi < 30) return ['Oversold, RSI ' + Math.round(r.rsi), 'down'];
+    if (r.rsi != null && r.rsi > 70) return ['Overbought, RSI ' + Math.round(r.rsi), 'up'];
+    if (r.c20 != null && r.c20 >= 0.1) return ['Up ' + Math.round(r.c20 * 100) + '% in a month', 'up'];
+    if (r.m200 != null && r.m200 > 0) return [r.m50 != null && r.m50 < 0 ? 'Pullback in an uptrend' : 'Uptrend', ''];
+    if (r.m200 != null) return ['Under its 200-day average', ''];
+    return null;
+  }
+  // the last three months as a line: the scan's 32 characters (spark.js in the private folder), or the same made here from candles
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  function sparkOf(R) {
+    const v = []; for (let i = R.length - 1; i >= 0 && v.length < 32; i -= 2) if (R[i].close > 0) v.unshift(R[i].close);
+    if (v.length < 8) return null;
+    const lo = Math.min(...v), hi = Math.max(...v);
+    return { k: v.map((x) => B64[hi > lo ? Math.round((x - lo) / (hi - lo) * 63) : 32]).join(''), c60: v[v.length - 1] / v[0] - 1 };
+  }
   // one list for everything: this device's own analysis (yours, the funds, the world board: live) and the nightly scan
   let allMemo = null;
   function all() {
     if (allMemo && Date.now() - allMemo.at < 1200) return allMemo.rows;
     const M = new Map(), out = [], seen = new Set(), Q = window.SRLive ? window.SRLive.quotes : new Map(), today = new Date().toISOString().slice(0, 10), md = MDL(), bar = md ? md.buy : 2, bar2 = md ? md.strong : 2;
     if (wide) for (const r of wide.rows) M.set(r.id, r);
-    const grade = (o) => { o.buy = o.ms != null && o.ms >= bar; o.strong = o.ms != null && o.ms >= bar2; return o; };
+    const capOf = (c) => (c > 0 && c < 2e13 ? c : null);   // eToro sends nonsense for some funds ($2,703,850T): no company or fund is worth $20,000 billion
+    const grade = (o) => { o.buy = o.ms != null && o.ms >= bar; o.strong = o.ms != null && o.ms >= bar2; o.q = sound(o); o.od = oddsOf(o); o.lv = !o.q ? 2 : o.od && o.od.win >= 0.55 ? 0 : 1; return o; };
     for (const r of rows()) {
       if (!r.A) continue; const m = M.get(r.id) || {}, A = r.A; seen.add(r.id);
-      out.push(grade({ sym: r.sym, id: r.id, name: r.name, group: r.group, mine: r.group === 'Yours', cls: m.cls || (r.group === 'Funds' ? 'ETF' : null), sec: m.sec || null, cap: m.cap || null, sales: m.sales || null, pe: m.pe || null, pop: m.pop || null, px: r.px, chg: r.chg, c5: A.chg5, c20: A.chg20, rsi: A.rsi,
+      out.push(grade({ sym: r.sym, id: r.id, name: r.name, group: r.group, mine: r.group === 'Yours', cls: m.cls || (r.group === 'Funds' ? 'ETF' : null), sec: m.sec || null, cap: capOf(m.cap), sales: m.sales || null, pe: m.pe || null, pop: m.pop || null, px: r.px, chg: r.chg, c5: A.chg5, c20: A.chg20, rsi: A.rsi,
         sup: r.sup, res: r.res, rr: A.rr, ms: r.ms, stop: A.atr > 0 ? A.price - 2 * A.atr : null, target: A.atr > 0 ? A.price + 2 * A.atr : null, last: A.date, live: true, f: m.f || null,
         m50: A.s50 > 0 && r.px > 0 ? r.px / A.s50 - 1 : null, m200: A.s200 > 0 && r.px > 0 ? r.px / A.s200 - 1 : null,
-        dvb: A.div && A.div.bull ? A.div.bull : null, dve: A.div && A.div.bear ? A.div.bear : null }));
+        dvb: A.div && A.div.bull ? A.div.bull : null, dve: A.div && A.div.bear ? A.div.bear : null, k: r.sp ? r.sp.k : null, c60: r.sp ? r.sp.c60 : null }));
     }
     if (wide) for (const r of wide.rows) {
       if (seen.has(r.id)) continue;
       const q = Q.get(r.id), px = q && q.price > 0 ? q.price : r.px, chg = q && q.price > 0 && r.px ? (r.d < today ? px / r.px - 1 : (1 + r.c1) * px / r.px - 1) : r.c1;
-      out.push(grade({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: r.cap || null, sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
+      out.push(grade({ sym: r.s, id: r.id, name: r.n, group: r.g, mine: false, cls: r.cls || null, sec: r.sec || null, cap: capOf(r.cap), sales: r.sales || null, pe: r.pe || null, pop: r.pop || null, px, chg, c5: r.c5, c20: r.c20, rsi: r.rsi,
         sup: r.sup ? r.sup.d : null, res: r.res ? r.res.d : null, rr: r.rr, ms: r.ms == null ? null : r.ms, stop: r.atr > 0 ? r.px - 2 * r.atr : null, target: r.atr > 0 ? r.px + 2 * r.atr : null, last: r.d, live: !!q, scanned: true, f: r.f || null,
         // the averages are those of the last close (the scan); the price is the live one
         m50: r.m50 != null && r.px > 0 ? px * (1 + r.m50) / r.px - 1 : null, m200: r.m200 != null && r.px > 0 ? px * (1 + r.m200) / r.px - 1 : null,
-        dvb: dvOf(r.db), dve: dvOf(r.de) }));
+        dvb: dvOf(r.db), dve: dvOf(r.de), k: r.k || null, c60: r.c60 == null ? null : r.c60 }));
     }
     allMemo = { at: Date.now(), rows: out };
     return out;
@@ -171,17 +216,22 @@
       cats: FIN.map(([k, label], i) => ({ k, label, score: r.f[i], rank: P[i] || null, n: F2.n[i] || 0 })) };
   }
   const finIx = (k) => FIN.findIndex((x) => x[0] === k);
-  const tier = (r) => (r.buy ? 0 : 1);
-  // 1. the assets with a buy signal now, highest score first; 2. the others, by score; an asset without a year of candles has no score and comes last
-  const rankOrder = (a, b) => tier(a) - tier(b) || (a.ms == null) - (b.ms == null) || (b.ms || 0) - (a.ms || 0) || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup);
-  // the home page's shortlist: the highest scores among the buy signals
-  // the home card shows assets one can really trade: shares of companies worth at least $2 billion (the tested edge is smaller on tiny ones), any fund, index, commodity, currency or crypto
+  // 1. the signals that count: the kinds of asset that did best in the test first (funds and large US companies), then the others;
+  //    within each, the most followed on eToro first (above the bar a higher score did no better, so the score does not order them:
+  //    it put tiny unknown companies on top); 2. the assets without a signal, by score (none: last); 3. the signals that do not
+  //    count (too small, weak finances)
+  const tier = (r) => (isSig(r) ? 0 : r.buy ? 2 : 1);
+  const byScore = (a, b) => (a.ms == null) - (b.ms == null) || (b.ms || 0) - (a.ms || 0) || (b.sup == null ? -9 : b.sup) - (a.sup == null ? -9 : a.sup);
+  const sigOrder = (a, b) => a.lv - b.lv || (a.pop == null) - (b.pop == null) || (a.pop || 0) - (b.pop || 0) || byScore(a, b);   // pop is eToro's rank: 1 = the most followed
+  const rankOrder = (a, b) => tier(a) - tier(b) || (tier(a) === 0 ? sigOrder(a, b) : byScore(a, b));
+  // the home page's shortlist: the first signals of that order, among assets one can really trade: shares of companies worth at least
+  // $2 billion with finances that are not weak, any fund, index, commodity, currency or crypto
   const liquid = (r) => !r.scanned || r.cls !== 'Stocks' || r.cap >= 2e9;
-  function top(n) { return all().filter((r) => r.buy && liquid(r)).sort(rankOrder).slice(0, n); }
+  function top(n) { return all().filter((r) => r.buy && r.q && liquid(r)).sort(sigOrder).slice(0, n); }
   // an asset's analysis, kept until its history changes (a new day, a longer history)
   function analysed(u) {
     const n = u.rows.length, key = n + '|' + u.rows[n - 1].date; let c = cache.get(u.sym);
-    if (!c || c.key !== key) { c = { key, A: window.SRTA.analyze(u.rows), ms: null }; if (window.SRTA.mscore && n >= 262) { const p = window.SRTA.mscore(u.rows); c.ms = isFinite(p[n - 1]) ? p[n - 1] : null; } cache.set(u.sym, c); }
+    if (!c || c.key !== key) { c = { key, A: window.SRTA.analyze(u.rows), ms: null, sp: sparkOf(u.rows) }; if (window.SRTA.mscore && n >= 262) { const p = window.SRTA.mscore(u.rows); c.ms = isFinite(p[n - 1]) ? p[n - 1] : null; } cache.set(u.sym, c); }
     return c;
   }
   // done ahead, one asset at a time when the phone has nothing else to do: opening Markets then finds them ready instead of freezing for
@@ -210,7 +260,7 @@
       const q = window.SRLive && window.SRLive.quotes.get(u.id), px = q ? q.price : A.price, prev = u.rows[n - 1].date >= today && n > 1 ? u.rows[n - 2].close : u.rows[n - 1].close;
       const sig = A.signals.filter((x) => x.ago <= 3 && S[x.id] && S[x.id].ok);
       const buy = sig.filter((x) => x.side > 0).sort((a, b) => S[b.id].edge - S[a.id].edge)[0] || null, sell = sig.filter((x) => x.side < 0)[0] || null;
-      out.push({ ...u, A, ms: c.ms, px, chg: px / prev - 1, buy, sell, sup: A.sup ? A.sup.p / px - 1 : null, res: A.res ? A.res.p / px - 1 : null, score: buy ? S[buy.id].edge : 0 });
+      out.push({ ...u, A, ms: c.ms, sp: c.sp, px, chg: px / prev - 1, buy, sell, sup: A.sup ? A.sup.p / px - 1 : null, res: A.res ? A.res.p / px - 1 : null, score: buy ? S[buy.id].edge : 0 });
     }
     return out;
   }
@@ -231,14 +281,15 @@
   const big = (x) => '$' + (x >= 1e12 ? (x / 1e12).toFixed(x >= 1e13 ? 0 : 1) + 'T' : x >= 1e9 ? (x / 1e9).toFixed(x >= 1e11 ? 0 : 1) + 'B' : Math.max(1, Math.round(x / 1e6)) + 'M');
   const p1 = (x) => (x * 100).toFixed(1) + '%', p0 = (x) => Math.round(x * 100) + '%', sc100 = (x) => Math.round(x * 100);
   // filters and sorting, kept on the device
-  const FK = 'sr.scf', F0 = { sort: 'rank', cls: '', sec: '', size: '', sales: '', rsi: '', sig: '' }, F = { ...F0 };
-  try { const j = JSON.parse(localStorage.getItem(FK) || '{}'); for (const k of Object.keys(F0)) if (typeof j[k] === 'string') F[k] = j[k]; } catch (e) { /* defaults */ }
+  const FK = 'sr.scf', F0 = { sort: 'rank', cls: '', sec: '', size: '', sales: '', rsi: '', sig: '', q: '' }, F = { ...F0 };   // q: '' = only the signals that count, 'all' = every signal of the model
+  try { const j = JSON.parse(localStorage.getItem(FK) || '{}'); for (const k of Object.keys(F0)) if (typeof j[k] === 'string') F[k] = j[k]; if (F.sig === 'strong') F.sig = 'buy'; } catch (e) { /* defaults */ }
   const saveF = () => { try { localStorage.setItem(FK, JSON.stringify(F)); } catch (e) { /* not kept */ } };
-  let shown = 60, howOpen = false, filtOpen = false, selAt = 0;
+  let shown = 60, howOpen = false, filtOpen = false, selAt = 0; const scrollX = {};
+  const CLS = [['', 'All'], ['Stocks', 'Stocks'], ['ETF', 'Funds'], ['Crypto', 'Crypto'], ['Indices', 'Indices'], ['Commodity', 'Commodities'], ['Forex', 'Currencies'], ['@mine', 'Yours']], CLSNAME = { ETF: 'Fund', Forex: 'Currency', Indices: 'Index' };
+  const SECTOR = { XLK: 'Information Technology', XLF: 'Financials', XLE: 'Energy', XLV: 'Healthcare', XLI: 'Industrials', XLY: 'Consumer Discretionary', XLP: 'Consumer Staples', XLU: 'Utilities', XLB: 'Materials', XLRE: 'Real Estate', XLC: 'Communication Services' };
   const SIZE = { mega: ['Over $200B', 200e9, Infinity], large: ['$10B to $200B', 10e9, 200e9], mid: ['$2B to $10B', 2e9, 10e9], small: ['Under $2B', 0, 2e9] };
   const SALES = { big: ['Revenue over $50B', 50e9, Infinity], mid: ['Revenue $5B to $50B', 5e9, 50e9], small: ['Revenue under $5B', 0, 5e9] };
   const RSIB = { lo: ['RSI below 30', 0, 30], mlo: ['RSI 30 to 50', 30, 50], mhi: ['RSI 50 to 70', 50, 70], hi: ['RSI above 70', 70, 101] };
-  const SIG = { buy: 'Buy signal now', strong: 'Strong buy signal now' };
   const inB = (v, B) => v != null && v >= B[1] && v < B[2];
   function pass(r) {
     if (F.cls === '@mine' ? !r.mine : F.cls && r.cls !== F.cls) return false;
@@ -246,12 +297,11 @@
     if (F.size === 'liq' ? !liquid(r) : F.size && !inB(r.cap, SIZE[F.size])) return false;
     if (F.sales && !inB(r.sales, SALES[F.sales])) return false;
     if (F.rsi && !inB(r.rsi, RSIB[F.rsi])) return false;
-    if (F.sig === 'buy' && !r.buy) return false;
-    if (F.sig === 'strong' && !r.strong) return false;
+    if (F.sig && !isSig(r)) return false;
     return true;
   }
   const by = (f, dir) => (a, b) => { const x = f(a), y = f(b), nx = x == null || !isFinite(x), ny = y == null || !isFinite(y); return nx - ny || (nx ? 0 : dir * (x - y)); };   // assets without the figure go last
-  const SORTS = { rank: ['our ranking (buy score)', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
+  const SORTS = { rank: ['signals first', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
     day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
     rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)],
     'fin:all': ['financial health, healthiest first'], 'fin:all:lo': ['financial health, least healthy first'], 'fin:profit': ['profit, best first'], 'fin:cash': ['cash flow, best first'],
@@ -311,14 +361,16 @@
   // a financial sort: only the shares with that score, in the order of their place (the least healthy: from the last place up)
   const finSort = () => { const m = /^fin:(\w+)(:lo)?$/.exec(F.sort || ''); if (!m) return null; const i = finIx(m[1]); return i < 0 ? null : { i, k: m[1], lo: !!m[2] }; };
   const finOrder = (fs) => { const P = finRanks(); const at = (r) => { const p = P && P.by.get(r.id); return p && p[fs.i] ? p[fs.i] : null; }; return (a, b) => (fs.lo ? at(b) - at(a) : at(a) - at(b)); };
-  const oddsText = (r) => { const st = MST()['1D']; if (!st) return ''; const b = r.strong && st.strong ? st.strong : st.buy; return `Worked ${p0(b.win)} in the test (any day ${p0(b.base)})`; };
+  const oddsText = (r) => { const b = r.od || oddsOf(r); return b ? `Worked ${p0(b.win)} in the test (any day ${p0(b.base)})` : ''; };
   function howBox() {
     const S = MST(), md = MDL(), d = el('details', 'sc-how'); d.open = howOpen; d.addEventListener('toggle', () => { howOpen = d.open; });
     d.appendChild(el('summary', '', 'How the ranking works'));
     const P = (t) => d.appendChild(el('p', '', t)), n = (x) => (x || 0).toLocaleString('en-US'), D1 = S['1D'];
     if (!D1 || !md) { P('The model is not loaded yet.'); return d; }
     P(`1. Every asset gets one score from 0 to 100 on its latest daily candle. The score comes from a model that reads 29 measures of the chart, all in units of the asset's own volatility: how far the price is from its 20, 50 and 200-day averages and from its 1-year high and low, its moves over 1 day to 1 year, RSI, and the shape of the last candle.`);
-    P(`2. A buy signal is a score of ${sc100(md.buy)} or more (${sc100(md.strong)} for a strong one): the best 5% and 2% of the scores of the past. The list shows these first, highest score first, then the other assets by score.`);
+    P(`2. A buy signal is a score of ${sc100(md.buy)} or more: the best 5% of the scores of the past. A higher score did no better in the test${S.wide && S.wide.strong ? ` (the best 2% worked ${p1(S.wide.strong.win)}, all signals ${p1(S.wide.all.win)})` : ''}, so there is no "strong" signal any more.`);
+    P('The model reads the chart only: not the size of the company, not its finances. Many signals are on falling charts, and in the test those worked as often as the others: the falls are where the edge is. What changed the odds was size: the larger the company, the more often a signal worked. No company under $317M was in any test.');
+    P('So a signal is counted only on a company worth $300M or more whose finances are not weak (health score of 40 or more; without a score, not loss-making). The size rule comes from the test. The finances rule is a choice: there is no history of finances to test it on. Signals are listed by how their kind of asset did in the test (the ring on each row): funds and large US companies first, and among them the most followed on eToro.');
     P(`3. The record, on cases the model had never seen (it was fitted on the years before each 3-year block since 1999, then judged on the block; ${n(D1.bars)} days of ${D1.assets} assets). "Worked" = up 2 ATR before down 2 ATR within 20 candles, buying at the next open.`);
     const t = d.appendChild(el('div', 'sc-howt')); t.appendChild(el('b', '', 'Candles')); t.appendChild(el('b', 'sc-n', 'Buy signals')); t.appendChild(el('b', 'sc-n', 'Any candle'));
     for (const k of ['1D', '4H', '1H', '30m', '1W']) { const x = S[k]; if (!x || !x.buy) continue; t.appendChild(el('span', '', k + (x.ok ? '' : ' (not reliable)'))); t.appendChild(el('span', 'sc-n', p1(x.buy.win))); t.appendChild(el('span', 'sc-n', p1(x.buy.base))); }
@@ -378,23 +430,66 @@
     setTimeout(() => { const x = document.querySelector(`#screener .sc-list [data-id="${+id}"]`); if (!x) return; x.scrollIntoView({ block: 'center' }); x.classList.add('is-hl'); setTimeout(() => { x.classList.remove('is-hl'); }, 2600); }, 200);
     return true;
   }
+  // ---- a row of the list (rebuilt 25 Nov 2026: "not visual enough, very verbose"): who it is and its price, the last three months as
+  // a line, the test's record as a ring when there is a signal, then at most three short tags. Support, resistance, stop, target,
+  // revenue and P/E are on the asset's own page, one tap away.
+  const NS = 'http://www.w3.org/2000/svg', svgEl = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+  const dir = (v) => (v > 0.0005 ? 'up' : v < -0.0005 ? 'down' : '');
+  function sparkBox(r) {
+    const box = el('span', 'sc-spark'), k = r.k;
+    if (!k) {   // no line yet (the scan writes one each night): the three changes instead
+      box.classList.add('is-none');
+      for (const [lab, v] of [['Today', r.chg], ['5 days', r.c5], ['1 month', r.c20]]) { const c = box.appendChild(el('span', 'sc-ch3')); c.appendChild(el('small', '', lab)); c.appendChild(el('b', dir(v), v == null || !isFinite(v) ? '–' : pct(v))); }
+      return box;
+    }
+    const n = k.length, W = 100, H = 40, y = (ch) => H - 4 - (Math.max(0, B64.indexOf(ch)) / 63) * (H - 8), up = r.c60 != null ? r.c60 >= 0 : B64.indexOf(k[n - 1]) >= B64.indexOf(k[0]);
+    const d = [...k].map((ch, i) => (i ? 'L' : 'M') + (i / (n - 1) * W).toFixed(1) + ' ' + y(ch).toFixed(1)).join('');
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+    svg.appendChild(svgEl('path', { d: d + `L${W} ${H}L0 ${H}Z`, class: 'sc-spark-a' })); svg.appendChild(svgEl('path', { d, class: 'sc-spark-l' }));
+    box.classList.add(up ? 'is-up' : 'is-down'); box.appendChild(svg);
+    box.appendChild(el('i', 'sc-spark-d')).style.top = (y(k[n - 1]) / H * 100).toFixed(1) + '%';
+    box.classList.add(B64.indexOf(k[0]) >= 32 ? 'is-hi' : 'is-lo');   // the caption goes to the corner the line starts away from
+    const cap = box.appendChild(el('span', 'sc-spark-c')); cap.appendChild(el('small', '', '3 months')); if (r.c60 != null) cap.appendChild(el('b', dir(r.c60), pct(r.c60)));
+    box.setAttribute('role', 'img'); box.setAttribute('aria-label', 'The last 3 months' + (r.c60 == null ? '' : ': ' + pct(r.c60)));
+    return box;
+  }
+  // the test's record for this kind of asset, as a ring: how often a signal worked
+  function ringBox(r) {
+    const o = r.od, k = el('span', 'sc-key'), R = 17, C = 2 * Math.PI * R, svg = svgEl('svg', { viewBox: '0 0 44 44', 'aria-hidden': 'true' });
+    svg.appendChild(svgEl('circle', { cx: 22, cy: 22, r: R, class: 'sc-ring-t' }));
+    svg.appendChild(svgEl('circle', { cx: 22, cy: 22, r: R, class: 'sc-ring-v', 'stroke-dasharray': `${(C * o.win).toFixed(1)} ${C.toFixed(1)}`, transform: 'rotate(-90 22 22)' }));
+    const w = k.appendChild(el('span', 'sc-ring')); w.appendChild(svg); w.appendChild(el('b', '', p0(o.win)));
+    k.appendChild(el('small', '', 'worked in test'));
+    k.title = `Buy signals on ${o.kind ? KINDSAY[o.kind] : 'assets the model was not fitted on'} worked ${p1(o.win)} of the time in the test, against ${p1(o.base)} on any day.`; k.setAttribute('aria-label', k.title);
+    return k;
+  }
+  function healthChip(r) {
+    const h = health(r); if (!h) return null;
+    const c = el('span', 'sc-hl is-' + h), f = Array.isArray(r.f) && r.f[0] != null ? r.f : null;
+    if (f) { const g = c.appendChild(el('span', 'sc-hl-b')); for (let j = 1; j <= 5; j++) g.appendChild(el('i', f[j] == null ? 'is-na' : '')).style.height = (f[j] == null ? 20 : Math.max(14, f[j])) + '%'; }
+    c.appendChild(el('span', '', f ? { good: 'Sound finances', mid: 'Mixed finances', weak: 'Weak finances' }[h] : 'Loses money'));
+    if (f) c.title = FIN.slice(1).map(([, l], j) => `${l} ${f[j + 1] == null ? 'not scored' : f[j + 1]}`).join(', ') + ` (overall ${f[0]} of 100)`;
+    return c;
+  }
   function rowEl(r) {
-    const b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
-    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 22); a.appendChild(el('b', '', r.sym)); a.appendChild(el('span', 'g-muted', r.name || r.group || ''));
-    const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'g-row-c ' + (r.chg > 0.0005 ? 'up' : r.chg < -0.0005 ? 'down' : ''), pct(r.chg)));
-    const m = [r.mine ? 'Yours' : null, r.cls === 'Stocks' ? r.sec || 'Stock' : r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null, r.sales ? 'revenue ' + big(r.sales) : null, r.pe > 0 ? 'P/E ' + (r.pe >= 100 ? Math.round(r.pe) : r.pe.toFixed(1)) : null].filter(Boolean);
+    const sg = isSig(r), b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '') + (sg ? ' is-sig' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
+    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 34);
+    const id = a.appendChild(el('span', 'sc-id')), nm = id.appendChild(el('span', 'sc-nm')); nm.appendChild(el('b', '', r.sym)); nm.appendChild(el('span', 'g-muted', r.name || r.group || ''));
+    const m = [r.mine ? 'Yours' : null, r.cls === 'Stocks' ? r.sec || 'Stock' : CLSNAME[r.cls] || r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null].filter(Boolean);
     { const M = window.SRLive && SRLive.market && r.id ? SRLive.market(r.id) : null; if (r.id && SRLive.marketAsk) SRLive.marketAsk([r.id]);   // each row says when its market is shut
       const shut = M ? (M.delisted ? 'delisted' : M.tradable === false ? 'not tradable now' : M.open === false ? 'market closed' : '') : ''; if (shut) m.push(shut); }
-    if (m.length) b.appendChild(el('span', 'sc-m', m.join(' · ')));
+    if (m.length) id.appendChild(el('span', 'sc-m', m.join(' · ')));
+    const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'sc-chg ' + dir(r.chg), pct(r.chg)));
     const fs = finSort();
     if (fs && Array.isArray(r.f)) { finStrip(b, r, fs); return b; }
     const ms = maSort(); if (ms) { maStrip(b, r, ms); return b; }
     const ds = dvSort(); if (ds && r[ds]) { dvStrip(b, r, ds); return b; }
+    const viz = b.appendChild(el('span', 'sc-viz')); viz.appendChild(sparkBox(r)); if (sg && r.od) viz.appendChild(ringBox(r));
     const y = b.appendChild(el('span', 'sc-y'));
-    if (r.buy) y.appendChild(el('span', 'g-pill g-buy', (r.strong ? 'STRONG BUY' : 'BUY') + ' · score ' + sc100(r.ms)));
-    y.appendChild(el('span', 'sc-t', `${r.buy || r.ms == null ? '' : 'score ' + sc100(r.ms) + ' · '}RSI ${Math.round(r.rsi)} · support ${pct(r.sup)} · resistance ${pct(r.res)}`));
-    // the test's odds are the same for every buy row: said once above the list (the audit of 24 Nov 2026), the row keeps its own levels
-    if (r.buy && r.stop && r.target) b.appendChild(el('span', 'sc-rec', `stop ${fmt(r.stop)} · target ${fmt(r.target)}`));
+    if (sg) y.appendChild(el('span', 'sc-tag sc-tag-sig', 'Buy signal'));
+    if (r.buy && !r.q) y.appendChild(el('span', 'sc-tag sc-tag-out', (sg ? '' : 'Signal not counted: ') + (tooSmall(r) ? (sg ? 'Never tested at this size' : 'never tested at this size') : (sg ? 'Weak finances' : 'weak finances'))));
+    const sh = shape(r); if (sh) y.appendChild(el('span', 'sc-tag' + (sh[1] ? ' is-' + sh[1] : ''), sh[0]));
+    if (!(r.buy && !r.q && !tooSmall(r))) { const hc = healthChip(r); if (hc) y.appendChild(hc); }
     return b;
   }
   dash.draw('screener', (outer) => {
@@ -414,21 +509,40 @@
     const sb = box.appendChild(el('button', 'sc-search', 'Search eToro assets')); sb.type = 'button';
     sb.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
     const rec = wide ? wide.record || {} : {}, U = wide && wide.universe ? wide.universe : null;
-    // the day's change as coloured tiles: the world first, then the eleven US sectors and the industries the app follows (the same funds as the ranking)
+    const later = [], keep = (node, key) => { node.addEventListener('scroll', () => { scrollX[key] = node.scrollLeft; }, { passive: true }); later.push(() => { node.scrollLeft = scrollX[key] || 0; }); };
+    const pick = (ch) => { Object.assign(F, ch); shown = 60; hlId = null; allMemo = null; saveF(); SRApp.renderDraw('screener'); };
+    // the kinds of asset as tabs, always in view (Matteo, 25 Nov 2026: "the categorization should be clearer")
+    const tabs = box.appendChild(el('div', 'sc-tabs')); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Kind of asset'); keep(tabs, 'tabs');
+    for (const [val, lab] of CLS) { const on = F.cls === val, t = tabs.appendChild(el('button', 'sc-tab' + (on ? ' is-on' : ''), lab)); t.type = 'button'; t.setAttribute('role', 'tab'); t.setAttribute('aria-selected', String(on)); t.dataset.cls = val;
+      t.addEventListener('click', () => pick({ cls: val, sec: val === 'Stocks' ? F.sec : '' })); }
+    // the day's change as coloured tiles: the world, then the eleven sectors (the same funds as the ranking)
     // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
     const UN = new Map(universe().map((u) => [u.sym, u]));
     const moveOf = (r) => { const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null); return tooOld(r.sym, RR) ? null : dayMove(RR, r.id); };
     // each grid in the order of the day's change: the most red first, the most green last (redrawn with the prices); not yet known: at the end
     const sorted = (items) => items.map((x) => Object.assign(x, { m: moveOf(x.r) })).sort((a, b) => (a.m == null) - (b.m == null) || (a.m ? a.m.chg : 0) - (b.m ? b.m.chg : 0));
+    const heat = (m) => `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;
     const tile = (map, r, short, m) => {
       const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
       t.appendChild(el('b', '', r.sym)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.title = `${r.name || r.sym}: ${m.day}'s change. Its market has not traded yet today.`; t.classList.add('is-last'); }
       if (short) t.appendChild(el('small', '', short));
-      if (m) t.style.background = `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;
+      if (m) t.style.background = heat(m);
     };
-    const map = box.appendChild(el('div', 'sc-map sc-strip')), extra = el('div', 'sc-extra');
-    for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m);
-    const bySym = new Map(R.map((r) => [r.sym, r]));
+    const strip = (cap, key) => { const w = box.appendChild(el('div', 'sc-strip-w')); w.appendChild(el('span', 'sc-strip-c', cap)); const m = w.appendChild(el('div', 'sc-map sc-strip')); keep(m, key); return m; };
+    const bySym = new Map(R.map((r) => [r.sym, r])), extra = el('div', 'sc-extra');
+    if (F.cls !== 'Stocks') { const map = strip('World', 'world'); for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m); }
+    // the sectors, in view at once and in a fixed order: a tap lists that sector's companies, a second tap lets go
+    // (Matteo, 25 Nov 2026: "you removed the tabs of the sector, that should be visible immediately, like the rest")
+    if (!F.cls || F.cls === 'Stocks') {
+      const map = strip('Sectors', 'sec');
+      for (const [sym, short, name] of TILES[0][1]) {
+        const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, m = moveOf(r), sec = SECTOR[sym], on = F.sec === sec;
+        const t = map.appendChild(el('button', 'sc-tile sc-sect' + (on ? ' is-on' : ''))); t.type = 'button'; t.dataset.sec = sec; t.setAttribute('aria-pressed', String(on)); t.title = `${name}: ${on ? 'back to every sector' : 'list its companies'}`;
+        t.appendChild(el('b', '', short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
+        if (m) t.style.background = heat(m);
+        t.addEventListener('click', () => pick({ sec: on ? '' : sec }));
+      }
+    }
     const sectors = SRApp.disclosure(extra, 'market-sectors', 'Sectors and industries', 'weakest to strongest today');
     for (const [head, list] of TILES) {
       sectors.appendChild(el('div', 'sc-maph', head)); const m2 = sectors.appendChild(el('div', 'sc-map sc-map2'));
@@ -438,25 +552,22 @@
     const how = extra.appendChild(howBox());
     const scan = wide ? `Scan: ${wide.scanned} assets on ${String(wide.made).slice(0, 10)}. Ideas: ${rec.worked || 0} worked, ${rec.failed || 0} failed, ${rec.open || 0} open.` : 'The wider scan is unavailable.';
     how.insertBefore(el('p', '', scan + (U && U.next > U.limit ? ` Adds up to ${U.next - U.limit} assets per night.` : '')), how.children[1]);
-    // filters: every choice is one tap; the list below answers at once
-    const nOn = Object.keys(F0).filter((k) => k !== 'sort' && F[k]).length;
+    // one row: signals only, the order, the other filters
+    const nOn = ['size', 'sales', 'rsi'].filter((k) => F[k]).length;
     const bar = box.appendChild(el('div', 'sc-bar')), fb = el('div', 'sc-filters');
+    { const sgb = bar.appendChild(el('button', 'sc-chip' + (F.sig ? ' is-on' : ''), 'Signals')); sgb.type = 'button'; sgb.setAttribute('aria-pressed', String(!!F.sig)); sgb.title = 'Only the assets with a buy signal now'; sgb.addEventListener('click', () => pick({ sig: F.sig ? '' : 'buy' })); }
     const sel = (key, first, opts, cls) => {
       const s = (first ? fb : bar).appendChild(el('select', 'sc-sel' + (cls ? ' ' + cls : ''))); s.setAttribute('aria-label', first || 'Sort'); if (first) s.appendChild(new Option(first, ''));
       for (const [val, lab] of opts) s.appendChild(new Option(lab, val));
       s.value = F[key]; if (s.value !== F[key]) { F[key] = first ? '' : opts[0][0]; s.value = F[key]; }
       s.classList.toggle('is-on', !!first && !!F[key]); s.addEventListener('focus', () => { selAt = Date.now(); });
-      s.addEventListener('change', () => { F[key] = s.value; hlId = null; if (key === 'cls' && F.cls && F.cls !== 'Stocks') F.sec = ''; shown = 60; saveF(); s.blur(); SRApp.renderDraw('screener'); });
+      s.addEventListener('change', () => { F[key] = s.value; hlId = null; shown = 60; saveF(); s.blur(); SRApp.renderDraw('screener'); });
       return s;
     };
-    const uniq = (f) => [...new Set(ALL.map(f).filter(Boolean))].sort();
     sel('sort', '', Object.entries(SORTS).map(([k, x]) => [k, 'Sort: ' + x[0]]), 'sc-sortsel');
     const ft = bar.appendChild(el('button', 'sc-ftog' + (nOn ? ' is-on' : ''), nOn ? `Filters · ${nOn}` : 'Filters')); ft.type = 'button'; ft.setAttribute('aria-expanded', String(filtOpen));
     ft.addEventListener('click', () => { filtOpen = !filtOpen; SRApp.renderDraw('screener'); });
     if (filtOpen) box.appendChild(fb);
-    sel('sig', 'All signals', Object.entries(SIG));
-    sel('cls', 'All asset classes', [['@mine', 'Yours'], ...uniq((r) => r.cls).map((c) => [c, c])]);
-    if (!F.cls || F.cls === 'Stocks' || F.cls === '@mine') sel('sec', 'All sectors', uniq((r) => (r.cls === 'Stocks' ? r.sec : null)).map((c) => [c, c]));
     sel('size', 'Any market value', [['liq', 'No shares under $2B']].concat(Object.entries(SIZE).map(([k, x]) => [k, x[0]])));
     sel('sales', 'Any revenue', Object.entries(SALES).map(([k, x]) => [k, x[0]]));
     sel('rsi', 'Any RSI', Object.entries(RSIB).map(([k, x]) => [k, x[0]]));
@@ -464,10 +575,13 @@
     const L = fsN ? ALL.filter(pass).filter((r) => { const p = P0 && P0.by.get(r.id); return p && p[fsN.i]; }).sort(finOrder(fsN))
       : dsN ? ALL.filter(pass).filter((r) => r[dsN]).sort(dvCmp(dsN))
       : msN ? ALL.filter(pass).filter((r) => r[msN.k] != null && isFinite(r[msN.k])).sort((a, b) => (msN.lo ? a[msN.k] - b[msN.k] : b[msN.k] - a[msN.k]))
-      : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = nOn > 0;
-    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', '', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : msN ? `${L.length.toLocaleString('en-US')} assets ranked by their distance from the ${MA[msN.k]}${msN.lo ? ', from the last place up' : ''}` : dsN ? `${L.length.toLocaleString('en-US')} assets with a ${DV[dsN]} now, strongest first (score 0-100)` : `${L.length} of ${ALL.length} assets` + (L.length ? ` · ${L.filter((r) => r.buy).length} with a buy signal now` : '')));
-    { const st = MST()['1D']; if (!fsN && !msN && !dsN && st && st.buy && L.some((r) => r.buy)) cnt.appendChild(el('span', 'sc-odds', `Buy signals worked ${p0(st.buy.win)} of the time in the test${st.strong ? `, strong ones ${p0(st.strong.win)}` : ''} (any day ${p0(st.buy.base)})`)); }
-    if (active || F.sort !== 'rank') { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
+      : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = Object.keys(F0).some((k) => F[k] !== F0[k]);
+    const nSig = L.reduce((x, r) => x + (isSig(r) ? 1 : 0), 0), plain = !fsN && !msN && !dsN;
+    // the signals left out or let in (too small to have been tested, weak finances), among the assets the other filters keep
+    const nOut = plain ? ALL.reduce((x, r) => x + (r.buy && !r.q && pass(Object.assign(Object.create(r), { q: true })) ? 1 : 0), 0) : 0;
+    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', 'sc-count-n', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : msN ? `${L.length.toLocaleString('en-US')} assets ranked by their distance from the ${MA[msN.k]}${msN.lo ? ', from the last place up' : ''}` : dsN ? `${L.length.toLocaleString('en-US')} assets with a ${DV[dsN]} now, strongest first (score 0-100)` : F.sig ? `${nSig} buy signal${nSig === 1 ? '' : 's'} now` : `${L.length.toLocaleString('en-US')} asset${L.length === 1 ? '' : 's'}, ${nSig} with a buy signal now`));
+    if (active) { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
+    if (nOut) { const qb = cnt.appendChild(el('button', 'sc-q', F.q === 'all' ? `Counting ${nOut} on tiny or weak companies. Leave them out` : `${nOut} more on tiny or weak companies. Count them`)); qb.type = 'button'; qb.setAttribute('aria-pressed', String(F.q === 'all')); qb.addEventListener('click', () => pick({ q: F.q === 'all' ? '' : 'all' })); }
     finPos.clear(); if (fsN) L.forEach((r, k) => finPos.set(r.id, [fsN.lo ? L.length - k : k + 1, L.length]));
     maPos.clear(); if (msN) L.forEach((r, k) => maPos.set(r.id, [msN.lo ? L.length - k : k + 1, L.length]));
     dvPos.clear(); if (dsN) L.forEach((r, k) => dvPos.set(r.id, [k + 1, L.length]));
@@ -478,7 +592,8 @@
     // live prices: this device's own assets, and the scanned ones that are on screen
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...R.map((r) => r.id), ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)].filter(Boolean));
     box.appendChild(extra);
-    box.appendChild(el('p', 'g-hint', 'The score is that of the latest daily candle. Stop and target are 2 ATR either side of that close. Support and resistance are the nearest zones made of averages, pivots, Fibonacci levels, trendlines and gaps. Market value, revenue and P/E are eToro\'s figures, in dollars. Scanned assets show the price of the scan until their live price arrives. Analysis, not advice.'));
+    box.appendChild(el('p', 'g-hint', 'The line is the last 3 months. The ring is how often a buy signal worked in the test for that kind of asset. Market value and finances are eToro\'s figures, in dollars. A scanned asset shows the scan\'s price until its live one arrives. Analysis, not advice.'));
+    for (const f of later) f();
     if (two && selId == null && outer.offsetParent !== null) { const first = L.find((r) => r.id); if (first) select(first); }   // the best-ranked asset is shown first
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);

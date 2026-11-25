@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 143, "text": "The iPhone home-screen icon is Proofbench's tick line (remove the old shortcut and add it again to see it)."};
+window.SR_NOTES = {"build": 144, "text": "Markets, Screener: a new, more visual list. Asset kinds are tabs, the sectors are back in view as tiles (tap one to list its companies), and each row shows the last 3 months as a line. Buy signals: no more \"strong\"; a signal shows how often its kind worked in the test, and companies too small to have been tested or with weak finances are left out unless you ask."};

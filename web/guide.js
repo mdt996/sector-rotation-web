@@ -410,10 +410,10 @@
     for (const r of T) {
       const b = c.appendChild(el('button', 'g-wrow')); b.type = 'button'; b.addEventListener('click', () => window.SRScreen.open(r));
       { const pl = el('span', 'g-pill g-buy', r.sym); b.appendChild(window.SRLogo ? window.SRLogo.wrap(pl, r.id, r.sym, 22) : pl); }
-      b.appendChild(el('span', 'g-wrow-t', `${r.strong ? 'Strong buy' : 'Buy'} signal, score ${Math.round(r.ms * 100)} · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
-      if (st) b.appendChild(el('b', 'g-wrow-g', p0((r.strong && st.strong ? st.strong : st.buy).win)));
+      b.appendChild(el('span', 'g-wrow-t', `Buy signal · support ${pct(r.sup)}, resistance ${pct(r.res)}`));
+      { const o = r.od || (st ? st.buy : null); if (o) b.appendChild(el('b', 'g-wrow-g', p0(o.win))); }
     }
-    if (T.length) c.appendChild(el('div', 'g-hint', `How often such signals worked on cases the model had never seen (any day: ${st ? p0(st.buy.base) : '54%'}). Tap for the chart.`));
+    if (T.length) c.appendChild(el('div', 'g-hint', 'The %: how often a signal worked in the test for that kind of asset. Tap for the chart.'));
     const rec = window.SRScreen.record(); if (rec && rec.worked + rec.failed + rec.open > 0) c.appendChild(el('div', 'g-hint', `Record of scouted ideas so far: ${rec.worked} worked, ${rec.failed} failed, ${rec.open} still open (graded after 20 trading days).`));
     const l = c.appendChild(el('button', 'g-link', 'Open screener')); l.type = 'button'; l.addEventListener('click', () => go('screener'));
     const l2 = c.appendChild(el('button', 'g-link g-link2', 'Search assets')); l2.type = 'button'; l2.addEventListener('click', () => { const x = document.getElementById('btn-search'); if (x) x.click(); });
