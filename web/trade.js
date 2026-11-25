@@ -174,7 +174,7 @@
   // ---- the account's value on the same chart as the markets (SRChart: drag, pinch or scroll to zoom, drawing tools, indicators, full view) ----
   // The chart is made once and stays in place: the 5-second readings only update its last candles, so a drag, a zoom or a drawing is never cut.
   let tv = null;
-  const isDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = () => (window.SRTheme ? window.SRTheme.dark() : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));   // the app's own choice (Settings), dark by default
   const cssVar = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const cp = (k) => ({ time: k.time, open: k.open, high: k.high, low: k.low, close: k.close, volume: 0 });
   // ---- the account's value rebuilt for every candle from eToro's own candles of what it held ----

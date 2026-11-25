@@ -24,7 +24,7 @@
   const span = (ms) => { const s = Math.max(0, ms) / 1000; return s < 90 ? Math.round(s) + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : s < 172800 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' days'; };
   const rtxt = (x) => (x == null || !isFinite(x) ? '–' : `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)} R`);
   const pct0 = (x) => (x == null || !isFinite(x) ? '–' : Math.round(100 * x) + '%');
-  const isDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = () => (window.SRTheme ? window.SRTheme.dark() : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches));   // the app's own choice (Settings), dark by default
   const cssVar = (n, fb) => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim() || fb;
   const head = (box, text) => box.appendChild(el('h3', 't-h', text));
   const tile = (grid, k, v, sub, cls) => { const d = grid.appendChild(el('div', 'g-stat')); d.appendChild(el('span', 'g-stat-k', k)); d.appendChild(el('b', 'g-stat-v' + (cls ? ' ' + cls : ''), v)); if (sub) d.appendChild(el('span', 'g-stat-s', sub)); return d; };

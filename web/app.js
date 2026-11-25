@@ -173,6 +173,15 @@
     }
   }
   window.appOpenSettings = openSettings;
+  // language and appearance, first in Settings (i18n.js keeps both and reloads the page on a change)
+  (function () {
+    const body = sheet.querySelector('.settings-body'), I = window.SRI18n, Th = window.SRTheme; if (!body || !I || !Th) return;
+    const box = document.createElement('div'); box.className = 'set-look';
+    const pick = (label, id, opts, val, on) => { const l = document.createElement('label'), sel = document.createElement('select'); sel.id = id; l.textContent = label; for (const [v, t] of opts) sel.appendChild(new Option(t, v)); sel.value = val; sel.addEventListener('change', () => on(sel.value)); l.appendChild(sel); box.appendChild(l); };
+    pick(I.t('language'), 'cfg-lang', I.list.map((x) => [x[0], x[1]]), I.lang(), (v) => I.set(v));
+    pick(I.t('appearance'), 'cfg-theme', [['dark', I.t('dark')], ['light', I.t('light')]], Th.get(), (v) => Th.set(v));
+    body.prepend(box);
+  })();
   function closeSettings() { sheet.hidden = true; document.body.classList.remove('sheet-open'); }
   function save() {
     const c = Object.assign(SRApp.config(), {
@@ -244,16 +253,19 @@
     today: [['', ['today']]],
     portfolio: [['Holdings', ['pfolio', '+portfolio']], ['Plan', ['plan']], ['Taxes', ['ptax', 'petax']], ['26-year test', ['backtest']]],
     markets: [['Screener', ['screener']], ['Rankings', ['ranks']], ['Sectors', ['rotboard', '+ranking']]],
-    demo: [['Account', ['trade', 'tradepos', 'tradehist']], ['Progress', ['tradeprog']], ['Log', ['tradelog', 'tradereview']]],
-    labs: [['', ['tradelab']]],
+    labs: [['Paper portfolios', ['tradelab']], ['Demo', ['trade', 'tradepos', 'tradehist']], ['Progress', ['tradeprog']], ['Log', ['tradelog', 'tradereview']]],
   };
+  // The phone design (25 Nov 2026, "go for it, build"): four tabs. The eToro demo account, its progress and its log moved into
+  // Labs, beside the paper portfolios. A part's label is shown in the chosen language (i18n.js) through LABEL.
+  const LABEL = { Holdings: 'holdings', Plan: 'plan', Taxes: 'taxes', '26-year test': 'test26', Screener: 'screener', Rankings: 'rankings', Sectors: 'sectors', 'Paper portfolios': 'paper', Demo: 'demo', Progress: 'progress', Log: 'log' };
+  const T = (k) => (window.SRI18n ? window.SRI18n.t(k) : k);
   // Second reorganisation, the same day (Matteo: "a better design and organisation of the tabs, so that info are easier to reach"):
   // one tab for each thing he comes to look at. The plan sits with the money it steers (Portfolio); the eToro demo account and the
   // paper labs, two different things under "Trading", are a tab each (Labs was three levels down); Markets has a Rankings part.
   // Code goes to a place by its NAME (appGo), never by a part's number, so the parts can move again.
   const DEST = { today: ['today', 0], holdings: ['portfolio', 0], plan: ['portfolio', 1], taxes: ['portfolio', 2], test: ['portfolio', 3],
-    screener: ['markets', 0], rankings: ['markets', 1], sectors: ['markets', 2], demo: ['demo', 0], progress: ['demo', 1], log: ['demo', 2], labs: ['labs', 0] };
-  const NAV_V = 3;   // the parts' numbers changed with each reorganisation: a part kept from before is not reused
+    screener: ['markets', 0], rankings: ['markets', 1], sectors: ['markets', 2], labs: ['labs', 0], demo: ['labs', 1], progress: ['labs', 2], log: ['labs', 3] };
+  const NAV_V = 4;   // the parts' numbers changed with each reorganisation: a part kept from before is not reused
   const FOLDS = { portfolio: 'Every figure for each holding', ranking: 'All sector and theme funds, ranked over the last month' };
   const keyOf = (el) => el.id || (el.classList.contains('sr-grid') ? 'sr-grid' : '');
   const blocks = [...document.querySelectorAll('#dash-root .sr > *')];
@@ -275,6 +287,7 @@
   subbar.className = 'subtabs'; subbar.setAttribute('aria-label', 'Sub-sections');
   document.getElementById('dash-root').prepend(subbar);
   const tabBtns = [...document.querySelectorAll('#tabbar [data-tab]')];
+  for (const b of tabBtns) { const sp = b.querySelector('span'); if (sp) sp.textContent = T(b.getAttribute('data-tab')); }
   let nav = { tab: null, sub: {}, v: NAV_V }, cameFrom = null;
   try { const was = JSON.parse(localStorage.getItem('sr.nav') || '{}') || {}; if (was.v !== NAV_V) was.sub = {}; nav = Object.assign(nav, was, { tab: null, v: NAV_V }); } catch (e) { /* defaults */ }
   let saved = null;
@@ -289,7 +302,7 @@
     for (const b of tabBtns) b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === id));
     subbar.dataset.tab = id;
     subbar.replaceChildren(...(subs.length > 1 ? subs.map(([label], k) => {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = LABEL[label] ? T(LABEL[label]) : label; b.dataset.part = label;
       b.setAttribute('aria-selected', String(k === i));
       b.addEventListener('click', () => { cameFrom = null; showTab(id, k); });
       return b;
@@ -324,6 +337,7 @@
   showTab(TABS[saved] ? saved : 'today');
 
   window.appBack = () => {
+    const ss = document.querySelector('#sc-sheet .sc-sheet-x'); if (ss) { ss.click(); return true; }   // the asset sheet of Markets first
     const gs = document.querySelector('.g-sheet-back .g-sheet-x'); if (gs) { gs.click(); return true; }   // an open sheet (a holding, the why) first
     if (!sheet.hidden) { closeSettings(); return true; }
     if (window.SRLive && window.SRLive.back()) return true;

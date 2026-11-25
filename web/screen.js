@@ -285,7 +285,9 @@
   try { const j = JSON.parse(localStorage.getItem(FK) || '{}'); for (const k of Object.keys(F0)) if (typeof j[k] === 'string') F[k] = j[k]; if (F.sig === 'strong') F.sig = 'buy'; } catch (e) { /* defaults */ }
   const saveF = () => { try { localStorage.setItem(FK, JSON.stringify(F)); } catch (e) { /* not kept */ } };
   let shown = 60, howOpen = false, filtOpen = false, selAt = 0; const scrollX = {};
-  const CLS = [['', 'All'], ['Stocks', 'Stocks'], ['ETF', 'Funds'], ['Crypto', 'Crypto'], ['Indices', 'Indices'], ['Commodity', 'Commodities'], ['Forex', 'Currencies'], ['@mine', 'Yours']], CLSNAME = { ETF: 'Fund', Forex: 'Currency', Indices: 'Index' };
+  const T = (k) => (window.SRI18n ? window.SRI18n.t(k) : k);   // a label in the chosen language (i18n.js)
+  const CLS = [['', 'all'], ['Stocks', 'stocks'], ['ETF', 'funds'], ['Crypto', 'crypto'], ['Indices', 'indices'], ['Commodity', 'commodities'], ['Forex', 'currencies'], ['@mine', 'yours']], CLSNAME = { ETF: 'Fund', Forex: 'Currency', Indices: 'Index' };
+  const SECKEY = { XLK: 'tech', XLF: 'finance', XLE: 'energy', XLV: 'health', XLI: 'industry', XLY: 'consumer', XLP: 'staples', XLU: 'utilities', XLB: 'materials', XLRE: 'realestate', XLC: 'comms' };
   const SECTOR = { XLK: 'Information Technology', XLF: 'Financials', XLE: 'Energy', XLV: 'Healthcare', XLI: 'Industrials', XLY: 'Consumer Discretionary', XLP: 'Consumer Staples', XLU: 'Utilities', XLB: 'Materials', XLRE: 'Real Estate', XLC: 'Communication Services' };
   const SIZE = { mega: ['Over $200B', 200e9, Infinity], large: ['$10B to $200B', 10e9, 200e9], mid: ['$2B to $10B', 2e9, 10e9], small: ['Under $2B', 0, 2e9] };
   const SALES = { big: ['Revenue over $50B', 50e9, Infinity], mid: ['Revenue $5B to $50B', 5e9, 50e9], small: ['Revenue under $5B', 0, 5e9] };
@@ -471,26 +473,62 @@
     if (f) c.title = FIN.slice(1).map(([, l], j) => `${l} ${f[j + 1] == null ? 'not scored' : f[j + 1]}`).join(', ') + ` (overall ${f[0]} of 100)`;
     return c;
   }
+  // ---- a row, in the phone design ("go for it, build", 25 Nov 2026): logo, symbol and one short line under it, a small line of
+  // the last three months, the price and the day's change. Nine fit on a screen instead of three. A tap slides the asset up in a
+  // sheet (openSheet) with what the row no longer carries; on a wide window, where the asset's page is beside the list, a tap
+  // opens that page as before. The three ranking sorts keep their own strip under the row's head.
+  function miniSpark(r) {
+    const box = el('span', 'sc-mini'), k = r.k; if (!k) return box;
+    const n = k.length, W = 64, H = 28, y = (ch) => H - 3 - (Math.max(0, B64.indexOf(ch)) / 63) * (H - 6);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true' }); svg.appendChild(svgEl('path', { d: [...k].map((ch, i) => (i ? 'L' : 'M') + (i / (n - 1) * W).toFixed(1) + ' ' + y(ch).toFixed(1)).join('') }));
+    box.classList.add((r.c60 != null ? r.c60 >= 0 : B64.indexOf(k[n - 1]) >= B64.indexOf(k[0])) ? 'is-up' : 'is-down'); box.appendChild(svg);
+    return box;
+  }
+  const shutOf = (r) => { const M = window.SRLive && SRLive.market && r.id ? SRLive.market(r.id) : null; if (r.id && window.SRLive && SRLive.marketAsk) SRLive.marketAsk([r.id]); return M ? (M.delisted ? 'delisted' : M.tradable === false ? 'not tradable now' : M.open === false ? 'market closed' : '') : ''; };
+  const metaOf = (r) => [r.mine ? T('yours') : null, r.cls === 'Stocks' ? r.sec || 'Stock' : CLSNAME[r.cls] || r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null].filter(Boolean);
+  const outWhy = (r) => (tooSmall(r) ? 'never tested at this size' : 'weak finances');
+  const wideView = () => !!(window.matchMedia && window.matchMedia('(min-width: 1100px)').matches);
   function rowEl(r) {
-    const sg = isSig(r), b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '') + (sg ? ' is-sig' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id; b.addEventListener('click', () => open(r));
-    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 34);
-    const id = a.appendChild(el('span', 'sc-id')), nm = id.appendChild(el('span', 'sc-nm')); nm.appendChild(el('b', '', r.sym)); nm.appendChild(el('span', 'g-muted', r.name || r.group || ''));
-    const m = [r.mine ? 'Yours' : null, r.cls === 'Stocks' ? r.sec || 'Stock' : CLSNAME[r.cls] || r.cls || (r.mine ? null : r.group), r.cap ? big(r.cap) : null].filter(Boolean);
-    { const M = window.SRLive && SRLive.market && r.id ? SRLive.market(r.id) : null; if (r.id && SRLive.marketAsk) SRLive.marketAsk([r.id]);   // each row says when its market is shut
-      const shut = M ? (M.delisted ? 'delisted' : M.tradable === false ? 'not tradable now' : M.open === false ? 'market closed' : '') : ''; if (shut) m.push(shut); }
-    if (m.length) id.appendChild(el('span', 'sc-m', m.join(' · ')));
+    const sg = isSig(r), b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '') + (sg ? ' is-sig' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id;
+    b.addEventListener('click', () => (wideView() ? open(r) : openSheet(r)));
+    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 38);
+    const id = a.appendChild(el('span', 'sc-id')), nm = id.appendChild(el('span', 'sc-nm')); nm.appendChild(el('b', '', r.sym));
+    const shut = shutOf(r), out = r.buy && !r.q;   // each row says when its market is shut
+    id.appendChild(el('span', 'sc-sub' + (sg ? ' is-sig' : out ? ' is-out' : ''),
+      sg ? `${T('buy')} · ${out ? outWhy(r) : r.od ? p0(r.od.win) : ''}` : out ? `Signal not counted: ${outWhy(r)}` : [r.name || r.group || '', shut].filter(Boolean).join(' · ')));
+    const fs = finSort(), ms = fs ? null : maSort(), ds = fs || ms ? null : dvSort(), strip = (fs && Array.isArray(r.f)) || ms || (ds && r[ds]);
+    if (!strip) b.appendChild(miniSpark(r)); else b.appendChild(el('span', 'sc-mini'));
     const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'sc-chg ' + dir(r.chg), pct(r.chg)));
-    const fs = finSort();
-    if (fs && Array.isArray(r.f)) { finStrip(b, r, fs); return b; }
-    const ms = maSort(); if (ms) { maStrip(b, r, ms); return b; }
-    const ds = dvSort(); if (ds && r[ds]) { dvStrip(b, r, ds); return b; }
-    const viz = b.appendChild(el('span', 'sc-viz')); viz.appendChild(sparkBox(r)); if (sg && r.od) viz.appendChild(ringBox(r));
-    const y = b.appendChild(el('span', 'sc-y'));
-    if (sg) y.appendChild(el('span', 'sc-tag sc-tag-sig', 'Buy signal'));
-    if (r.buy && !r.q) y.appendChild(el('span', 'sc-tag sc-tag-out', (sg ? '' : 'Signal not counted: ') + (tooSmall(r) ? (sg ? 'Never tested at this size' : 'never tested at this size') : (sg ? 'Weak finances' : 'weak finances'))));
-    const sh = shape(r); if (sh) y.appendChild(el('span', 'sc-tag' + (sh[1] ? ' is-' + sh[1] : ''), sh[0]));
-    if (!(r.buy && !r.q && !tooSmall(r))) { const hc = healthChip(r); if (hc) y.appendChild(hc); }
+    if (fs && Array.isArray(r.f)) finStrip(b, r, fs); else if (ms) maStrip(b, r, ms); else if (ds && r[ds]) dvStrip(b, r, ds);
     return b;
+  }
+  // ---- the asset in a sheet: what the row left out, and the way to its full page ----
+  let sheetEl = null;
+  const sheetKey = (e) => { if (e.key === 'Escape') closeSheet(); };
+  function closeSheet() { if (!sheetEl) return false; sheetEl.remove(); sheetEl = null; document.removeEventListener('keydown', sheetKey); return true; }
+  function openSheet(r) {
+    closeSheet();
+    const sh = el('div', 'sc-sheet'); sh.id = 'sc-sheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', r.sym); if (r.id) sh.dataset.id = r.id;
+    const scrim = sh.appendChild(el('button', 'sc-sheet-scrim')); scrim.type = 'button'; scrim.setAttribute('aria-label', T('done')); scrim.addEventListener('click', closeSheet);
+    const p = sh.appendChild(el('div', 'sc-sheet-panel')); p.appendChild(el('span', 'sc-sheet-grip'));
+    const h = p.appendChild(el('div', 'sc-sheet-head')); if (window.SRLogo) window.SRLogo.lead(h, r.id, r.sym, 44);
+    const id = h.appendChild(el('span', 'sc-sheet-id')); id.appendChild(el('b', '', r.sym)); id.appendChild(el('span', 'g-muted', r.name || r.group || ''));
+    const x = h.appendChild(el('button', 'sc-sheet-x')); x.type = 'button'; x.setAttribute('aria-label', T('done')); x.addEventListener('click', closeSheet);
+    { const sv = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); sv.appendChild(svgEl('path', { d: 'M6 6l12 12M18 6L6 18' })); x.appendChild(sv); }
+    const px = p.appendChild(el('div', 'sc-sheet-px')); px.appendChild(el('b', '', fmt(r.px))); px.appendChild(el('span', 'sc-chg ' + dir(r.chg), pct(r.chg)));
+    const meta = metaOf(r), shut = shutOf(r); if (shut) meta.push(shut); if (meta.length) p.appendChild(el('div', 'sc-sheet-m', meta.join(' · ')));
+    p.appendChild(sparkBox(r));
+    const sg = isSig(r);
+    if (sg && r.od) { const g = p.appendChild(el('div', 'sc-sheet-sig')); g.appendChild(ringBox(r)); const w = g.appendChild(el('span', 'sc-sheet-sigt')); w.appendChild(el('b', '', T('buy'))); w.appendChild(el('span', 'g-muted', `${p0(r.od.win)} ${T('tested')}`)); }
+    const y = p.appendChild(el('div', 'sc-y'));
+    if (r.buy && !r.q) y.appendChild(el('span', 'sc-tag sc-tag-out', (sg ? '' : 'Signal not counted: ') + (tooSmall(r) ? (sg ? 'Never tested at this size' : 'never tested at this size') : (sg ? 'Weak finances' : 'weak finances'))));
+    const shp = shape(r); if (shp) y.appendChild(el('span', 'sc-tag' + (shp[1] ? ' is-' + shp[1] : ''), shp[0]));
+    if (!(r.buy && !r.q && !tooSmall(r))) { const hc = healthChip(r); if (hc) y.appendChild(hc); }
+    if (!y.childNodes.length) y.remove();
+    const st = p.appendChild(el('div', 'sc-sheet-stats'));
+    for (const [lab, val, cls] of [[T('m3'), r.c60 == null ? (r.c20 == null ? '–' : pct(r.c20)) : pct(r.c60), dir(r.c60 == null ? r.c20 : r.c60)], ['RSI', r.rsi == null ? '–' : String(Math.round(r.rsi)), ''], [T('mcap'), r.cap ? big(r.cap) : '–', '']]) { const c = st.appendChild(el('span')); c.appendChild(el('small', '', lab)); c.appendChild(el('b', cls, val)); }
+    const go = p.appendChild(el('button', 'sc-sheet-open', T('openFull'))); go.type = 'button'; go.addEventListener('click', () => { closeSheet(); open(r); });
+    document.body.appendChild(sh); sheetEl = sh; document.addEventListener('keydown', sheetKey);
   }
   dash.draw('screener', (outer) => {
     if (!window.SRTA) { outer.replaceChildren(); return; }
@@ -513,7 +551,7 @@
     const pick = (ch) => { Object.assign(F, ch); shown = 60; hlId = null; allMemo = null; saveF(); SRApp.renderDraw('screener'); };
     // the kinds of asset as tabs, always in view (Matteo, 25 Nov 2026: "the categorization should be clearer")
     const tabs = box.appendChild(el('div', 'sc-tabs')); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Kind of asset'); keep(tabs, 'tabs');
-    for (const [val, lab] of CLS) { const on = F.cls === val, t = tabs.appendChild(el('button', 'sc-tab' + (on ? ' is-on' : ''), lab)); t.type = 'button'; t.setAttribute('role', 'tab'); t.setAttribute('aria-selected', String(on)); t.dataset.cls = val;
+    for (const [val, lab] of CLS) { const on = F.cls === val, t = tabs.appendChild(el('button', 'sc-tab' + (on ? ' is-on' : ''), T(lab))); t.type = 'button'; t.setAttribute('role', 'tab'); t.setAttribute('aria-selected', String(on)); t.dataset.cls = val;
       t.addEventListener('click', () => pick({ cls: val, sec: val === 'Stocks' ? F.sec : '' })); }
     // the day's change as coloured tiles: the world, then the eleven sectors (the same funds as the ranking)
     // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
@@ -528,17 +566,17 @@
       if (short) t.appendChild(el('small', '', short));
       if (m) t.style.background = heat(m);
     };
-    const strip = (cap, key) => { const w = box.appendChild(el('div', 'sc-strip-w')); w.appendChild(el('span', 'sc-strip-c', cap)); const m = w.appendChild(el('div', 'sc-map sc-strip')); keep(m, key); return m; };
+    const strip = (cap, key, cls) => { const w = box.appendChild(el('div', 'sc-strip-w' + (cls ? ' ' + cls : ''))); w.appendChild(el('span', 'sc-strip-c', cap)); const m = w.appendChild(el('div', 'sc-map sc-strip')); keep(m, key); return m; };
     const bySym = new Map(R.map((r) => [r.sym, r])), extra = el('div', 'sc-extra');
-    if (F.cls !== 'Stocks') { const map = strip('World', 'world'); for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m); }
+    if (F.cls !== 'Stocks') { const map = strip(T('world'), 'world'); for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m); }
     // the sectors, in view at once and in a fixed order: a tap lists that sector's companies, a second tap lets go
     // (Matteo, 25 Nov 2026: "you removed the tabs of the sector, that should be visible immediately, like the rest")
     if (!F.cls || F.cls === 'Stocks') {
-      const map = strip('Sectors', 'sec');
+      const map = strip(T('sectors'), 'sec', 'is-grid');   // the phone design: a grid of tiles, all in view
       for (const [sym, short, name] of TILES[0][1]) {
         const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, m = moveOf(r), sec = SECTOR[sym], on = F.sec === sec;
         const t = map.appendChild(el('button', 'sc-tile sc-sect' + (on ? ' is-on' : ''))); t.type = 'button'; t.dataset.sec = sec; t.setAttribute('aria-pressed', String(on)); t.title = `${name}: ${on ? 'back to every sector' : 'list its companies'}`;
-        t.appendChild(el('b', '', short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
+        t.appendChild(el('b', '', SECKEY[sym] ? T(SECKEY[sym]) : short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
         if (m) t.style.background = heat(m);
         t.addEventListener('click', () => pick({ sec: on ? '' : sec }));
       }
@@ -555,7 +593,7 @@
     // one row: signals only, the order, the other filters
     const nOn = ['size', 'sales', 'rsi'].filter((k) => F[k]).length;
     const bar = box.appendChild(el('div', 'sc-bar')), fb = el('div', 'sc-filters');
-    { const sgb = bar.appendChild(el('button', 'sc-chip' + (F.sig ? ' is-on' : ''), 'Signals')); sgb.type = 'button'; sgb.setAttribute('aria-pressed', String(!!F.sig)); sgb.title = 'Only the assets with a buy signal now'; sgb.addEventListener('click', () => pick({ sig: F.sig ? '' : 'buy' })); }
+    { const sgb = bar.appendChild(el('button', 'sc-chip' + (F.sig ? ' is-on' : ''), T('signals'))); sgb.type = 'button'; sgb.setAttribute('aria-pressed', String(!!F.sig)); sgb.title = 'Only the assets with a buy signal now'; sgb.addEventListener('click', () => pick({ sig: F.sig ? '' : 'buy' })); }
     const sel = (key, first, opts, cls) => {
       const s = (first ? fb : bar).appendChild(el('select', 'sc-sel' + (cls ? ' ' + cls : ''))); s.setAttribute('aria-label', first || 'Sort'); if (first) s.appendChild(new Option(first, ''));
       for (const [val, lab] of opts) s.appendChild(new Option(lab, val));
@@ -564,8 +602,8 @@
       s.addEventListener('change', () => { F[key] = s.value; hlId = null; shown = 60; saveF(); s.blur(); SRApp.renderDraw('screener'); });
       return s;
     };
-    sel('sort', '', Object.entries(SORTS).map(([k, x]) => [k, 'Sort: ' + x[0]]), 'sc-sortsel');
-    const ft = bar.appendChild(el('button', 'sc-ftog' + (nOn ? ' is-on' : ''), nOn ? `Filters · ${nOn}` : 'Filters')); ft.type = 'button'; ft.setAttribute('aria-expanded', String(filtOpen));
+    sel('sort', '', Object.entries(SORTS).map(([k, x]) => [k, T('sort') + ': ' + x[0]]), 'sc-sortsel');
+    const ft = bar.appendChild(el('button', 'sc-ftog' + (nOn ? ' is-on' : ''), nOn ? `${T('filters')} · ${nOn}` : T('filters'))); ft.type = 'button'; ft.setAttribute('aria-expanded', String(filtOpen));
     ft.addEventListener('click', () => { filtOpen = !filtOpen; SRApp.renderDraw('screener'); });
     if (filtOpen) box.appendChild(fb);
     sel('size', 'Any market value', [['liq', 'No shares under $2B']].concat(Object.entries(SIZE).map(([k, x]) => [k, x[0]])));
@@ -579,8 +617,8 @@
     const nSig = L.reduce((x, r) => x + (isSig(r) ? 1 : 0), 0), plain = !fsN && !msN && !dsN;
     // the signals left out or let in (too small to have been tested, weak finances), among the assets the other filters keep
     const nOut = plain ? ALL.reduce((x, r) => x + (r.buy && !r.q && pass(Object.assign(Object.create(r), { q: true })) ? 1 : 0), 0) : 0;
-    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', 'sc-count-n', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : msN ? `${L.length.toLocaleString('en-US')} assets ranked by their distance from the ${MA[msN.k]}${msN.lo ? ', from the last place up' : ''}` : dsN ? `${L.length.toLocaleString('en-US')} assets with a ${DV[dsN]} now, strongest first (score 0-100)` : F.sig ? `${nSig} buy signal${nSig === 1 ? '' : 's'} now` : `${L.length.toLocaleString('en-US')} asset${L.length === 1 ? '' : 's'}, ${nSig} with a buy signal now`));
-    if (active) { const rb = cnt.appendChild(el('button', 'sc-reset', 'Reset')); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
+    const cnt = box.appendChild(el('div', 'sc-count')); cnt.appendChild(el('span', 'sc-count-n', fsN ? `${L.length.toLocaleString('en-US')} companies ranked on ${FIN[fsN.i][1].toLowerCase()}${fsN.lo ? ', from the last place up' : ''}` : msN ? `${L.length.toLocaleString('en-US')} assets ranked by their distance from the ${MA[msN.k]}${msN.lo ? ', from the last place up' : ''}` : dsN ? `${L.length.toLocaleString('en-US')} assets with a ${DV[dsN]} now, strongest first (score 0-100)` : F.sig ? `${T('signals')} ${nSig}` : `${T('signals')} ${nSig} · ${L.length.toLocaleString('en-US')} ${L.length === 1 && T('assets') === 'assets' ? 'asset' : T('assets')}`));
+    if (active) { const rb = cnt.appendChild(el('button', 'sc-reset', T('reset'))); rb.type = 'button'; rb.addEventListener('click', () => { Object.assign(F, F0); shown = 60; hlId = null; saveF(); SRApp.renderDraw('screener'); }); }
     if (nOut) { const qb = cnt.appendChild(el('button', 'sc-q', F.q === 'all' ? `Counting ${nOut} on tiny or weak companies. Leave them out` : `${nOut} more on tiny or weak companies. Count them`)); qb.type = 'button'; qb.setAttribute('aria-pressed', String(F.q === 'all')); qb.addEventListener('click', () => pick({ q: F.q === 'all' ? '' : 'all' })); }
     finPos.clear(); if (fsN) L.forEach((r, k) => finPos.set(r.id, [fsN.lo ? L.length - k : k + 1, L.length]));
     maPos.clear(); if (msN) L.forEach((r, k) => maPos.set(r.id, [msN.lo ? L.length - k : k + 1, L.length]));
@@ -588,7 +626,7 @@
     const list = box.appendChild(el('div', 'sc-list')), vis = L.slice(0, shown);
     for (const r of vis) { const x = list.appendChild(rowEl(r)); if (r.id === hlId) x.classList.add('is-hl-keep'); }
     if (!L.length) list.appendChild(el('p', 'g-muted', 'No asset matches these filters.'));
-    if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `Show ${Math.min(60, L.length - shown)} more (${L.length - shown} left)`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
+    if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `${T('more')} (${(L.length - shown).toLocaleString('en-US')})`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...R.map((r) => r.id), ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)].filter(Boolean));
     box.appendChild(extra);
@@ -672,5 +710,5 @@
     box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
     return true;
   });
-  window.SRScreen = { fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { closeSheet, sheet: openSheet, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
