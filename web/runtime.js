@@ -97,10 +97,13 @@
     return { ok: r.status === 200, status: r.status, reason: r.status === 200 ? '' : reasonOf(r.body) };
   }
   // A refresh asks eToro only for the days since the history kept on the device (5 candles or a few more: a few kB each) and puts them
-  // on its end; the whole history (400 days, 1,000 for SMH: enough weeks for the plan's trend rule) is asked again once a week, or when
-  // nothing usable is kept. Before this, every refresh downloaded about 2 MB.
+  // on its end; the whole history (400 days; 1,000 for SMH: enough weeks for the plan's trend rule, and since build 154 for SPY and
+  // the euro-dollar rate: the taxes turn each dollar trade into euros at its own day's rate, and "was it worth it?" needs the S&P 500
+  // fund's price on the day of each buy) is asked again once a week, or when nothing usable is kept. Before this, every refresh
+  // downloaded about 2 MB.
+  const LONG = new Set(['SMH', 'SPY', 'EURUSD']);
   async function fetchEtoro(sym, iid, cfg, kept, full) {
-    const n = sym === 'SMH' ? 1000 : 400, last = kept && kept.length ? kept[kept.length - 1] : null;
+    const n = LONG.has(sym) ? 1000 : 400, last = kept && kept.length ? kept[kept.length - 1] : null;
     const age = last ? (Date.now() - Date.parse(last.date + 'T00:00:00Z')) / 864e5 : Infinity;
     const delta = !!(kept && kept.length >= 260 && age < 30 && full && Date.now() - (full[sym] || 0) < 7 * 864e5);
     const url = `https://public-api.etoro.com/api/v1/market-data/instruments/${iid}/history/candles/desc/OneDay/${delta ? Math.min(n, Math.ceil(age) + 5) : n}`;

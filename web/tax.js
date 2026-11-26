@@ -28,39 +28,60 @@
   // ---- the euro-dollar rate of a day (dollars for one euro), from the app's daily EURUSD rows ----
   function fxOf() {
     const S = window.SRApp && SRApp._store && SRApp._store.EURUSD, rows = S && S.status === 'ok' ? S.data : [];
-    return (day) => {
+    const f = (day) => {
       if (!rows.length) return null;
       let v = rows[0].close;
       for (const r of rows) { if (r.date > day) break; v = r.close; }
       return v > 0 ? v : null;
     };
+    f.first = rows.length ? rows[0].date : null;   // a trade before this day gets this first rate, not its own: counted (`old`) and said
+    return f;
+  }
+  // ---- the yardstick of "was it worth it?": the S&P 500 fund the app keeps daily closes of (SPY, in dollars), in euros ----
+  // its price on a day = its last close on or before it (at most a week back) at that close's euro-dollar rate; null outside the
+  // history kept on the device: nothing is compared then, never a guess
+  function fundOf() {
+    const st = (window.SRApp && SRApp._store) || {}, rowsOf = (k) => (st[k] && st[k].status === 'ok' && Array.isArray(st[k].data) ? st[k].data : []), F = rowsOf('SPY'), X = rowsOf('EURUSD');
+    const at = (rows, day) => { if (!rows.length || day < rows[0].date) return null; let lo = 0, hi = rows.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rows[m].date <= day) lo = m; else hi = m - 1; } const r = rows[lo]; return (Date.parse(day) - Date.parse(r.date)) / DAY <= 7 && r.close > 0 ? r.close : null; };
+    const f = (day) => { const a = at(F, day), b = at(X, day); return a && b ? a / b : null; };
+    f.first = F.length && X.length ? (F[0].date > X[0].date ? F[0].date : X[0].date) : null; f.label = 'S&P 500'; f.sym = 'SPY';   // (a function's own `name` cannot be set)
+    return f;
   }
 
   // ---- Revolut: per year, the gains and losses of your sales and the total of crypto sold ----
-  function realised(trades, usdPerEur) {
+  // fundEur (optional): the price in euros of the yardstick fund on a day. Each position then carries a shadow holding of that
+  // fund: the same euros buy it on the days of the buys, the same part of it is sold on the days of the sales, with the same
+  // fees and the same cost. A sale's `fund` is what that shadow sale would have gained (null when a buy fell outside the fund's history).
+  function realised(trades, usdPerEur, fundEur) {
     const pos = new Map(), years = {};
-    let missing = 0;
+    let missing = 0, old = 0;
     const T = (trades || []).filter((t) => t && t.s && t.q > 0 && t.p > 0 && t.d).slice().sort((a, b) => String(a.d).localeCompare(String(b.d)));
     for (const t of T) {
       const kind = t.src === 'revx' ? 'crypto' : 'sec', key = kind + ':' + t.s + (t.cfd ? ':cfd' : '');
       let money = t.q * t.p, k = 1;
-      if (t.c === 'USD') { k = usdPerEur ? usdPerEur(String(t.d).slice(0, 10)) : null; if (!(k > 0)) { missing++; continue; } money /= k; }
+      const day = String(t.d).slice(0, 10);
+      if (t.c === 'USD') { k = usdPerEur ? usdPerEur(day) : null; if (!(k > 0)) { missing++; continue; } money /= k; if (usdPerEur.first && day < usdPerEur.first) old++; }
       else if (t.c && t.c !== 'EUR') { missing++; continue; }
       // the fee: the trade's own (in its currency, or in the coin) or the standard one
       const fq = t.fq > 0 ? Math.min(+t.fq, t.q) : 0, fee = t.f != null && isFinite(t.f) ? +t.f / k : fq ? 0 : feeFor(kind, money);
-      const p = pos.get(key) || { q: 0, cost: 0, fees: 0, guess: 0 }, own = (t.f != null && isFinite(t.f)) || fq > 0;   // own: this trade's fee is known
+      const p = pos.get(key) || { q: 0, cost: 0, fees: 0, guess: 0, units: 0, blind: false }, own = (t.f != null && isFinite(t.f)) || fq > 0;   // own: this trade's fee is known
       const y = years[year(t.d)] = years[year(t.d)] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, fees: 0, list: [] };
       y.fees = (y.fees || 0) + fee + (fq ? money * (fq / t.q) : 0);
       if (t.side === 'S') {
         const q = Math.min(t.q, p.q), cost = p.q > 0 ? (p.cost / p.q) * q : 0, bf = p.q > 0 ? (p.fees / p.q) * q : 0, g = (money - fee) * (q / t.q) - cost;
         // for the year's report: the number sold (qAll; q of it was seen bought), the cost with the buying fees (cost) and those fees apart (buyFees)
-        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR' });
-        p.q -= q; p.cost -= cost; p.fees -= bf; if (p.q < 1e-9) { p.q = 0; p.cost = 0; p.fees = 0; p.guess = 0; }
+        const fs = fundEur && kind === 'sec' && !t.cfd ? fundEur(day) : null, part = p.q > 0 ? q / p.q : 0, un = p.units * part;
+        const fg = fs && !p.blind && q > 0 && t.q - q < 1e-9 ? un * fs - fee - cost : null;   // the shadow sale: the same fee, the same cost
+        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR', fund: fg });
+        p.q -= q; p.cost -= cost; p.fees -= bf; p.units -= un; if (p.q < 1e-9) { p.q = 0; p.cost = 0; p.fees = 0; p.guess = 0; p.units = 0; p.blind = false; }
         y[kind] += g; y.sales++; if (kind === 'crypto') y.cryptoSales += money;
-      } else { p.q += t.q - fq; p.cost += money + fee; p.fees += fee; if (!own) p.guess++; }
+      } else {
+        p.q += t.q - fq; p.cost += money + fee; p.fees += fee; if (!own) p.guess++;
+        if (fundEur && kind === 'sec' && !t.cfd) { const fb = fundEur(day); if (fb) p.units += money / fb; else p.blind = true; }
+      }
       pos.set(key, p);
     }
-    return { years, missing };
+    return { years, missing, old };
   }
   // the unused net losses on shares of the ten years before
   function carryFor(years, y) {
@@ -246,6 +267,18 @@
   // the live figures for Portfolio: the year so far, each holding and the whole
   function keepNow() { const S = summary(), base = baseOf(S), H = holdingsNow(); return { S, y: S.y, base, H, ...afterTax(H, base) }; }
 
+  // ---- "was it worth it?" (build 154): a year's sales of shares and funds beside the same euros in the yardstick fund ----
+  // Equal money at equal dates (the labs' rule for comparing with holding): only sales whose every buy is inside the fund's
+  // history are compared, on both sides; the same fees, the same cost, the same tax rule (the year's net gain after the
+  // earlier losses). What is still held, coins, CFDs and dividends are not in it. Never a projection.
+  function worth(trades, y, usdPerEur, fundEur) {
+    const R = realised(trades, usdPerEur, fundEur), Y = R.years[y] || { list: [] }, carry = carryFor(R.years, y);
+    const sales = Y.list.filter((x) => x.kind === 'sec' && !x.cfd), ok = sales.filter((x) => x.fund != null);
+    const mine = ok.reduce((t, x) => t + x.gain, 0), fund = ok.reduce((t, x) => t + x.fund, 0), after = (g) => g - RATE * Math.max(0, g - carry);
+    return { year: y, n: ok.length, left: sales.length - ok.length, sold: ok.reduce((t, x) => t + x.money, 0), cost: ok.reduce((t, x) => t + x.cost, 0), mine, fund, mineNet: after(mine), fundNet: after(fund), diff: after(mine) - after(fund), carry,
+      from: (fundEur && fundEur.first) || null, name: (fundEur && fundEur.label) || 'the fund', sym: (fundEur && fundEur.sym) || '', rows: ok.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), mine: x.gain, fund: x.fund })) };
+  }
+
   // ---- the year's report (build 153): each figure next to the box of the French return it goes in ----
   // Box and line numbers as on the forms published in 2026 for 2025 income (read on impots.gouv.fr on 26 Nov 2026; the 2027
   // forms may move them): form 2074 cadre 5, lines 511 to 524, one column a sale; its total on form 2042 C, box 3VG (a gain,
@@ -272,7 +305,7 @@
     return { year: y, forms: FORMS, boxes,
       sec: { n: sec.length, net, carry, used, taxable, lines, sum524: lines.reduce((t, l) => t + (l.l524 || 0), 0) },
       crypto: { n: cry.length, sales: Y.cryptoSales, exempt, est: Y.crypto, lines: cry.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), l213: x.money, l214: x.fee, l215: x.money - x.fee })) },
-      flags: { missing: R.missing, short: lines.filter((l) => l.short).length, guess: lines.filter((l) => l.feeGuess || l.buyGuess).length, cfd: cfd.length, cfdNet: cfd.reduce((t, x) => t + x.gain, 0) },
+      flags: { missing: R.missing, old: R.old, oldFrom: (usdPerEur && usdPerEur.first) || null, short: lines.filter((l) => l.short).length, guess: lines.filter((l) => l.feeGuess || l.buyGuess).length, cfd: cfd.length, cfdNet: cfd.reduce((t, x) => t + x.gain, 0) },
       years: Object.keys(R.years).map(Number).filter((k) => R.years[k].sales > 0).sort((a, b) => b - a) };
   }
   const dmy = (d) => { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(d)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
@@ -319,16 +352,40 @@
     const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select();
     let ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; } t.remove(); return ok;
   }
-  function drawReport(box, y0) {
-    const fx = fxOf(), trades = SRApp.config().trades || [];
-    let Rp = report(trades, y0, fx);
-    const years = [...new Set([y0, ...Rp.years])].sort((a, b) => b - a).slice(0, 3), y = years.includes(repYear) ? repYear : y0;
-    if (y !== y0) Rp = report(trades, y, fx);
-    const c = card(box, `Your ${y} return: what goes where`); c.classList.add('x-rep'); c.dataset.year = y;
-    if (years.length > 1) {   // the return for a year is filed the spring after: last year's stays one tap away
-      const sw = c.appendChild(el('div', 'pf-view x-rep-years')); sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'The year of the report');
+  // the year the two cards below show: this year, or one of the two before with a sale (a return is filed the spring after)
+  function yearOf(box, y0) {
+    const R = realised(SRApp.config().trades || [], fxOf()), years = [...new Set([y0, ...Object.keys(R.years).map(Number).filter((k) => R.years[k].sales > 0)])].sort((a, b) => b - a).slice(0, 3), y = years.includes(repYear) ? repYear : y0;
+    if (years.length > 1) {
+      const sw = box.appendChild(el('div', 'pf-view x-rep-years')); sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'The year shown below');
       for (const k of years) { const b = sw.appendChild(el('button', 'pf-view-b' + (k === y ? ' is-on' : ''), String(k))); b.type = 'button'; b.setAttribute('aria-pressed', String(k === y)); b.addEventListener('click', () => { repYear = k; repSaid = ''; SRApp.renderDraw('ptax'); }); }
     }
+    return y;
+  }
+  // "was it worth it?": the year's sales beside the same euros in the S&P 500 fund over the same days (worth())
+  function drawWorth(box, y) {
+    const fund = fundOf(), W = worth(SRApp.config().trades || [], y, fxOf(), fund);
+    if (!W.n && !W.left) return;   // no sale of shares or funds that year: nothing to say
+    const c = card(box, `Was it worth it? Your ${y} sales`); c.classList.add('x-worth'); c.dataset.year = y;
+    if (!W.n) { c.appendChild(el('div', 'g-line g-muted', W.from ? `Nothing to compare yet: these sales were of holdings bought before ${dmy(W.from)}, where the ${W.name} prices kept on this device start.` : `Nothing to compare yet: the ${W.name} prices are not on this device.`)); return; }
+    const up = W.diff >= 0, top = Math.max(Math.abs(W.mineNet), Math.abs(W.fundNet), 0.01), neg = Math.min(W.mineNet, W.fundNet) < -0.005, pos = Math.max(W.mineNet, W.fundNet) > 0.005, both = neg && pos;
+    c.appendChild(el('div', 'x-worth-say', `Your ${W.n} sale${W.n === 1 ? '' : 's'} left you ${eur(W.mineNet, true)} after fees and tax. The same euros in the ${W.name}, over the same days: ${eur(W.fundNet, true)}.`));
+    const g = c.appendChild(el('div', 'x-bars' + (both ? ' is-both' : ''))); g.setAttribute('role', 'img'); g.setAttribute('aria-label', `You ${eur(W.mineNet, true)}, the ${W.name} ${eur(W.fundNet, true)}`);
+    for (const [label, v, cls] of [['You', W.mineNet, 'is-you'], [W.name, W.fundNet, 'is-fund']]) {
+      const r = g.appendChild(el('div', 'x-bar ' + cls)); r.appendChild(el('span', 'x-bar-k', label));
+      const t = r.appendChild(el('div', 'x-bar-t')), b = t.appendChild(el('i', v < 0 ? 'is-neg' : '')), w = (Math.abs(v) / top) * (both ? 50 : 100);
+      b.style.width = Math.max(w, Math.abs(v) > 0.005 ? 1.5 : 0) + '%'; if (v < 0) b.style.right = both ? '50%' : '0'; else b.style.left = both ? '50%' : '0';
+      r.appendChild(el('b', v > 0.005 ? 'up' : v < -0.005 ? 'down' : '', eur(v, true)));
+    }
+    c.appendChild(el('div', 'x-worth-diff ' + (up ? 'up' : 'down'), `${eur(Math.abs(W.diff))} ${up ? 'more' : 'less'} than the ${W.name}.`));
+    if (W.left) c.appendChild(el('div', 'g-hint x-worth-left', `${W.left} sale${W.left === 1 ? '' : 's'} left out: bought before ${dmy(W.from)}, where the fund’s prices kept on this device start, or with no price on its day.`));
+    { const d = SRApp.disclosure(c, 'tax-worth-sales', `Sale by sale, before tax (${W.n})`);
+      for (const x of W.rows) { const r = d.appendChild(el('div', 'x-row x-worth-row')); r.appendChild(el('span', '', `${x.s} · ${dmy(x.d)}`)); const v = r.appendChild(el('span', 'x-worth-v')); v.appendChild(el('b', x.mine > 0.005 ? 'up' : x.mine < -0.005 ? 'down' : '', eur(x.mine, true))); v.appendChild(el('span', '', ` · ${W.sym} ${eur(x.fund, true)}`)); } }
+    c.appendChild(el('div', 'g-hint x-worth-note', 'Past results, not a forecast and not advice. Not yet checked by an accountant.'));
+    c.appendChild(el('div', 'g-hint', `The yardstick is ${W.sym}, the ${W.name} fund in dollars, turned into euros: bought with the same euros on the days you bought, sold on the days you sold, with the same fees and the same tax rule. Only what you sold: what you still hold, coins and dividends are not in it. A world fund would be the fairer yardstick: the app has no prices for one yet.`));
+  }
+  function drawReport(box, y) {
+    const Rp = report(SRApp.config().trades || [], y, fxOf());
+    const c = card(box, `Your ${y} return: what goes where`); c.classList.add('x-rep'); c.dataset.year = y;
     const row = (code, label, note, value, cls) => { const r = c.appendChild(el('div', 'x-box')); r.dataset.box = code; r.appendChild(el('span', 'x-code', code)); const m = r.appendChild(el('div', 'x-box-m')); m.appendChild(el('b', '', label)); if (note) m.appendChild(el('span', '', note)); r.appendChild(el('b', 'x-box-v ' + (cls || ''), value)); return r; };
     const S = Rp.sec, C = Rp.crypto;
     if (!S.n && !Rp.flags.cfd && !C.n) c.appendChild(el('div', 'g-line g-muted', `No sale in ${y} among the trades in the app: no gain or loss to declare from Revolut.`));
@@ -342,7 +399,8 @@
     row('8UU', 'Accounts abroad: tick the box', 'then one form 3916-bis for each account (investments, and Revolut X apart)', '');
     // what needs a look before the figures are used
     const warn = [Rp.flags.short ? `${Rp.flags.short} sale${Rp.flags.short === 1 ? '' : 's'} sold more than the app saw bought: add the missing purchase, the totals are incomplete.` : '', Rp.flags.guess ? `${Rp.flags.guess} sale${Rp.flags.guess === 1 ? '' : 's'} with a fee the app assumed (Revolut’s standard fee): put the real one from your statement.` : '',
-      Rp.flags.missing ? `${Rp.flags.missing} trade${Rp.flags.missing === 1 ? '' : 's'} left out: no euro rate for that day.` : '', Rp.flags.cfd ? `${Rp.flags.cfd} CFD result${Rp.flags.cfd === 1 ? '' : 's'} (${eur(Rp.flags.cfdNet, true)}) counted in the total: on form 2074 they go in the part for “instruments financiers à terme”, not in cadre 5.` : ''].filter(Boolean);
+      Rp.flags.missing ? `${Rp.flags.missing} trade${Rp.flags.missing === 1 ? '' : 's'} left out: no euro rate for that day.` : '',
+      Rp.flags.old ? `${Rp.flags.old} dollar trade${Rp.flags.old === 1 ? '' : 's'} older than the euro rates kept on this device (from ${dmy(Rp.flags.oldFrom)}): turned into euros at that first rate, not their own day’s. Check them.` : '', Rp.flags.cfd ? `${Rp.flags.cfd} CFD result${Rp.flags.cfd === 1 ? '' : 's'} (${eur(Rp.flags.cfdNet, true)}) counted in the total: on form 2074 they go in the part for “instruments financiers à terme”, not in cadre 5.` : ''].filter(Boolean);
     for (const w of warn) c.appendChild(el('div', 'x-rep-warn', w));
     if (S.lines.length) {
       const d = SRApp.disclosure(c, 'tax-report-2074', `Form 2074, sale by sale (${S.lines.length})`);
@@ -382,7 +440,7 @@
     if (R.unknown.length) b.appendChild(el('div', 'g-hint', `Not counted (no amount paid typed): ${R.unknown.join(', ')}.`));
     if (S.combAll) kv(b, 'With eToro too', `${eur(S.combAll.tax)} in all (both brokers add up on the return)`);
     salesList(box, 'tax-revolut-sales', `This year's sales (${Y.sales})`, Y.list.map((x) => ({ ...x, label: `${x.s}${x.cfd ? ' CFD' : ''}${x.kind === 'crypto' ? ' (crypto)' : ''} · sold ${eur(x.money)}` })));
-    drawReport(box, S.y);
+    { const y = yearOf(box, S.y); drawWorth(box, y); drawReport(box, y); }
     box.appendChild(el('div', 'g-hint', note + ' Gains use the average price paid and each day\'s euro-dollar rate; staking rewards count as bought at zero.'));
   }
   function drawEtoro(box) {
@@ -423,5 +481,5 @@
   dash.draw('petax', (outer) => drawEtoro(outer));
   setInterval(() => { if (document.hidden) return; SRApp.renderDraw('ptax'); }, 10000);   // live: the values move with the prices
 
-  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074 };
+  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, worth, fundOf, fxOf };
 })();

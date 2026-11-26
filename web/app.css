@@ -1793,7 +1793,7 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .g-need-note { margin-top: 10px; }
 /* ---- the year's report (build 153): each figure next to the box of the return it goes in; a box or line number is a small
    plate, the same on the boxes and on each sale's lines. ---- */
-.x-rep-years { margin: 0 0 10px; }
+.x-rep-years { margin: 14px 0 10px; }
 .x-code { flex: none; min-width: 44px; padding: 3px 7px; border-radius: 7px; background: var(--accent-tint); color: var(--accent-ink); font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: .01em; }
 .x-box { display: flex; align-items: flex-start; gap: 10px; padding: 11px 0; border-top: 1px solid var(--color-border-line); }
 .x-box-m { flex: 1; min-width: 0; display: grid; gap: 3px; } .x-box-m b { font-size: 14.5px; font-weight: 700; line-height: 1.3; } .x-box-m span { font-size: 12.5px; line-height: 1.4; color: var(--row-sub, var(--color-fg-muted)); }
@@ -1807,3 +1807,17 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .x-line .x-code { min-width: 38px; padding: 2px 6px; font-size: 12px; }
 .x-unknown { margin: 4px 0 0; padding-inline-start: 18px; display: grid; gap: 6px; font-size: 13.5px; line-height: 1.4; color: var(--row-sub, var(--color-fg-muted)); }
 .x-rep .g-btns { margin-top: 12px; } .x-rep-said:empty { display: none; }
+/* ---- "was it worth it?" (build 154): one sentence, then two bars from the same zero: you, and the same euros in the fund. Your
+   bar wears the accent, the fund's the grey of "the others"; the figures keep the ink of gains and losses. ---- */
+.x-worth-say { font-size: 15px; line-height: 1.45; }
+.x-bars { display: grid; gap: 8px; margin: 14px 0 10px; }
+.x-bar { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.x-bar-k { font-size: 12.5px; font-weight: 700; color: var(--color-fg-muted); white-space: nowrap; }
+.x-bar-t { position: relative; height: 16px; }
+.x-bars.is-both .x-bar-t::before { content: ''; position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--color-border-line); }
+.x-bar-t i { position: absolute; top: 0; bottom: 0; border-radius: 0 4px 4px 0; background: var(--accent); } .x-bar-t i.is-neg { border-radius: 4px 0 0 4px; }
+.x-bar.is-fund .x-bar-t i { background: var(--pf-0); }
+.x-bar b { min-width: 76px; text-align: end; font-size: 14.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; } .x-bar b.up { color: var(--av-up); } .x-bar b.down { color: var(--av-down); }
+.x-worth-diff { font-size: 16px; font-weight: 800; letter-spacing: -.01em; } .x-worth-diff.up { color: var(--av-up); } .x-worth-diff.down { color: var(--av-down); }
+.x-worth .sr-disclosure { margin-top: 12px; } .x-worth-row { align-items: baseline; } .x-worth-v { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; } .x-worth-v span { color: var(--row-sub, var(--color-fg-muted)); }
+.x-worth-note { margin-top: 10px; }
