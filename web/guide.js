@@ -805,11 +805,9 @@
       v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.ticker === 'CASH' ? '' : h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
       if (h.ticker === 'CASH') { const res = d3.sum(all.filter((x) => x.pendingEur > 0 && acc(x) === g.key), (x) => x.pendingEur); if (res > 0) a.querySelector('.g-row-n').textContent = `Revolut cash · ${eurc(res)} reserved for your order, ${eurc(h.value - res)} free`; }
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
-      if (st.P && h.ticker !== 'CASH') {
+      if (st.P && h.ticker !== 'CASH') {   // only what asks for attention. Whether a holding is in the plan or outside it is said in its sheet and under Plan (the mix, build 149)
         if (st.keep.has(h.ticker)) tags.appendChild(el('span', 'g-chip', 'Kept'));
-        else if (st.T ? lineFor(h, st.T) : planTickers(st.p).has(h.ticker)) tags.appendChild(el('span', 'g-chip g-chip-plan', 'Plan'));
-        else if (st.T && lineFor(h, allLines(st.p))) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Signal: sell'));
-        else tags.appendChild(el('span', 'g-chip g-chip-sell', 'Outside'));
+        else if (!(st.T ? lineFor(h, st.T) : planTickers(st.p).has(h.ticker)) && st.T && lineFor(h, allLines(st.p))) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Signal: sell'));
       }
       { const x = S0 && h.tracks === h.ticker ? S0.coins[h.ticker] : null; if (x && (x.staked > 0 || x.n30)) tags.appendChild(el('span', 'g-chip g-chip-stake', x.rate ? `Staking ${rateOf(x.rate)}` : 'Staked')); }
       { const M = mkt(h); if (M) { const t = M.delisted ? 'Delisted' : M.tradable === false ? 'Not tradable now' : M.open === false ? 'Market closed' : ''; if (t) tags.appendChild(el('span', 'g-chip g-chip-shut', t)); } }

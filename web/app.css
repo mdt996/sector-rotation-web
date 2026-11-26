@@ -1574,11 +1574,13 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
    choice in Settings: i18n.js puts data-theme="light" on the page), and the screens rebuilt in the design, one by one.
    Rebuilt so far: the tab bar (four tabs) and Markets (compact rows, the sectors as a grid, the asset in a sheet). ---- */
 :root:not([data-theme="light"]) { color-scheme: dark;
-  --color-fg: #F2F4FA; --color-fg-muted: #9AA3BD; --color-bg: #0B0E17; --color-panel: #141927; --color-border-line: #2A3148;
-  --color-ok: #3DDC97; --color-warn: #FFB454; --color-bad: #FF6B81; --av-up: #3DDC97; --av-down: #FF6B81;
-  --accent: #9C8CFF; --accent-ink: #B9AEFF; --accent-tint: rgba(156, 140, 255, .16); --pro-well: #1D2437;
-  --cds-surface-popover: #1D2437; --cds-border: #2A3148; --cds-text-secondary: #9AA3BD; --app-bar: rgba(11, 14, 23, .94); --scrim: rgba(3, 5, 10, .62); }
-:root[data-theme="light"] { color-scheme: light;
+  /* build 149, "the mix" (Matteo, 26 Nov 2026, after seeing two looks side by side): true black, white and brighter green and red
+     as in the watchlist photo he sent; the violet stays (it is the icon's colour). Until build 148: navy #0B0E17, panel #141927. */
+  --color-fg: #FFFFFF; --color-fg-muted: #A0A6B4; --color-bg: #000000; --color-panel: #0E0F13; --color-border-line: #25272F; --row-sub: #B4B9C6;
+  --color-ok: #2BDD88; --color-warn: #FFB454; --color-bad: #FF5468; --av-up: #2BDD88; --av-down: #FF5468;
+  --accent: #9C8CFF; --accent-ink: #B9AEFF; --accent-tint: rgba(156, 140, 255, .20); --pro-well: #17181D;
+  --cds-surface-popover: #17181D; --cds-border: #25272F; --cds-text-secondary: #A0A6B4; --app-bar: rgba(0, 0, 0, .94); --scrim: rgba(0, 0, 0, .68); }
+:root[data-theme="light"] { color-scheme: light; --row-sub: var(--color-fg-muted);
   --color-fg: #10131D; --color-fg-muted: #5A6178; --color-bg: #F3F4F9; --color-panel: #FFFFFF; --color-border-line: #DCDFEA;
   --color-ok: #0B7A52; --color-warn: #B26A00; --color-bad: #C7283F; --av-up: #0B7A52; --av-down: #C7283F;
   --accent: #5A3FE0; --accent-ink: #4A32C4; --accent-tint: rgba(90, 63, 224, .10); --pro-well: #E9ECF5; --app-bar: rgba(255, 255, 255, .94); --scrim: rgba(16, 19, 29, .42); }
@@ -1718,6 +1720,17 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 #pfolio .g-group-v { display: grid; grid-template-columns: 92px 62px; gap: 0 8px; justify-items: end; align-items: center; } #pfolio .g-group-v b { font-size: 13px; font-variant-numeric: tabular-nums; } #pfolio .g-group-v .g-row-c { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 #pfolio .g-group-v .g-row-c.up { color: var(--av-up); } #pfolio .g-group-v .g-row-c.down { color: var(--av-down); }
 #pfolio .g-group-note { margin: 0 2px 6px 10px; font-size: 12px; }
+/* ---- build 149, the mix, for both looks: the lists read like a price board. A header line in small capitals, rows of 50 px, heavier
+   symbols, figures a little narrower (Archivo's width axis) so the columns stay calm, the open row in a violet band, a thinner split
+   bar. The holdings rows no longer say "Plan" or "Outside" (guide.js): that is in the holding's sheet and under Plan. ---- */
+.sc-th, .pf-th { text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; }
+.sc-row, .g-row.pf-row { min-height: 50px; padding-top: 5px; padding-bottom: 5px; }
+.sc-a .sc-nm b, .pf-row .g-row-a b { font-size: 15.5px; font-weight: 800; }
+.sc-a .sc-sub, .pf-row .g-row-n { color: var(--row-sub); font-weight: 500; } .sc-a .sc-sub.is-sig { color: var(--accent-ink); font-weight: 600; } .sc-a .sc-sub.is-out { color: var(--color-warn); }
+.sc-row .sc-v b, .sc-row .sc-chg, .pf-row .g-row-v b, .pf-row .g-row-c, #pfolio .g-group-v b, #pfolio .g-group-v .g-row-c { font-stretch: 88%; }
+.sc-row .sc-v b, .pf-row .g-row-v b { font-size: 15px; } .sc-row .sc-chg, .sc-row .sc-chg.up, .sc-row .sc-chg.down, .pf-row .g-row-c { font-size: 15px; font-weight: 800; }
+.sc-row.is-open, .g-row.pf-row.is-open { background: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: inset 4px 0 0 var(--accent); }
+.pf-split { height: 10px; } .pf-seg { height: 10px; border-radius: 3px; }
 /* ---- the asset's full page: the price first, large; on a phone the chart runs from edge to edge and the parts are short blocks ---- */
 .av-last { font-size: 42px; font-weight: 800; letter-spacing: -.03em; }
 .search-body .av-page:not(.is-wide) .av-chart .ch:not(.is-full) .ch-main, .search-body .av-page:not(.is-wide) .av-qchart { margin-inline: -16px; max-width: none; }   /* the picture only: the tools and the dates above it keep their margin */
