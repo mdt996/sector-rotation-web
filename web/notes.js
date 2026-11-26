@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 152, "text": "Portfolio now shows what you would keep after tax: in total under the large figure, and for each holding with the new Value | After tax switch. \"I need \u20ac\u2026\" works out what to sell to lose the least to tax and fees. Figures only: the app never sells, and the tax rules are not yet checked by an accountant."};
+window.SR_NOTES = {"build": 153, "text": "Taxes now has your year's report: each figure next to the box of the French return it goes in (3VG or 3VH, form 2047, form 2086, the accounts abroad), and every sale with the lines of form 2074. You can copy it as text. An estimate, not yet checked by an accountant."};

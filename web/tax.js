@@ -48,15 +48,16 @@
       else if (t.c && t.c !== 'EUR') { missing++; continue; }
       // the fee: the trade's own (in its currency, or in the coin) or the standard one
       const fq = t.fq > 0 ? Math.min(+t.fq, t.q) : 0, fee = t.f != null && isFinite(t.f) ? +t.f / k : fq ? 0 : feeFor(kind, money);
-      const p = pos.get(key) || { q: 0, cost: 0 };
+      const p = pos.get(key) || { q: 0, cost: 0, fees: 0, guess: 0 }, own = (t.f != null && isFinite(t.f)) || fq > 0;   // own: this trade's fee is known
       const y = years[year(t.d)] = years[year(t.d)] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, fees: 0, list: [] };
       y.fees = (y.fees || 0) + fee + (fq ? money * (fq / t.q) : 0);
       if (t.side === 'S') {
-        const q = Math.min(t.q, p.q), cost = p.q > 0 ? (p.cost / p.q) * q : 0, g = (money - fee) * (q / t.q) - cost;
-        p.q -= q; p.cost -= cost; if (p.q < 1e-9) { p.q = 0; p.cost = 0; }
+        const q = Math.min(t.q, p.q), cost = p.q > 0 ? (p.cost / p.q) * q : 0, bf = p.q > 0 ? (p.fees / p.q) * q : 0, g = (money - fee) * (q / t.q) - cost;
+        // for the year's report: the number sold (qAll; q of it was seen bought), the cost with the buying fees (cost) and those fees apart (buyFees)
+        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR' });
+        p.q -= q; p.cost -= cost; p.fees -= bf; if (p.q < 1e-9) { p.q = 0; p.cost = 0; p.fees = 0; p.guess = 0; }
         y[kind] += g; y.sales++; if (kind === 'crypto') y.cryptoSales += money;
-        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd });
-      } else { p.q += t.q - fq; p.cost += money + fee; }
+      } else { p.q += t.q - fq; p.cost += money + fee; p.fees += fee; if (!own) p.guess++; }
       pos.set(key, p);
     }
     return { years, missing };
@@ -245,6 +246,55 @@
   // the live figures for Portfolio: the year so far, each holding and the whole
   function keepNow() { const S = summary(), base = baseOf(S), H = holdingsNow(); return { S, y: S.y, base, H, ...afterTax(H, base) }; }
 
+  // ---- the year's report (build 153): each figure next to the box of the French return it goes in ----
+  // Box and line numbers as on the forms published in 2026 for 2025 income (read on impots.gouv.fr on 26 Nov 2026; the 2027
+  // forms may move them): form 2074 cadre 5, lines 511 to 524, one column a sale; its total on form 2042 C, box 3VG (a gain,
+  // after the losses of earlier years) or 3VH (the year's loss); a gain received on an account abroad also on form 2047,
+  // cadre 3, line 30; coins on form 2086 (lines 211 to 224, a gain to 3AN, a loss to 3BN, nothing when the year's sales are
+  // within EUR 305); accounts abroad: box 8UU and one form 3916-bis each. Sources and what is NOT covered: AGENTS.md.
+  const FORMS = 2026;
+  function report(trades, y, usdPerEur) {
+    const R = realised(trades, usdPerEur), Y = R.years[y] || { sec: 0, crypto: 0, cryptoSales: 0, sales: 0, fees: 0, list: [] }, carry = carryFor(R.years, y);
+    const sec = Y.list.filter((x) => x.kind === 'sec' && !x.cfd), cfd = Y.list.filter((x) => x.kind === 'sec' && x.cfd), cry = Y.list.filter((x) => x.kind === 'crypto');
+    const lines = sec.map((x) => {
+      const short = x.qAll - x.q > 1e-9;   // more sold than the app saw bought: the cost cannot be worked out
+      return { s: x.s, d: String(x.d).slice(0, 10), cur: x.cur, short, feeGuess: !x.feeKnown, buyGuess: !!x.buyGuess,
+        l514: x.money / x.qAll, l515: x.qAll, l516: x.money, l517: x.fee, l518: x.money - x.fee,
+        l520: short ? null : (x.cost - x.buyFees) / x.q, l521: short ? null : x.cost - x.buyFees, l522: short ? null : x.buyFees, l523: short ? null : x.cost, l524: short ? null : x.gain };
+    });
+    const net = Y.sec, used = Math.min(carry, Math.max(0, net)), taxable = Math.max(0, net - carry), boxes = [];
+    if (sec.length || cfd.length) {
+      if (net >= 0) boxes.push({ box: '3VG', form: '2042 C', amount: taxable, used }); else boxes.push({ box: '3VH', form: '2042 C', amount: -net });
+      if (taxable > 0) boxes.push({ box: '30', form: '2047', amount: taxable });
+    }
+    const exempt = Y.cryptoSales <= ALLOWANCE;
+    if (cry.length && !exempt) boxes.push({ box: Y.crypto >= 0 ? '3AN' : '3BN', form: '2086', amount: Math.abs(Y.crypto), estimate: true });
+    return { year: y, forms: FORMS, boxes,
+      sec: { n: sec.length, net, carry, used, taxable, lines, sum524: lines.reduce((t, l) => t + (l.l524 || 0), 0) },
+      crypto: { n: cry.length, sales: Y.cryptoSales, exempt, est: Y.crypto, lines: cry.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), l213: x.money, l214: x.fee, l215: x.money - x.fee })) },
+      flags: { missing: R.missing, short: lines.filter((l) => l.short).length, guess: lines.filter((l) => l.feeGuess || l.buyGuess).length, cfd: cfd.length, cfdNet: cfd.reduce((t, x) => t + x.gain, 0) },
+      years: Object.keys(R.years).map(Number).filter((k) => R.years[k].sales > 0).sort((a, b) => b - a) };
+  }
+  const dmy = (d) => { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(d)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
+  const num = (x) => (x == null || !isFinite(x) ? '—' : (+x.toFixed(6)).toLocaleString('en-GB', { maximumFractionDigits: 6 }));
+  // the lines of form 2074 for one sale, as [line, label, value]
+  const lines2074 = (l) => [['511', 'Security', l.s], ['512', 'Date sold', dmy(l.d)], ['514', 'Price of one', eur4(l.l514)], ['515', 'Number sold', num(l.l515)], ['516', 'Sold for', eur(l.l516)], ['517', 'Selling fees', eur(l.l517)], ['518', 'Net sale price', eur(l.l518)],
+    ['520', 'Cost of one (average)', eur4(l.l520)], ['521', 'Cost', eur(l.l521)], ['522', 'Buying fees', eur(l.l522)], ['523', 'Cost with fees', eur(l.l523)], ['524', 'Result', eur(l.l524, true)]];
+  const eur4 = (x) => (x == null || !isFinite(x) ? '—' : '€' + x.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
+  // what the app cannot know, said in the report
+  const UNKNOWN = ['Dividends and interest (form 2047, cadre 2) and the tax already taken on them abroad.', 'Your other brokers: every box is the total of your household.', 'Losses of earlier years that are not among the trades in the app.',
+    'Splits, mergers and transfers of securities.', 'The number, the opening date and the address of each account (form 3916-bis): they are on your Revolut statements.', 'How staking rewards are taxed when received (here they only count as coins bought at zero).'];
+  function reportText(Rp) {
+    const L = [`Proofbench: ${Rp.year} return, Revolut. An estimate, not yet checked by an accountant. Box and line numbers as on the ${Rp.forms} forms.`, ''];
+    for (const b of Rp.boxes) L.push(b.form === '2042 C' ? `Form 2042 C, box ${b.box}: ${eur(b.amount)}${b.used ? ` (after ${eur(b.used)} of earlier losses)` : ''}` : b.form === '2047' ? `Form 2047, cadre 3, line 30: ${eur(b.amount)}` : `Form 2086, then 2042 C box ${b.box}: ${eur(b.amount)} (the app's estimate, not the official sum)`);
+    if (Rp.crypto.n && Rp.crypto.exempt) L.push(`Coins: ${eur(Rp.crypto.sales)} sold in the year, within €${ALLOWANCE}: exempt (form 2086 lists each sale's price).`);
+    L.push('Accounts abroad: box 8UU, and one form 3916-bis for each account.');
+    if (Rp.sec.lines.length) { L.push('', 'Form 2074, cadre 5, one column a sale:'); for (const l of Rp.sec.lines) L.push(lines2074(l).map(([k, , v]) => `${k} ${v}`).join(' | ') + (l.short ? ' (purchase missing in the app)' : '') + (l.feeGuess || l.buyGuess ? ' (a fee assumed)' : '')); }
+    if (Rp.crypto.lines.length) { L.push('', 'Form 2086, one column a sale (212 and 220 to 223 need your whole coin portfolio):'); for (const l of Rp.crypto.lines) L.push(`${l.s} | 211 ${dmy(l.d)} | 213 ${eur(l.l213)} | 214 ${eur(l.l214)} | 215 ${eur(l.l215)}`); }
+    L.push('', 'Not known to the app:', ...UNKNOWN.map((u) => '- ' + u));
+    return L.join('\n');
+  }
+
   // ---- screens ----
   const kv = (box, k, v, cls) => { const r = box.appendChild(el('div', 'g-kv' + (cls ? ' ' + cls : ''))); r.appendChild(el('span', 'g-kv-k', k)); r.appendChild(el('span', 'g-kv-v', v)); return r; };
   const card = (box, title) => { const c = box.appendChild(el('div', 'g-card')); if (title) c.appendChild(el('div', 'g-card-t', title)); return c; };
@@ -260,6 +310,59 @@
       r.appendChild(el('span', '', `${String(x.d || x.c).slice(0, 10)} · ${x.label}`));
       r.appendChild(el('b', x.gain > 0.005 ? 'up' : x.gain < -0.005 ? 'down' : '', eur(x.gain, true)));
     }
+  }
+  // ---- the year's report on the Taxes tab: the boxes first, then each sale's lines, then what the app cannot know ----
+  const TL = (k) => (window.SRI18n ? window.SRI18n.t(k) : k);
+  let repYear = null, repSaid = '';
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* the older way below */ }
+    const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; } t.remove(); return ok;
+  }
+  function drawReport(box, y0) {
+    const fx = fxOf(), trades = SRApp.config().trades || [];
+    let Rp = report(trades, y0, fx);
+    const years = [...new Set([y0, ...Rp.years])].sort((a, b) => b - a).slice(0, 3), y = years.includes(repYear) ? repYear : y0;
+    if (y !== y0) Rp = report(trades, y, fx);
+    const c = card(box, `Your ${y} return: what goes where`); c.classList.add('x-rep'); c.dataset.year = y;
+    if (years.length > 1) {   // the return for a year is filed the spring after: last year's stays one tap away
+      const sw = c.appendChild(el('div', 'pf-view x-rep-years')); sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'The year of the report');
+      for (const k of years) { const b = sw.appendChild(el('button', 'pf-view-b' + (k === y ? ' is-on' : ''), String(k))); b.type = 'button'; b.setAttribute('aria-pressed', String(k === y)); b.addEventListener('click', () => { repYear = k; repSaid = ''; SRApp.renderDraw('ptax'); }); }
+    }
+    const row = (code, label, note, value, cls) => { const r = c.appendChild(el('div', 'x-box')); r.dataset.box = code; r.appendChild(el('span', 'x-code', code)); const m = r.appendChild(el('div', 'x-box-m')); m.appendChild(el('b', '', label)); if (note) m.appendChild(el('span', '', note)); r.appendChild(el('b', 'x-box-v ' + (cls || ''), value)); return r; };
+    const S = Rp.sec, C = Rp.crypto;
+    if (!S.n && !Rp.flags.cfd && !C.n) c.appendChild(el('div', 'g-line g-muted', `No sale in ${y} among the trades in the app: no gain or loss to declare from Revolut.`));
+    for (const b of Rp.boxes) {
+      if (b.box === '3VG') row('3VG', 'Gains on shares and funds', `form 2042 C${b.used > 0.005 ? ` · after ${eur(b.used)} of earlier losses` : ''}`, eur(b.amount));
+      else if (b.box === '3VH') row('3VH', 'Loss of the year on shares and funds', 'form 2042 C · it comes off such gains for 10 years', eur(b.amount));
+      else if (b.form === '2047') row('2047', 'The same gain, received abroad', 'cadre 3, line 30, with the country of the account', eur(b.amount));
+      else row(b.box, b.box === '3AN' ? 'Gain on coins' : 'Loss on coins', 'form 2086 · the app’s estimate, not the official sum', eur(b.amount));
+    }
+    if (C.n && C.exempt) row('2086', `Coins: ${eur(C.sales)} sold in the year`, `within €${ALLOWANCE}: exempt, nothing in 3AN. Form 2086 lists each sale’s price`, 'exempt');
+    row('8UU', 'Accounts abroad: tick the box', 'then one form 3916-bis for each account (investments, and Revolut X apart)', '');
+    // what needs a look before the figures are used
+    const warn = [Rp.flags.short ? `${Rp.flags.short} sale${Rp.flags.short === 1 ? '' : 's'} sold more than the app saw bought: add the missing purchase, the totals are incomplete.` : '', Rp.flags.guess ? `${Rp.flags.guess} sale${Rp.flags.guess === 1 ? '' : 's'} with a fee the app assumed (Revolut’s standard fee): put the real one from your statement.` : '',
+      Rp.flags.missing ? `${Rp.flags.missing} trade${Rp.flags.missing === 1 ? '' : 's'} left out: no euro rate for that day.` : '', Rp.flags.cfd ? `${Rp.flags.cfd} CFD result${Rp.flags.cfd === 1 ? '' : 's'} (${eur(Rp.flags.cfdNet, true)}) counted in the total: on form 2074 they go in the part for “instruments financiers à terme”, not in cadre 5.` : ''].filter(Boolean);
+    for (const w of warn) c.appendChild(el('div', 'x-rep-warn', w));
+    if (S.lines.length) {
+      const d = SRApp.disclosure(c, 'tax-report-2074', `Form 2074, sale by sale (${S.lines.length})`);
+      d.appendChild(el('div', 'g-hint', 'Cadre 5, one column a sale. Needed when the broker did not work out your gains by the French rule (the average price paid).'));
+      for (const l of S.lines) {
+        const b = d.appendChild(el('div', 'x-sale')); b.dataset.s = l.s; const h = b.appendChild(el('div', 'x-sale-h')); h.appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); h.appendChild(el('b', l.l524 > 0.005 ? 'up' : l.l524 < -0.005 ? 'down' : '', l.short ? 'incomplete' : eur(l.l524, true)));
+        const g = b.appendChild(el('div', 'x-lines')); for (const [k, lab, v] of lines2074(l).slice(1)) { const r = g.appendChild(el('div', 'x-line')); r.appendChild(el('span', 'x-code', k)); r.appendChild(el('span', '', lab)); r.appendChild(el('b', '', v)); }
+        const n = [l.cur !== 'EUR' ? `In euros at each day’s ${l.cur} rate` : '', l.feeGuess ? 'selling fee assumed' : '', l.buyGuess ? 'a buying fee assumed' : '', l.short ? 'purchase missing in the app' : ''].filter(Boolean); if (n.length) b.appendChild(el('div', 'g-hint', n.join(' · ') + '.'));
+      }
+    }
+    if (C.lines.length) {
+      const d = SRApp.disclosure(c, 'tax-report-2086', `Form 2086, sale by sale (${C.lines.length})`);
+      d.appendChild(el('div', 'g-hint', 'The app knows these lines. Lines 212 and 220 to 223 ask for the value and the cost of ALL your coins at each sale, which it does not have.'));
+      for (const l of C.lines) { const b = d.appendChild(el('div', 'x-sale')); b.appendChild(el('div', 'x-sale-h')).appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); const g = b.appendChild(el('div', 'x-lines')); for (const [k, lab, v] of [['211', 'Date sold', dmy(l.d)], ['213', 'Sold for', eur(l.l213)], ['214', 'Selling fees', eur(l.l214)], ['215', 'Net of fees', eur(l.l215)]]) { const r = g.appendChild(el('div', 'x-line')); r.appendChild(el('span', 'x-code', k)); r.appendChild(el('span', '', lab)); r.appendChild(el('b', '', v)); } }
+    }
+    { const d = SRApp.disclosure(c, 'tax-report-unknown', 'What the app cannot know'); const u = d.appendChild(el('ul', 'x-unknown')); for (const t of UNKNOWN) u.appendChild(el('li', '', t)); }
+    const f = c.appendChild(el('div', 'g-btns')), say = c.appendChild(el('div', 'g-hint x-rep-said', repSaid)); say.setAttribute('aria-live', 'polite');
+    f.appendChild(btn(TL('copy'), '', async () => { const ok = await copyText(reportText(Rp)); repSaid = ok ? 'Copied: paste it in a note to keep it beside your return.' : 'Could not copy on this device.'; say.textContent = repSaid; })).classList.add('x-rep-copy');
+    c.appendChild(el('div', 'g-hint x-rep-note', 'An estimate, not yet checked by an accountant.'));
+    c.appendChild(el('div', 'g-hint', `Box and line numbers as on the ${Rp.forms} forms (for ${Rp.forms - 1}): check them on the forms of the year you file. The return takes whole euros. Made on this device from the trades in the app.`));
   }
   function drawRevolut(box) {
     box.replaceChildren();
@@ -279,6 +382,7 @@
     if (R.unknown.length) b.appendChild(el('div', 'g-hint', `Not counted (no amount paid typed): ${R.unknown.join(', ')}.`));
     if (S.combAll) kv(b, 'With eToro too', `${eur(S.combAll.tax)} in all (both brokers add up on the return)`);
     salesList(box, 'tax-revolut-sales', `This year's sales (${Y.sales})`, Y.list.map((x) => ({ ...x, label: `${x.s}${x.cfd ? ' CFD' : ''}${x.kind === 'crypto' ? ' (crypto)' : ''} · sold ${eur(x.money)}` })));
+    drawReport(box, S.y);
     box.appendChild(el('div', 'g-hint', note + ' Gains use the average price paid and each day\'s euro-dollar rate; staking rewards count as bought at zero.'));
   }
   function drawEtoro(box) {
@@ -319,5 +423,5 @@
   dash.draw('petax', (outer) => drawEtoro(outer));
   setInterval(() => { if (document.hidden) return; SRApp.renderDraw('ptax'); }, 10000);   // live: the values move with the prices
 
-  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf };
+  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074 };
 })();
