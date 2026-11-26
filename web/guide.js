@@ -737,7 +737,7 @@
     sheet(`${TL('iNeed')} €…`, (s) => {
       s.classList.add('g-need');
       const f = s.appendChild(el('label', 'g-need-f')); f.appendChild(el('span', '', '€'));
-      const inp = f.appendChild(el('input')); inp.type = 'text'; inp.inputMode = 'decimal'; inp.autocomplete = 'off'; inp.placeholder = '0'; inp.value = ui.need || ''; inp.setAttribute('aria-label', 'The amount you need, in euros');
+      const inp = f.appendChild(el('input')); inp.type = 'text'; inp.inputMode = 'decimal'; inp.autocomplete = 'off'; inp.placeholder = '0'; inp.value = ui.need || (() => { try { return localStorage.getItem('sr.need') || ''; } catch (e) { return ''; } })();   // the amount typed last time inp.setAttribute('aria-label', 'The amount you need, in euros');
       const out = s.appendChild(el('div', 'g-need-out')); out.setAttribute('aria-live', 'polite');
       const row = (a, sub, v, vsub, cls) => { const r = out.appendChild(el('div', 'g-need-row')); const l = r.appendChild(el('div')); l.appendChild(el('b', '', a)); l.appendChild(el('span', '', sub)); const w = r.appendChild(el('div', 'g-need-v')); w.appendChild(el('b', '', v)); w.appendChild(el('span', cls || '', vsub)); return r; };
       const keptT = st.P ? st.keep : new Set();   // a holding kept outside the plan is never offered for sale
@@ -763,7 +763,7 @@
         const left = [kept.length ? `${kept.join(', ')} (kept)` : '', coins.length ? `${coins.join(', ')} (coins: which coin is sold does not change French tax)` : '', blind.length ? `${blind.join(', ')} (no price paid)` : ''].filter(Boolean);
         if (left.length) out.appendChild(el('div', 'g-hint g-need-left', `Left out: ${left.join(' · ')}.`));
       };
-      let wait = 0; inp.addEventListener('input', () => { ui.need = inp.value; clearTimeout(wait); wait = setTimeout(draw, 120); });   // a pause in the typing, then the sum
+      let wait = 0; inp.addEventListener('input', () => { ui.need = inp.value; try { localStorage.setItem('sr.need', inp.value); } catch (e) { /* not kept */ } clearTimeout(wait); wait = setTimeout(draw, 120); });   // a pause in the typing, then the sum
       draw();
       s.appendChild(el('div', 'g-hint g-need-note', 'Figures only: the app never sells. An estimate at 31.4% with Revolut’s standard fee; the rules are not yet checked by an accountant.'));
       setTimeout(() => { try { inp.focus(); } catch (e) { /* not shown */ } }, 60);

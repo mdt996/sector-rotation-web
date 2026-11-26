@@ -89,11 +89,36 @@
     f.label = YARDS[k].label; f.short = YARDS[k].short; f.sym = YARDS[k].sym; f.say = YARDS[k].say;   // (a function's own `name` cannot be set)
     return f;
   }
+  // ---- coins by the French rule (build 156). A coin sale's gain is not "its price less what that coin cost": it is
+  // (price - fees) - [the whole coin portfolio's net cost x price / the whole portfolio's value at that moment] (form 2086:
+  // 218 - [223 x (217 / 212)]), and each sale takes its share (the "fraction of initial capital") off the cost left for the
+  // next one. The value of the other coins held that day comes from their daily closes on eToro (dollars, turned into euros
+  // at that day's rate): the administration accepts daily quotations. coinPx.rows[sym]: closes kept by the live module. ----
+  const coinPx = { at: 0, tried: 0, busy: null, rows: {} };
+  async function loadCoins(syms) {
+    if (!window.SRLive || !window.SRLive.candles || !window.SRLive.liveIdOf) return false;
+    if (coinPx.busy) return coinPx.busy;
+    coinPx.tried = Date.now();
+    coinPx.busy = (async () => {
+      try {
+        const get = (id, iv) => Promise.race([window.SRLive.candles(id, iv, 1000, 1).catch(() => null), new Promise((r) => setTimeout(() => r(null), 25000))]);
+        let got = 0;
+        for (const sym of syms) { const id = window.SRLive.liveIdOf(sym); if (!id) continue; const [d, w] = await Promise.all([get(id, 'OneDay'), get(id, 'OneWeek')]), rows = joined(d, w); if (rows.length) { coinPx.rows[sym] = rows; got++; } }
+        coinPx.at = Date.now(); return got > 0;
+      } catch (e) { return false; } finally { coinPx.busy = null; }
+    })();
+    return coinPx.busy;
+  }
+  function coinOf() { const usd = fxOf(); return (sym, day) => { const c = closeAt(coinPx.rows[sym], day), k = c ? usd(day) : null; return c && k ? c / k : null; }; }
   // fundEur (optional): the price in euros of the yardstick fund on a day. Each position then carries a shadow holding of that
   // fund: the same euros buy it on the days of the buys, the same part of it is sold on the days of the sales, with the same
   // fees and the same cost. A sale's `fund` is what that shadow sale would have gained (null when a buy fell outside the fund's history).
-  function realised(trades, usdPerEur, fundEur) {
-    const pos = new Map(), years = {};
+  // coinEur (by default the closes on the device): a coin's price in euros on a day. While every coin held on the day of a
+  // sale has a price, coin sales follow the French whole-portfolio rule (their `off` lines); from the first sale where one is
+  // missing, they fall back to each coin's own average price (the earlier estimate) and are counted in `coin.approx`.
+  function realised(trades, usdPerEur, fundEur, coinEur) {
+    if (coinEur === undefined) coinEur = coinOf();
+    const pos = new Map(), years = {}, C = { q: new Map(), A: 0, used: 0, ok: !!coinEur, approx: 0, broke: null };
     let missing = 0, old = 0, weekly = 0;
     const T = (trades || []).filter((t) => t && t.s && t.q > 0 && t.p > 0 && t.d).slice().sort((a, b) => String(a.d).localeCompare(String(b.d)));
     for (const t of T) {
@@ -110,20 +135,33 @@
       if (t.side === 'S') {
         const q = Math.min(t.q, p.q), cost = p.q > 0 ? (p.cost / p.q) * q : 0, bf = p.q > 0 ? (p.fees / p.q) * q : 0, g = (money - fee) * (q / t.q) - cost;
         // for the year's report: the number sold (qAll; q of it was seen bought), the cost with the buying fees (cost) and those fees apart (buyFees)
+        let off = null;
+        if (kind === 'crypto') {   // the whole coin portfolio at this moment: the coin sold at this sale's own price, the others at their close of the day
+          const have = C.q.get(t.s) || 0;
+          if (C.ok && have + 1e-9 < t.q) { C.ok = false; C.broke = day; }   // more sold than seen bought
+          if (C.ok) {
+            let V = 0;
+            for (const [sym, qty] of C.q) { if (!(qty > 1e-12)) continue; const px = sym === t.s ? money / t.q : coinEur(sym, day); if (!(px > 0)) { C.ok = false; C.broke = day; break; } V += qty * px; }
+            if (C.ok) { V = Math.max(V, money); const net = C.A - C.used, frac = net * money / V; off = { l212: V, l220: C.A, l221: C.used, l223: net, frac, l224: money - fee - frac }; C.used += frac; }
+          }
+          if (!off) C.approx++;
+          C.q.set(t.s, Math.max(0, have - t.q));
+        }
         const fs = fundEur && kind === 'sec' && !t.cfd ? fundEur(day) : null, part = p.q > 0 ? q / p.q : 0, un = p.units * part;
         const fg = fs && !p.blind && q > 0 && t.q - q < 1e-9 ? un * fs - fee - cost : null;   // the shadow sale: the same fee, the same cost
-        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR', fund: fg, wk: !!(fg != null && (p.wk || (fundEur.daily && day < fundEur.daily))) });
+        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR', fund: fg, wk: !!(fg != null && (p.wk || (fundEur.daily && day < fundEur.daily))), off, est: g });
         p.q -= q; p.cost -= cost; p.fees -= bf; p.units -= un; if (p.q < 1e-9) { p.q = 0; p.cost = 0; p.fees = 0; p.guess = 0; p.units = 0; p.blind = false; p.wk = false; }
-        y[kind] += g; y.sales++; if (kind === 'crypto') y.cryptoSales += money;
+        y[kind] += off ? off.l224 : g; y.sales++; if (kind === 'crypto') { y.cryptoSales += money; if (!off) y.cryptoApprox = (y.cryptoApprox || 0) + 1; }
       } else {
         p.q += t.q - fq; p.cost += money + fee; p.fees += fee; if (!own) p.guess++;
+        if (kind === 'crypto') { C.q.set(t.s, (C.q.get(t.s) || 0) + t.q - fq); C.A += money + fee; }
         if (fundEur && kind === 'sec' && !t.cfd) { const fb = fundEur(day); if (fb) { p.units += money / fb; if (fundEur.daily && day < fundEur.daily) p.wk = true; } else p.blind = true; }
       }
       pos.set(key, p);
     }
     // what is still open among shares and funds, with its shadow fund units (for "what you still hold")
     const open = []; for (const [key, p] of pos) { const m = /^sec:(.+)$/.exec(key); if (m && !/:cfd$/.test(key) && p.q > 1e-9) open.push({ s: m[1], q: p.q, cost: p.cost, units: p.units, blind: p.blind }); }
-    return { years, missing, old, weekly, open };
+    return { years, missing, old, weekly, open, coin: { ok: C.ok, approx: C.approx, broke: C.broke, cost: C.A, used: C.used, net: C.A - C.used } };
   }
   // the unused net losses on shares of the ten years before
   function carryFor(years, y) {
@@ -358,15 +396,21 @@
       if (taxable > 0) boxes.push({ box: '30', form: '2047', amount: taxable });
     }
     const exempt = Y.cryptoSales <= ALLOWANCE;
-    if (cry.length && !exempt) boxes.push({ box: Y.crypto >= 0 ? '3AN' : '3BN', form: '2086', amount: Math.abs(Y.crypto), estimate: true });
+    const official = cry.length > 0 && cry.every((x) => x.off);
+    if (cry.length && !exempt) boxes.push({ box: Y.crypto >= 0 ? '3AN' : '3BN', form: '2086', amount: Math.abs(Y.crypto), estimate: !official });
+    for (const b of boxes) b.whole = Math.round(b.amount);   // the return takes whole euros
     return { year: y, forms: FORMS, boxes,
       sec: { n: sec.length, net, carry, used, taxable, lines, sum524: lines.reduce((t, l) => t + (l.l524 || 0), 0) },
-      crypto: { n: cry.length, sales: Y.cryptoSales, exempt, est: Y.crypto, lines: cry.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), l213: x.money, l214: x.fee, l215: x.money - x.fee })) },
+      crypto: { n: cry.length, sales: Y.cryptoSales, exempt, est: Y.crypto, official, approx: cry.filter((x) => !x.off).length,
+        lines: cry.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), l213: x.money, l214: x.fee, l215: x.money - x.fee, ...(x.off ? { l212: x.off.l212, l217: x.money, l218: x.money - x.fee, l220: x.off.l220, l221: x.off.l221, l223: x.off.l223, l224: x.off.l224 } : { l224e: x.est }) })) },
       flags: { missing: R.missing, old: R.old, oldFrom: (usdPerEur && usdPerEur.first) || null, weekly: R.weekly, weeklyTo: (usdPerEur && usdPerEur.daily) || null, short: lines.filter((l) => l.short).length, guess: lines.filter((l) => l.feeGuess || l.buyGuess).length, cfd: cfd.length, cfdNet: cfd.reduce((t, x) => t + x.gain, 0) },
       years: Object.keys(R.years).map(Number).filter((k) => R.years[k].sales > 0).sort((a, b) => b - a) };
   }
   const dmy = (d) => { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(d)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
   const num = (x) => (x == null || !isFinite(x) ? '—' : (+x.toFixed(6)).toLocaleString('en-GB', { maximumFractionDigits: 6 }));
+  // the lines of form 2086 for one coin sale: all of them when the whole-portfolio rule could be followed, else the four the app knows
+  const lines2086 = (l) => (l.l212 != null ? [['211', 'Date sold', dmy(l.d)], ['212', 'All your coins that day', eur(l.l212)], ['213', 'Sold for', eur(l.l213)], ['214', 'Selling fees', eur(l.l214)], ['215', 'Net of fees', eur(l.l215)], ['217', 'Price for the share', eur(l.l217)], ['218', 'Net price', eur(l.l218)],
+    ['220', 'Paid for all coins', eur(l.l220)], ['221', 'Already used', eur(l.l221)], ['223', 'Cost left', eur(l.l223)], ['224', 'Result', eur(l.l224, true)]] : [['211', 'Date sold', dmy(l.d)], ['213', 'Sold for', eur(l.l213)], ['214', 'Selling fees', eur(l.l214)], ['215', 'Net of fees', eur(l.l215)]]);
   // the lines of form 2074 for one sale, as [line, label, value]
   const lines2074 = (l) => [['511', 'Security', l.s], ['512', 'Date sold', dmy(l.d)], ['514', 'Price of one', eur4(l.l514)], ['515', 'Number sold', num(l.l515)], ['516', 'Sold for', eur(l.l516)], ['517', 'Selling fees', eur(l.l517)], ['518', 'Net sale price', eur(l.l518)],
     ['520', 'Cost of one (average)', eur4(l.l520)], ['521', 'Cost', eur(l.l521)], ['522', 'Buying fees', eur(l.l522)], ['523', 'Cost with fees', eur(l.l523)], ['524', 'Result', eur(l.l524, true)]];
@@ -376,11 +420,11 @@
     'Splits, mergers and transfers of securities.', 'The number, the opening date and the address of each account (form 3916-bis): they are on your Revolut statements.', 'How staking rewards are taxed when received (here they only count as coins bought at zero).'];
   function reportText(Rp) {
     const L = [`Proofbench: ${Rp.year} return, Revolut. An estimate, not yet checked by an accountant. Box and line numbers as on the ${Rp.forms} forms.`, ''];
-    for (const b of Rp.boxes) L.push(b.form === '2042 C' ? `Form 2042 C, box ${b.box}: ${eur(b.amount)}${b.used ? ` (after ${eur(b.used)} of earlier losses)` : ''}` : b.form === '2047' ? `Form 2047, cadre 3, line 30: ${eur(b.amount)}` : `Form 2086, then 2042 C box ${b.box}: ${eur(b.amount)} (the app's estimate, not the official sum)`);
+    for (const b of Rp.boxes) L.push((b.form === '2042 C' ? `Form 2042 C, box ${b.box}: ${eur(b.amount)}${b.used ? ` (after ${eur(b.used)} of earlier losses)` : ''}` : b.form === '2047' ? `Form 2047, cadre 3, line 30: ${eur(b.amount)}` : `Form 2086, then 2042 C box ${b.box}: ${eur(b.amount)} (${b.estimate ? 'the app\'s estimate, not the official sum' : 'the whole-portfolio rule, at each day\'s closes'})`) + `, to enter as ${b.whole}`);
     if (Rp.crypto.n && Rp.crypto.exempt) L.push(`Coins: ${eur(Rp.crypto.sales)} sold in the year, within €${ALLOWANCE}: exempt (form 2086 lists each sale's price).`);
     L.push('Accounts abroad: box 8UU, and one form 3916-bis for each account.');
     if (Rp.sec.lines.length) { L.push('', 'Form 2074, cadre 5, one column a sale:'); for (const l of Rp.sec.lines) L.push(lines2074(l).map(([k, , v]) => `${k} ${v}`).join(' | ') + (l.short ? ' (purchase missing in the app)' : '') + (l.feeGuess || l.buyGuess ? ' (a fee assumed)' : '')); }
-    if (Rp.crypto.lines.length) { L.push('', 'Form 2086, one column a sale (212 and 220 to 223 need your whole coin portfolio):'); for (const l of Rp.crypto.lines) L.push(`${l.s} | 211 ${dmy(l.d)} | 213 ${eur(l.l213)} | 214 ${eur(l.l214)} | 215 ${eur(l.l215)}`); }
+    if (Rp.crypto.lines.length) { L.push('', 'Form 2086, one column a sale (line 212 from the coins at Revolut X only, at the day\'s closes; a sale with four lines could not be rebuilt):'); for (const l of Rp.crypto.lines) L.push(`${l.s} | ` + lines2086(l).map(([k, , v]) => `${k} ${v}`).join(' | ')); }
     L.push('', 'Not known to the app:', ...UNKNOWN.map((u) => '- ' + u));
     return L.join('\n');
   }
@@ -472,16 +516,18 @@
     const S = Rp.sec, C = Rp.crypto;
     if (!S.n && !Rp.flags.cfd && !C.n) c.appendChild(el('div', 'g-line g-muted', `No sale in ${y} among the trades in the app: no gain or loss to declare from Revolut.`));
     for (const b of Rp.boxes) {
-      if (b.box === '3VG') row('3VG', 'Gains on shares and funds', `form 2042 C${b.used > 0.005 ? ` · after ${eur(b.used)} of earlier losses` : ''}`, eur(b.amount));
-      else if (b.box === '3VH') row('3VH', 'Loss of the year on shares and funds', 'form 2042 C · it comes off such gains for 10 years', eur(b.amount));
-      else if (b.form === '2047') row('2047', 'The same gain, received abroad', 'cadre 3, line 30, with the country of the account', eur(b.amount));
-      else row(b.box, b.box === '3AN' ? 'Gain on coins' : 'Loss on coins', 'form 2086 · the app’s estimate, not the official sum', eur(b.amount));
+      const w = ` · enter ${b.whole.toLocaleString('en-GB')}`;   // the return takes whole euros
+      if (b.box === '3VG') row('3VG', 'Gains on shares and funds', `form 2042 C${b.used > 0.005 ? ` · after ${eur(b.used)} of earlier losses` : ''}${w}`, eur(b.amount));
+      else if (b.box === '3VH') row('3VH', 'Loss of the year on shares and funds', `form 2042 C · it comes off such gains for 10 years${w}`, eur(b.amount));
+      else if (b.form === '2047') row('2047', 'The same gain, received abroad', `cadre 3, line 30, with the country of the account${w}`, eur(b.amount));
+      else row(b.box, b.box === '3AN' ? 'Gain on coins' : 'Loss on coins', (b.estimate ? 'form 2086 · the app’s estimate, not the official sum' : 'form 2086 · the whole-portfolio rule, at each day’s closes') + w, eur(b.amount));
     }
     if (C.n && C.exempt) row('2086', `Coins: ${eur(C.sales)} sold in the year`, `within €${ALLOWANCE}: exempt, nothing in 3AN. Form 2086 lists each sale’s price`, 'exempt');
     row('8UU', 'Accounts abroad: tick the box', 'then one form 3916-bis for each account (investments, and Revolut X apart)', '');
     // what needs a look before the figures are used
     const warn = [Rp.flags.short ? `${Rp.flags.short} sale${Rp.flags.short === 1 ? '' : 's'} sold more than the app saw bought: add the missing purchase, the totals are incomplete.` : '', Rp.flags.guess ? `${Rp.flags.guess} sale${Rp.flags.guess === 1 ? '' : 's'} with a fee the app assumed (Revolut’s standard fee): put the real one from your statement.` : '',
       Rp.flags.missing ? `${Rp.flags.missing} trade${Rp.flags.missing === 1 ? '' : 's'} left out: no euro rate for that day.` : '',
+      C.approx ? `${C.approx} coin sale${C.approx === 1 ? '' : 's'} worked out by the coin’s own average price, not the whole-portfolio rule: a coin held that day has no price history on this device.` : '',
       Rp.flags.old ? `${Rp.flags.old} dollar trade${Rp.flags.old === 1 ? '' : 's'} older than the euro rates kept on this device (from ${dmy(Rp.flags.oldFrom)}): turned into euros at that first rate, not their own day’s. Check them.` : '',
       Rp.flags.weekly ? `${Rp.flags.weekly} dollar trade${Rp.flags.weekly === 1 ? '' : 's'} from before ${dmy(Rp.flags.weeklyTo)}: turned into euros at that week’s rate (the daily rates kept start then).` : '', Rp.flags.cfd ? `${Rp.flags.cfd} CFD result${Rp.flags.cfd === 1 ? '' : 's'} (${eur(Rp.flags.cfdNet, true)}) counted in the total: on form 2074 they go in the part for “instruments financiers à terme”, not in cadre 5.` : ''].filter(Boolean);
     for (const w of warn) c.appendChild(el('div', 'x-rep-warn', w));
@@ -496,8 +542,9 @@
     }
     if (C.lines.length) {
       const d = SRApp.disclosure(c, 'tax-report-2086', `Form 2086, sale by sale (${C.lines.length})`);
-      d.appendChild(el('div', 'g-hint', 'The app knows these lines. Lines 212 and 220 to 223 ask for the value and the cost of ALL your coins at each sale, which it does not have.'));
-      for (const l of C.lines) { const b = d.appendChild(el('div', 'x-sale')); b.appendChild(el('div', 'x-sale-h')).appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); const g = b.appendChild(el('div', 'x-lines')); for (const [k, lab, v] of [['211', 'Date sold', dmy(l.d)], ['213', 'Sold for', eur(l.l213)], ['214', 'Selling fees', eur(l.l214)], ['215', 'Net of fees', eur(l.l215)]]) { const r = g.appendChild(el('div', 'x-line')); r.appendChild(el('span', 'x-code', k)); r.appendChild(el('span', '', lab)); r.appendChild(el('b', '', v)); } }
+      d.appendChild(el('div', 'g-hint', 'Line 212, all your coins at that moment, is rebuilt from your Revolut X trades: the coin sold at its sale price, the others at their close of that day. Coins held elsewhere, and staking rewards that are not among the trades, are not in it. A sale with only four lines could not be rebuilt.'));
+      for (const l of C.lines) { const b = d.appendChild(el('div', 'x-sale')); b.dataset.s = l.s; const h = b.appendChild(el('div', 'x-sale-h')); h.appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); if (l.l224 != null) h.appendChild(el('b', l.l224 > 0.005 ? 'up' : l.l224 < -0.005 ? 'down' : '', eur(l.l224, true)));
+        const g = b.appendChild(el('div', 'x-lines')); for (const [k, lab, v] of lines2086(l)) { const r = g.appendChild(el('div', 'x-line')); r.appendChild(el('span', 'x-code', k)); r.appendChild(el('span', '', lab)); r.appendChild(el('b', '', v)); } }
     }
     { const d = SRApp.disclosure(c, 'tax-report-unknown', 'What the app cannot know'); const u = d.appendChild(el('ul', 'x-unknown')); for (const t of UNKNOWN) u.appendChild(el('li', '', t)); }
     const f = c.appendChild(el('div', 'g-btns')), say = c.appendChild(el('div', 'g-hint x-rep-said', repSaid)); say.setAttribute('aria-live', 'polite');
@@ -506,6 +553,8 @@
     c.appendChild(el('div', 'g-hint', `Box and line numbers as on the ${Rp.forms} forms (for ${Rp.forms - 1}): check them on the forms of the year you file. The return takes whole euros. Made on this device from the trades in the app.`));
   }
   function drawRevolut(box) {
+    { const syms = [...new Set((SRApp.config().trades || []).filter((t) => t && t.src === 'revx' && t.s).map((t) => t.s))];
+      if (syms.length > 1 && !coinPx.busy && (coinPx.at ? Date.now() - coinPx.at > 6 * 3600e3 : Date.now() - coinPx.tried > 600e3)) loadCoins(syms).then((ok) => { if (ok) SRApp.renderDraw('ptax'); }); }
     box.replaceChildren();
     const S = summary(), R = S.R, Y = R.Y;
     big(box, `Tax for ${S.y} so far (Revolut)`, eur(R.due.tax), Y.sales ? `On this year's ${Y.sales} sale${Y.sales === 1 ? '' : 's'}` : 'No sale this year yet');
@@ -564,5 +613,5 @@
   dash.draw('petax', (outer) => drawEtoro(outer));
   setInterval(() => { if (document.hidden) return; SRApp.renderDraw('ptax'); }, 10000);   // live: the values move with the prices
 
-  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, worth, held, fundOf, fxOf, joined, closeAt, loadYard, _yard: yard };
+  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, lines2086, loadCoins, _coins: coinPx, worth, held, fundOf, fxOf, joined, closeAt, loadYard, _yard: yard };
 })();
