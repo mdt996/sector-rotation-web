@@ -11,7 +11,7 @@
   const platform = () => { try { return JSON.parse(window.Native.appInfo() || '{}').platform || 'android'; } catch (e) { return 'android'; } };
   const base = () => (platform() === 'web' ? location.origin : WORKER);   // the iPhone version is served by the Worker itself
   // what follows the person: their settings, their eToro keys and their Revolut X key (never this device's state)
-  const FIELDS = ['holdings', 'holdingsBase', 'watch', 'source', 'notify', 'notifyGo', 'notifyPhase', 'notifyWatch', 'notifyRegime', 'notifyHoldings',
+  const FIELDS = ['holdings', 'holdingsBase', 'watch', 'starred', 'source', 'notify', 'notifyGo', 'notifyPhase', 'notifyWatch', 'notifyRegime', 'notifyHoldings',
     'plan', 'alerts', 'notifyAlerts', 'trades', 'staking', 'apiKey', 'userKey'];
   const ROUNDS = 310000, EVERY = 5 * 60 * 1000;
   const enc = new TextEncoder(), dec = new TextDecoder();

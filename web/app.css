@@ -1731,6 +1731,13 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .sc-row .sc-v b, .pf-row .g-row-v b { font-size: 15px; } .sc-row .sc-chg, .sc-row .sc-chg.up, .sc-row .sc-chg.down, .pf-row .g-row-c { font-size: 15px; font-weight: 800; }
 .sc-row.is-open, .g-row.pf-row.is-open { background: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: inset 4px 0 0 var(--accent); }
 .pf-split { height: 10px; } .pf-seg { height: 10px; border-radius: 3px; }
+/* ---- the watchlist (build 150): a star in the asset's sheet and on its page, gold when the asset is on the list; the list is
+   Markets' first tab. ---- */
+.sc-star { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--color-fg-muted); cursor: pointer; }
+.sc-star svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+.sc-star.is-on { color: var(--color-warn); } .sc-star.is-on svg { fill: currentColor; }
+.sc-wempty { padding: 32px 12px; text-align: center; } .sc-wempty b { display: block; margin-bottom: 6px; font-size: 17px; font-weight: 700; } .sc-wempty p { margin: 0; font-size: 13.5px; }
+.sc-wmiss { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 2px 0; font-size: 12.5px; }
 /* ---- the asset's full page: the price first, large; on a phone the chart runs from edge to edge and the parts are short blocks ---- */
 .av-last { font-size: 42px; font-weight: 800; letter-spacing: -.03em; }
 .search-body .av-page:not(.is-wide) .av-chart .ch:not(.is-full) .ch-main, .search-body .av-page:not(.is-wide) .av-qchart { margin-inline: -16px; max-width: none; }   /* the picture only: the tools and the dates above it keep their margin */

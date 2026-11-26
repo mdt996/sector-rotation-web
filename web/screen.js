@@ -286,15 +286,39 @@
   const saveF = () => { try { localStorage.setItem(FK, JSON.stringify(F)); } catch (e) { /* not kept */ } };
   let shown = 60, howOpen = false, filtOpen = false, selAt = 0; const scrollX = {};
   const T = (k) => (window.SRI18n ? window.SRI18n.t(k) : k);   // a label in the chosen language (i18n.js)
-  const CLS = [['', 'all'], ['Stocks', 'stocks'], ['ETF', 'funds'], ['Crypto', 'crypto'], ['Indices', 'indices'], ['Commodity', 'commodities'], ['Forex', 'currencies'], ['@mine', 'yours']], CLSNAME = { ETF: 'Fund', Forex: 'Currency', Indices: 'Index' };
+  const CLS = [['@watch', 'watchlist'], ['', 'all'], ['Stocks', 'stocks'], ['ETF', 'funds'], ['Crypto', 'crypto'], ['Indices', 'indices'], ['Commodity', 'commodities'], ['Forex', 'currencies'], ['@mine', 'yours']], CLSNAME = { ETF: 'Fund', Forex: 'Currency', Indices: 'Index' };
   const SECKEY = { XLK: 'tech', XLF: 'finance', XLE: 'energy', XLV: 'health', XLI: 'industry', XLY: 'consumer', XLP: 'staples', XLU: 'utilities', XLB: 'materials', XLRE: 'realestate', XLC: 'comms' };
   const SECTOR = { XLK: 'Information Technology', XLF: 'Financials', XLE: 'Energy', XLV: 'Healthcare', XLI: 'Industrials', XLY: 'Consumer Discretionary', XLP: 'Consumer Staples', XLU: 'Utilities', XLB: 'Materials', XLRE: 'Real Estate', XLC: 'Communication Services' };
   const SIZE = { mega: ['Over $200B', 200e9, Infinity], large: ['$10B to $200B', 10e9, 200e9], mid: ['$2B to $10B', 2e9, 10e9], small: ['Under $2B', 0, 2e9] };
   const SALES = { big: ['Revenue over $50B', 50e9, Infinity], mid: ['Revenue $5B to $50B', 5e9, 50e9], small: ['Revenue under $5B', 0, 5e9] };
   const RSIB = { lo: ['RSI below 30', 0, 30], mlo: ['RSI 30 to 50', 30, 50], mhi: ['RSI 50 to 70', 50, 70], hi: ['RSI above 70', 70, 101] };
   const inB = (v, B) => v != null && v >= B[1] && v < B[2];
+  // ---- the watchlist (build 150; Matteo, 26 Nov 2026: "I want the watchlist"): the assets the user starred, kept with the settings
+  // (config key "starred": [{ id, s, n }], in the order they were added, 200 at most) so they follow the person to every device like
+  // the holdings (sync.js SYNCED, account.js FIELDS). NOT the older "watch" setting: that is a typed list of sector funds for alerts. ----
+  let wsMemo = null;
+  const starred = () => { const c = window.SRApp && SRApp.config ? SRApp.config() : {}; return Array.isArray(c.starred) ? c.starred.filter((x) => x && +x.id > 0) : []; };
+  const wset = () => (wsMemo && Date.now() - wsMemo.at < 1500 ? wsMemo.s : (wsMemo = { at: Date.now(), s: new Set(starred().map((x) => +x.id)) }).s);
+  const isStar = (id) => wset().has(+id);
+  function toggleStar(a) {   // a: { id, sym, name } -> true when it is on the list afterwards
+    if (!a || !(+a.id > 0) || !window.SRApp || !SRApp.saveConfig) return false;
+    const c = SRApp.config(), L = starred(), i = L.findIndex((x) => +x.id === +a.id), on = i < 0;
+    if (on) { if (L.length >= 200) return false; L.push({ id: +a.id, s: String(a.sym || ''), n: String(a.name || '').slice(0, 60) }); } else L.splice(i, 1);
+    c.starred = L; SRApp.saveConfig(c); wsMemo = null; allMemo = null; if (window.SRSync && window.SRSync.pushSoon) window.SRSync.pushSoon();
+    for (const b of document.querySelectorAll(`.sc-star[data-id="${+a.id}"]`)) paintStar(b, on);
+    if (SRApp.renderDraw) SRApp.renderDraw('screener');
+    return on;
+  }
+  const paintStar = (b, on) => { b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'On your watchlist. Tap to remove' : 'Add to your watchlist'); b.title = on ? 'On your watchlist' : 'Add to your watchlist'; };
+  function starButton(a) {   // a star for an asset, used by the asset's sheet here and by the asset's page (live.js)
+    const b = el('button', 'sc-star'); b.type = 'button'; b.dataset.id = String(+a.id);
+    const sv = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); sv.appendChild(svgEl('path', { d: 'M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z' })); b.appendChild(sv);
+    paintStar(b, isStar(a.id)); b.addEventListener('click', (e) => { e.stopPropagation(); toggleStar(a); });
+    return b;
+  }
+  const watchOrder = () => { const ix = new Map(starred().map((x, i) => [+x.id, i])); const at = (r) => (ix.has(+r.id) ? ix.get(+r.id) : 1e9); return (a, b) => at(a) - at(b); };
   function pass(r) {
-    if (F.cls === '@mine' ? !r.mine : F.cls && r.cls !== F.cls) return false;
+    if (F.cls === '@watch' ? !isStar(r.id) : F.cls === '@mine' ? !r.mine : F.cls && r.cls !== F.cls) return false;
     if (F.sec && !(r.cls === 'Stocks' && r.sec === F.sec)) return false;
     if (F.size === 'liq' ? !liquid(r) : F.size && !inB(r.cap, SIZE[F.size])) return false;
     if (F.sales && !inB(r.sales, SALES[F.sales])) return false;
@@ -528,6 +552,7 @@
     const p = sh.appendChild(el('div', 'sc-sheet-panel')); p.appendChild(el('span', 'sc-sheet-grip'));
     const h = p.appendChild(el('div', 'sc-sheet-head')); if (window.SRLogo) window.SRLogo.lead(h, r.id, r.sym, 44);
     const id = h.appendChild(el('span', 'sc-sheet-id')); id.appendChild(el('b', '', r.sym)); id.appendChild(el('span', 'g-muted', r.name || r.group || ''));
+    if (r.id) h.appendChild(starButton({ id: r.id, sym: r.sym, name: r.name }));
     const x = h.appendChild(el('button', 'sc-sheet-x')); x.type = 'button'; x.setAttribute('aria-label', T('done')); x.addEventListener('click', closeSheet);
     { const sv = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' }); sv.appendChild(svgEl('path', { d: 'M6 6l12 12M18 6L6 18' })); x.appendChild(sv); }
     const px = p.appendChild(el('div', 'sc-sheet-px')); px.appendChild(el('b', '', fmt(r.px))); px.appendChild(el('span', 'sc-chg ' + dir(r.chg), pct(r.chg)));
@@ -566,7 +591,7 @@
     const pick = (ch) => { Object.assign(F, ch); shown = 60; hlId = null; allMemo = null; saveF(); SRApp.renderDraw('screener'); };
     // the kinds of asset as tabs, always in view (Matteo, 25 Nov 2026: "the categorization should be clearer")
     const tabs = box.appendChild(el('div', 'sc-tabs')); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Kind of asset'); keep(tabs, 'tabs');
-    for (const [val, lab] of CLS) { const on = F.cls === val, t = tabs.appendChild(el('button', 'sc-tab' + (on ? ' is-on' : ''), T(lab))); t.type = 'button'; t.setAttribute('role', 'tab'); t.setAttribute('aria-selected', String(on)); t.dataset.cls = val;
+    for (const [val, lab] of CLS) { const on = F.cls === val, t = tabs.appendChild(el('button', 'sc-tab' + (on ? ' is-on' : '') + (val === '@watch' ? ' sc-tab-w' : ''), (val === '@watch' ? '★ ' : '') + T(lab))); t.type = 'button'; t.setAttribute('role', 'tab'); t.setAttribute('aria-selected', String(on)); t.dataset.cls = val;
       t.addEventListener('click', () => pick({ cls: val, sec: val === 'Stocks' ? F.sec : '' })); }
     // the day's change as coloured tiles: the world, then the eleven sectors (the same funds as the ranking)
     // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
@@ -628,7 +653,7 @@
     const L = fsN ? ALL.filter(pass).filter((r) => { const p = P0 && P0.by.get(r.id); return p && p[fsN.i]; }).sort(finOrder(fsN))
       : dsN ? ALL.filter(pass).filter((r) => r[dsN]).sort(dvCmp(dsN))
       : msN ? ALL.filter(pass).filter((r) => r[msN.k] != null && isFinite(r[msN.k])).sort((a, b) => (msN.lo ? a[msN.k] - b[msN.k] : b[msN.k] - a[msN.k]))
-      : ALL.filter(pass).sort((SORTS[F.sort] || SORTS.rank)[1]), active = Object.keys(F0).some((k) => F[k] !== F0[k]);
+      : ALL.filter(pass).sort(F.cls === '@watch' && (!F.sort || F.sort === 'rank') ? watchOrder() : (SORTS[F.sort] || SORTS.rank)[1]), active = Object.keys(F0).some((k) => F[k] !== F0[k]);
     const nSig = L.reduce((x, r) => x + (isSig(r) ? 1 : 0), 0), plain = !fsN && !msN && !dsN;
     // the signals left out or let in (too small to have been tested, weak finances), among the assets the other filters keep
     const nOut = plain ? ALL.reduce((x, r) => x + (r.buy && !r.q && pass(Object.assign(Object.create(r), { q: true })) ? 1 : 0), 0) : 0;
@@ -649,6 +674,11 @@
     const list = box.appendChild(el('div', 'sc-list')), vis = L.slice(0, shown);
     for (const r of vis) { const x = list.appendChild(rowEl(r)); if (r.id === hlId) x.classList.add('is-hl-keep'); }
     if (!L.length) list.appendChild(el('p', 'g-muted', 'No asset matches these filters.'));
+    if (F.cls === '@watch') {   // the watchlist's own words: empty, or some of its assets are outside tonight's scan
+      const S = starred(), have = new Set(ALL.map((r) => +r.id)), miss = wide ? S.filter((x) => !have.has(+x.id)) : [];
+      if (!S.length) { list.replaceChildren(); const e = list.appendChild(el('div', 'sc-wempty')); e.appendChild(el('b', '', 'Your watchlist is empty')); e.appendChild(el('p', 'g-muted', 'Open any asset and tap its star to follow it here.')); }
+      else if (miss.length) { const m = box.appendChild(el('div', 'sc-wmiss')); m.appendChild(el('span', 'g-muted', 'Not in the nightly scan:')); for (const x of miss) { const mb = m.appendChild(el('button', 'sc-tab', x.s || String(x.id))); mb.type = 'button'; mb.addEventListener('click', () => open({ id: x.id, sym: x.s, name: x.n })); } }
+    }
     if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `${T('more')} (${(L.length - shown).toLocaleString('en-US')})`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...R.map((r) => r.id), ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)].filter(Boolean));
@@ -733,5 +763,5 @@
     box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
     return true;
   });
-  window.SRScreen = { closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { watch: { list: starred, has: isStar, toggle: toggleStar, button: starButton }, closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();

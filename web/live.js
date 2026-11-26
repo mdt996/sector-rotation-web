@@ -399,6 +399,7 @@
     if (window.SRLogo && window.SRLogo.lead(idt, inst.id, inst.symbol, 40)) idt.classList.add('has-logo');
     idt.appendChild(el('div', 'av-name', [inst.name, inst.exchange].filter(Boolean).join(' · ')));
     if (opts.picker) top.appendChild(opts.picker);
+    if (window.SRScreen && window.SRScreen.watch && inst.id) top.appendChild(window.SRScreen.watch.button({ id: inst.id, sym: inst.symbol, name: inst.name }));   // the star: on your watchlist (screen.js)
     // signal alert for this asset on the candle size shown (the phone's hourly background check sends it)
     const bell = top.appendChild(el('button', 'av-bell')); bell.type = 'button';
     const ALERT_OK = ['30m', '1H', '4H', '1D', '1W'];
