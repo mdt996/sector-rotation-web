@@ -1821,3 +1821,5 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .x-worth-diff { font-size: 16px; font-weight: 800; letter-spacing: -.01em; } .x-worth-diff.up { color: var(--av-up); } .x-worth-diff.down { color: var(--av-down); }
 .x-worth .sr-disclosure { margin-top: 12px; } .x-worth-row { align-items: baseline; } .x-worth-v { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; } .x-worth-v span { color: var(--row-sub, var(--color-fg-muted)); }
 .x-worth-note { margin-top: 10px; }
+/* build 155: the yardstick's switch, and the second pair of bars for what is still held */
+.x-yard { margin: 0 0 12px; } .x-nb { white-space: nowrap; } .x-held-say { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border-line); }

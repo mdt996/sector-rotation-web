@@ -26,41 +26,81 @@
   const thisYear = () => new Date().getFullYear();
 
   // ---- the euro-dollar rate of a day (dollars for one euro), from the app's daily EURUSD rows ----
+  // ---- older prices (build 155): before the daily closes kept, eToro's weekly closes (up to 1,000 weeks), read by the live
+  // module, kept on the device and asked again at most every six hours. yard.rows: world (SWDA.L, iShares' MSCI World fund that
+  // reinvests its dividends, in pence), gbp (pounds per euro), usdW and spW (weekly euro-dollar and SPY). ----
+  const yard = { at: 0, tried: 0, busy: null, rows: {} };
+  const fri = (t) => new Date(t + 4 * 3600e3 + 4 * DAY).toISOString().slice(0, 10);   // a weekly candle starts on Sunday evening: its close is that week's Friday
+  // one list, oldest first: the weekly closes (marked w) before the first daily close, then the daily ones
+  function joined(daily, weekly) {
+    const d = (daily || []).filter((r) => r && r.close > 0 && r.date).map((r) => ({ date: r.date, close: r.close })), first = d.length ? d[0].date : '9999-99-99';
+    return (weekly || []).filter((r) => r && r.close > 0 && r.t).map((r) => ({ date: fri(r.t), close: r.close, w: true })).filter((r) => r.date < first).concat(d);
+  }
+  // the last close on or before a day: at most a week back among daily closes, sixteen days among weekly ones (a week can be missing)
+  function closeAt(rows, day) {
+    if (!rows || !rows.length || day < rows[0].date) return null;
+    let lo = 0, hi = rows.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rows[m].date <= day) lo = m; else hi = m - 1; }
+    const r = rows[lo]; return (Date.parse(day) - Date.parse(r.date)) / DAY <= (r.w ? 16 : 7) && r.close > 0 ? r.close : null;
+  }
+  const firstDaily = (rows) => { const r = (rows || []).find((x) => !x.w); return r ? r.date : null; };
+  async function loadYard() {
+    if (!window.SRLive || !window.SRLive.candles) return false;
+    if (yard.busy) return yard.busy;
+    yard.tried = Date.now();
+    yard.busy = (async () => {
+      try {
+        // (a read that never answers must not hold the card: after 25 s it counts as nothing)
+        const get = (id, iv) => Promise.race([window.SRLive.candles(id, iv, 1000, 1).catch(() => null), new Promise((r) => setTimeout(() => r(null), 25000))]);
+        const [wd, ww, gd, gw, uw, sw] = await Promise.all([get(3040, 'OneDay'), get(3040, 'OneWeek'), get(8, 'OneDay'), get(8, 'OneWeek'), get(1, 'OneWeek'), get(3000, 'OneWeek')]);
+        yard.rows = { world: joined(wd, ww), gbp: joined(gd, gw), usdW: joined(null, uw), spW: joined(null, sw) };
+        const got = hasWorld() || yard.rows.usdW.length > 0 || yard.rows.spW.length > 0; yard.at = got ? Date.now() : 0;   // nothing came: tried again in ten minutes
+        return got;
+      } catch (e) { return false; } finally { yard.busy = null; }
+    })();
+    return yard.busy;
+  }
+  const storeRows = (k) => { const st = (window.SRApp && SRApp._store) || {}; return st[k] && st[k].status === 'ok' && Array.isArray(st[k].data) ? st[k].data : []; };
+  const usdRows = () => { const d = storeRows('EURUSD'), first = d.length ? d[0].date : '9999-99-99'; return (yard.rows.usdW || []).filter((r) => r.date < first).concat(d); };
+  // dollars per euro on a day: that day's close; before the daily closes kept, that week's (f.daily says from when the rate is
+  // daily); before any rate kept, the oldest one (f.first: a trade before it is counted and said, never silently converted)
   function fxOf() {
-    const S = window.SRApp && SRApp._store && SRApp._store.EURUSD, rows = S && S.status === 'ok' ? S.data : [];
+    const rows = usdRows();
     const f = (day) => {
       if (!rows.length) return null;
-      let v = rows[0].close;
-      for (const r of rows) { if (r.date > day) break; v = r.close; }
-      return v > 0 ? v : null;
+      if (day < rows[0].date) return rows[0].close > 0 ? rows[0].close : null;
+      let lo = 0, hi = rows.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rows[m].date <= day) lo = m; else hi = m - 1; }
+      return rows[lo].close > 0 ? rows[lo].close : null;
     };
-    f.first = rows.length ? rows[0].date : null;   // a trade before this day gets this first rate, not its own: counted (`old`) and said
+    f.first = rows.length ? rows[0].date : null; f.daily = firstDaily(rows);
     return f;
   }
-  // ---- the yardstick of "was it worth it?": the S&P 500 fund the app keeps daily closes of (SPY, in dollars), in euros ----
-  // its price on a day = its last close on or before it (at most a week back) at that close's euro-dollar rate; null outside the
-  // history kept on the device: nothing is compared then, never a guess
-  function fundOf() {
-    const st = (window.SRApp && SRApp._store) || {}, rowsOf = (k) => (st[k] && st[k].status === 'ok' && Array.isArray(st[k].data) ? st[k].data : []), F = rowsOf('SPY'), X = rowsOf('EURUSD');
-    const at = (rows, day) => { if (!rows.length || day < rows[0].date) return null; let lo = 0, hi = rows.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rows[m].date <= day) lo = m; else hi = m - 1; } const r = rows[lo]; return (Date.parse(day) - Date.parse(r.date)) / DAY <= 7 && r.close > 0 ? r.close : null; };
-    const f = (day) => { const a = at(F, day), b = at(X, day); return a && b ? a / b : null; };
-    f.first = F.length && X.length ? (F[0].date > X[0].date ? F[0].date : X[0].date) : null; f.label = 'S&P 500'; f.sym = 'SPY';   // (a function's own `name` cannot be set)
+  // ---- the yardsticks of "was it worth it?", in euros: a world fund that reinvests its dividends (SWDA.L over pounds per euro;
+  // only ratios between two days are used, so pence or pounds do not matter), or the S&P 500 fund SPY (dollars, dividends not
+  // in its price). null outside the history kept: nothing is compared then, never a guess. ----
+  const YARDS = { world: { label: 'a world fund', short: 'World', sym: 'SWDA', say: 'SWDA, iShares’ MSCI World fund (London, in pounds): it reinvests its dividends' },
+    sp: { label: 'the S&P 500', short: 'S&P 500', sym: 'SPY', say: 'SPY, the S&P 500 fund in dollars: its dividends are not in its price' } };
+  const hasWorld = () => !!(yard.rows.world && yard.rows.world.length && yard.rows.gbp && yard.rows.gbp.length);
+  function fundOf(kind) {
+    const k = kind === 'world' && hasWorld() ? 'world' : 'sp', sd = storeRows('SPY'), sFirst = sd.length ? sd[0].date : '9999-99-99';
+    const F = k === 'world' ? yard.rows.world : (yard.rows.spW || []).filter((r) => r.date < sFirst).concat(sd), X = k === 'world' ? yard.rows.gbp : usdRows();
+    const f = (day) => { const a = closeAt(F, day), b = closeAt(X, day); return a && b ? a / b : null; };
+    const later = (a, b) => (a && b ? (a > b ? a : b) : null);
+    f.first = F.length && X.length ? later(F[0].date, X[0].date) : null; f.daily = later(firstDaily(F), firstDaily(X)); f.kind = k;
+    f.label = YARDS[k].label; f.short = YARDS[k].short; f.sym = YARDS[k].sym; f.say = YARDS[k].say;   // (a function's own `name` cannot be set)
     return f;
   }
-
-  // ---- Revolut: per year, the gains and losses of your sales and the total of crypto sold ----
   // fundEur (optional): the price in euros of the yardstick fund on a day. Each position then carries a shadow holding of that
   // fund: the same euros buy it on the days of the buys, the same part of it is sold on the days of the sales, with the same
   // fees and the same cost. A sale's `fund` is what that shadow sale would have gained (null when a buy fell outside the fund's history).
   function realised(trades, usdPerEur, fundEur) {
     const pos = new Map(), years = {};
-    let missing = 0, old = 0;
+    let missing = 0, old = 0, weekly = 0;
     const T = (trades || []).filter((t) => t && t.s && t.q > 0 && t.p > 0 && t.d).slice().sort((a, b) => String(a.d).localeCompare(String(b.d)));
     for (const t of T) {
       const kind = t.src === 'revx' ? 'crypto' : 'sec', key = kind + ':' + t.s + (t.cfd ? ':cfd' : '');
       let money = t.q * t.p, k = 1;
       const day = String(t.d).slice(0, 10);
-      if (t.c === 'USD') { k = usdPerEur ? usdPerEur(day) : null; if (!(k > 0)) { missing++; continue; } money /= k; if (usdPerEur.first && day < usdPerEur.first) old++; }
+      if (t.c === 'USD') { k = usdPerEur ? usdPerEur(day) : null; if (!(k > 0)) { missing++; continue; } money /= k; if (usdPerEur.first && day < usdPerEur.first) old++; else if (usdPerEur.daily && day < usdPerEur.daily) weekly++; }
       else if (t.c && t.c !== 'EUR') { missing++; continue; }
       // the fee: the trade's own (in its currency, or in the coin) or the standard one
       const fq = t.fq > 0 ? Math.min(+t.fq, t.q) : 0, fee = t.f != null && isFinite(t.f) ? +t.f / k : fq ? 0 : feeFor(kind, money);
@@ -72,16 +112,18 @@
         // for the year's report: the number sold (qAll; q of it was seen bought), the cost with the buying fees (cost) and those fees apart (buyFees)
         const fs = fundEur && kind === 'sec' && !t.cfd ? fundEur(day) : null, part = p.q > 0 ? q / p.q : 0, un = p.units * part;
         const fg = fs && !p.blind && q > 0 && t.q - q < 1e-9 ? un * fs - fee - cost : null;   // the shadow sale: the same fee, the same cost
-        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR', fund: fg });
-        p.q -= q; p.cost -= cost; p.fees -= bf; p.units -= un; if (p.q < 1e-9) { p.q = 0; p.cost = 0; p.fees = 0; p.guess = 0; p.units = 0; p.blind = false; }
+        y.list.push({ s: t.s, d: t.d, kind, money, fee, gain: g, cfd: !!t.cfd, q, qAll: t.q, cost, buyFees: bf, feeKnown: own, buyGuess: p.guess > 0, cur: t.c || 'EUR', fund: fg, wk: !!(fg != null && (p.wk || (fundEur.daily && day < fundEur.daily))) });
+        p.q -= q; p.cost -= cost; p.fees -= bf; p.units -= un; if (p.q < 1e-9) { p.q = 0; p.cost = 0; p.fees = 0; p.guess = 0; p.units = 0; p.blind = false; p.wk = false; }
         y[kind] += g; y.sales++; if (kind === 'crypto') y.cryptoSales += money;
       } else {
         p.q += t.q - fq; p.cost += money + fee; p.fees += fee; if (!own) p.guess++;
-        if (fundEur && kind === 'sec' && !t.cfd) { const fb = fundEur(day); if (fb) p.units += money / fb; else p.blind = true; }
+        if (fundEur && kind === 'sec' && !t.cfd) { const fb = fundEur(day); if (fb) { p.units += money / fb; if (fundEur.daily && day < fundEur.daily) p.wk = true; } else p.blind = true; }
       }
       pos.set(key, p);
     }
-    return { years, missing, old };
+    // what is still open among shares and funds, with its shadow fund units (for "what you still hold")
+    const open = []; for (const [key, p] of pos) { const m = /^sec:(.+)$/.exec(key); if (m && !/:cfd$/.test(key) && p.q > 1e-9) open.push({ s: m[1], q: p.q, cost: p.cost, units: p.units, blind: p.blind }); }
+    return { years, missing, old, weekly, open };
   }
   // the unused net losses on shares of the ten years before
   function carryFor(years, y) {
@@ -276,9 +318,24 @@
     const sales = Y.list.filter((x) => x.kind === 'sec' && !x.cfd), ok = sales.filter((x) => x.fund != null);
     const mine = ok.reduce((t, x) => t + x.gain, 0), fund = ok.reduce((t, x) => t + x.fund, 0), after = (g) => g - RATE * Math.max(0, g - carry);
     return { year: y, n: ok.length, left: sales.length - ok.length, sold: ok.reduce((t, x) => t + x.money, 0), cost: ok.reduce((t, x) => t + x.cost, 0), mine, fund, mineNet: after(mine), fundNet: after(fund), diff: after(mine) - after(fund), carry,
-      from: (fundEur && fundEur.first) || null, name: (fundEur && fundEur.label) || 'the fund', sym: (fundEur && fundEur.sym) || '', rows: ok.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), mine: x.gain, fund: x.fund })) };
+      from: (fundEur && fundEur.first) || null, daily: (fundEur && fundEur.daily) || null, name: (fundEur && fundEur.label) || 'the fund', short: (fundEur && fundEur.short) || 'Fund', sym: (fundEur && fundEur.sym) || '', say: (fundEur && fundEur.say) || '', kind: (fundEur && fundEur.kind) || '',
+      weekly: ok.some((x) => x.wk), rows: ok.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), mine: x.gain, fund: x.fund })) };
   }
 
+  // what is still held (build 155), before tax: each holding whose trades the app has, worth its live value less the selling
+  // fee, beside its shadow fund units at today's price less the same fee, both over the same cost. A holding is tied to its
+  // trades only when what the trades cost agrees with the price paid typed for it (within 3%, or EUR 2): otherwise the euros
+  // shown for it may not be the same shares, and it is left out and counted. Never a guess.
+  function held(trades, holdings, usdPerEur, fundEur, today) {
+    const R = realised(trades, usdPerEur, fundEur), H = new Map((holdings || []).filter((h) => h.value > 0 && !h.crypto && !h.pending && h.ticker !== 'CASH').map((h) => [h.ticker, h])), now = fundEur ? fundEur(today) : null, rows = [];
+    let left = 0;
+    for (const p of R.open) {
+      const h = H.get(p.s); if (!h) continue;
+      if (!now || p.blind || !(h.paid > 0) || Math.abs(p.cost - h.paid) > Math.max(2, 0.03 * h.paid)) { left++; continue; }
+      const fee = feeFor('sec', h.value); rows.push({ s: p.s, value: h.value, mine: h.value - fee - p.cost, fund: p.units * now - fee - p.cost });
+    }
+    return { n: rows.length, left, value: rows.reduce((t, r) => t + r.value, 0), mine: rows.reduce((t, r) => t + r.mine, 0), fund: rows.reduce((t, r) => t + r.fund, 0), rows };
+  }
   // ---- the year's report (build 153): each figure next to the box of the French return it goes in ----
   // Box and line numbers as on the forms published in 2026 for 2025 income (read on impots.gouv.fr on 26 Nov 2026; the 2027
   // forms may move them): form 2074 cadre 5, lines 511 to 524, one column a sale; its total on form 2042 C, box 3VG (a gain,
@@ -305,7 +362,7 @@
     return { year: y, forms: FORMS, boxes,
       sec: { n: sec.length, net, carry, used, taxable, lines, sum524: lines.reduce((t, l) => t + (l.l524 || 0), 0) },
       crypto: { n: cry.length, sales: Y.cryptoSales, exempt, est: Y.crypto, lines: cry.map((x) => ({ s: x.s, d: String(x.d).slice(0, 10), l213: x.money, l214: x.fee, l215: x.money - x.fee })) },
-      flags: { missing: R.missing, old: R.old, oldFrom: (usdPerEur && usdPerEur.first) || null, short: lines.filter((l) => l.short).length, guess: lines.filter((l) => l.feeGuess || l.buyGuess).length, cfd: cfd.length, cfdNet: cfd.reduce((t, x) => t + x.gain, 0) },
+      flags: { missing: R.missing, old: R.old, oldFrom: (usdPerEur && usdPerEur.first) || null, weekly: R.weekly, weeklyTo: (usdPerEur && usdPerEur.daily) || null, short: lines.filter((l) => l.short).length, guess: lines.filter((l) => l.feeGuess || l.buyGuess).length, cfd: cfd.length, cfdNet: cfd.reduce((t, x) => t + x.gain, 0) },
       years: Object.keys(R.years).map(Number).filter((k) => R.years[k].sales > 0).sort((a, b) => b - a) };
   }
   const dmy = (d) => { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(d)); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
@@ -361,27 +418,52 @@
     }
     return y;
   }
-  // "was it worth it?": the year's sales beside the same euros in the S&P 500 fund over the same days (worth())
+  // "was it worth it?": the year's sales, and what is still held, beside the same euros in a fund over the same days
+  let yardKind = null;   // the yardstick chosen on the card; by default the world fund once its prices are on the device
   function drawWorth(box, y) {
-    const fund = fundOf(), W = worth(SRApp.config().trades || [], y, fxOf(), fund);
-    if (!W.n && !W.left) return;   // no sale of shares or funds that year: nothing to say
-    const c = card(box, `Was it worth it? Your ${y} sales`); c.classList.add('x-worth'); c.dataset.year = y;
-    if (!W.n) { c.appendChild(el('div', 'g-line g-muted', W.from ? `Nothing to compare yet: these sales were of holdings bought before ${dmy(W.from)}, where the ${W.name} prices kept on this device start.` : `Nothing to compare yet: the ${W.name} prices are not on this device.`)); return; }
-    const up = W.diff >= 0, top = Math.max(Math.abs(W.mineNet), Math.abs(W.fundNet), 0.01), neg = Math.min(W.mineNet, W.fundNet) < -0.005, pos = Math.max(W.mineNet, W.fundNet) > 0.005, both = neg && pos;
-    c.appendChild(el('div', 'x-worth-say', `Your ${W.n} sale${W.n === 1 ? '' : 's'} left you ${eur(W.mineNet, true)} after fees and tax. The same euros in the ${W.name}, over the same days: ${eur(W.fundNet, true)}.`));
-    const g = c.appendChild(el('div', 'x-bars' + (both ? ' is-both' : ''))); g.setAttribute('role', 'img'); g.setAttribute('aria-label', `You ${eur(W.mineNet, true)}, the ${W.name} ${eur(W.fundNet, true)}`);
-    for (const [label, v, cls] of [['You', W.mineNet, 'is-you'], [W.name, W.fundNet, 'is-fund']]) {
-      const r = g.appendChild(el('div', 'x-bar ' + cls)); r.appendChild(el('span', 'x-bar-k', label));
-      const t = r.appendChild(el('div', 'x-bar-t')), b = t.appendChild(el('i', v < 0 ? 'is-neg' : '')), w = (Math.abs(v) / top) * (both ? 50 : 100);
-      b.style.width = Math.max(w, Math.abs(v) > 0.005 ? 1.5 : 0) + '%'; if (v < 0) b.style.right = both ? '50%' : '0'; else b.style.left = both ? '50%' : '0';
-      r.appendChild(el('b', v > 0.005 ? 'up' : v < -0.005 ? 'down' : '', eur(v, true)));
+    const trades = SRApp.config().trades || [], fx = fxOf();
+    if (!trades.some((t) => t && t.src !== 'revx' && !t.cfd)) return;   // no share or fund among the trades: nothing to say, nothing to read
+    // the older and the world fund's prices: read once when the card is first drawn (six reads, then kept on the device), again after six hours
+    if (!yard.busy && (yard.at ? Date.now() - yard.at > 6 * 3600e3 : Date.now() - yard.tried > 600e3)) loadYard().then((ok) => { if (ok) SRApp.renderDraw('ptax'); });
+    const fund = fundOf(yardKind === 'sp' ? 'sp' : 'world'), W = worth(trades, y, fx, fund), today = new Date().toISOString().slice(0, 10);
+    let Hd = null; try { Hd = y === thisYear() ? held(trades, holdingsNow(), fx, fund, today) : null; } catch (e) { Hd = null; }
+    if (!W.n && !W.left && !(Hd && (Hd.n || Hd.left))) return;
+    const c = card(box, `Was it worth it? Your ${y} sales`); c.classList.add('x-worth'); c.dataset.year = y; c.dataset.yard = fund.kind;
+    if (hasWorld()) {   // World | S&P 500
+      const sw = c.appendChild(el('div', 'pf-view x-yard')); sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'The fund to compare with');
+      for (const k of ['world', 'sp']) { const b = sw.appendChild(el('button', 'pf-view-b' + (fund.kind === k ? ' is-on' : ''), YARDS[k].short)); b.type = 'button'; b.setAttribute('aria-pressed', String(fund.kind === k)); b.addEventListener('click', () => { yardKind = k; SRApp.renderDraw('ptax'); }); }
+    } else if (yard.busy) c.appendChild(el('div', 'g-hint x-yard-wait', 'Reading a world fund’s prices: until then, beside the S&P 500.'));
+    const bars = (mine, other, cls) => {
+      const top = Math.max(Math.abs(mine), Math.abs(other), 0.01), both = Math.min(mine, other) < -0.005 && Math.max(mine, other) > 0.005;
+      const g = c.appendChild(el('div', 'x-bars' + (both ? ' is-both' : '') + (cls ? ' ' + cls : ''))); g.setAttribute('role', 'img'); g.setAttribute('aria-label', `You ${eur(mine, true)}, ${W.name} ${eur(other, true)}`);
+      for (const [label, v, k] of [['You', mine, 'is-you'], [W.short, other, 'is-fund']]) {
+        const r = g.appendChild(el('div', 'x-bar ' + k)); r.appendChild(el('span', 'x-bar-k', label));
+        const t = r.appendChild(el('div', 'x-bar-t')), i = t.appendChild(el('i', v < 0 ? 'is-neg' : '')), w = (Math.abs(v) / top) * (both ? 50 : 100);
+        i.style.width = Math.max(w, Math.abs(v) > 0.005 ? 1.5 : 0) + '%'; if (v < 0) i.style.right = both ? '50%' : '0'; else i.style.left = both ? '50%' : '0';
+        r.appendChild(el('b', v > 0.005 ? 'up' : v < -0.005 ? 'down' : '', eur(v, true)));
+      }
+    };
+    // a sentence whose amounts never break between the sign and the figure
+    const say = (cls, parts) => { const d = c.appendChild(el('div', cls)); for (const p of parts) { if (typeof p === 'number') d.appendChild(el('span', 'x-nb', eur(p, true))); else d.appendChild(document.createTextNode(p)); } return d; };
+    const diff = (d, cls) => c.appendChild(el('div', 'x-worth-diff ' + (d >= 0 ? 'up' : 'down') + (cls ? ' ' + cls : ''), `${eur(Math.abs(d))} ${d >= 0 ? 'more' : 'less'} than ${W.name}.`));
+    if (W.n) {
+      say('x-worth-say', [`Your ${W.n} sale${W.n === 1 ? '' : 's'} left you `, W.mineNet, ` after fees and tax. The same euros in ${W.name}, over the same days: `, W.fundNet, '.']);
+      bars(W.mineNet, W.fundNet); diff(W.diff);
+    } else if (W.left) c.appendChild(el('div', 'g-line g-muted x-worth-none', W.from ? `Nothing to compare among these sales: they were of holdings bought before ${dmy(W.from)}, where the prices of ${W.name} kept on this device start.` : `Nothing to compare yet: the prices of ${W.name} are not on this device.`));
+    if (W.n && W.left) c.appendChild(el('div', 'g-hint x-worth-left', `${W.left} sale${W.left === 1 ? '' : 's'} left out: bought before ${dmy(W.from)}, where the fund’s prices kept on this device start, or with no price on its day.`));
+    if (Hd && Hd.n) {   // what is still held, before tax
+      say('x-worth-say x-held-say', [`What you still hold (${Hd.n} holding${Hd.n === 1 ? '' : 's'}, ${eur(Hd.value)}): `, Hd.mine, ` since you bought, after the selling fee and before tax. The same euros in ${W.name}: `, Hd.fund, '.']);
+      bars(Hd.mine, Hd.fund, 'x-held-bars'); diff(Hd.mine - Hd.fund, 'x-held-diff');
     }
-    c.appendChild(el('div', 'x-worth-diff ' + (up ? 'up' : 'down'), `${eur(Math.abs(W.diff))} ${up ? 'more' : 'less'} than the ${W.name}.`));
-    if (W.left) c.appendChild(el('div', 'g-hint x-worth-left', `${W.left} sale${W.left === 1 ? '' : 's'} left out: bought before ${dmy(W.from)}, where the fund’s prices kept on this device start, or with no price on its day.`));
-    { const d = SRApp.disclosure(c, 'tax-worth-sales', `Sale by sale, before tax (${W.n})`);
-      for (const x of W.rows) { const r = d.appendChild(el('div', 'x-row x-worth-row')); r.appendChild(el('span', '', `${x.s} · ${dmy(x.d)}`)); const v = r.appendChild(el('span', 'x-worth-v')); v.appendChild(el('b', x.mine > 0.005 ? 'up' : x.mine < -0.005 ? 'down' : '', eur(x.mine, true))); v.appendChild(el('span', '', ` · ${W.sym} ${eur(x.fund, true)}`)); } }
-    c.appendChild(el('div', 'g-hint x-worth-note', 'Past results, not a forecast and not advice. Not yet checked by an accountant.'));
-    c.appendChild(el('div', 'g-hint', `The yardstick is ${W.sym}, the ${W.name} fund in dollars, turned into euros: bought with the same euros on the days you bought, sold on the days you sold, with the same fees and the same tax rule. Only what you sold: what you still hold, coins and dividends are not in it. A world fund would be the fairer yardstick: the app has no prices for one yet.`));
+    if (Hd && Hd.left) c.appendChild(el('div', 'g-hint x-held-left', `${Hd.left} holding${Hd.left === 1 ? '' : 's'} left out: the trades in the app do not add up to the price paid typed for ${Hd.left === 1 ? 'it' : 'them'}, or a buy is older than the fund’s prices.`));
+    if (W.n || (Hd && Hd.n)) {
+      const d = SRApp.disclosure(c, 'tax-worth-sales', `One by one, before tax (${W.n + (Hd ? Hd.n : 0)})`);
+      const line = (a, mine, other) => { const r = d.appendChild(el('div', 'x-row x-worth-row')); r.appendChild(el('span', '', a)); const v = r.appendChild(el('span', 'x-worth-v')); v.appendChild(el('b', mine > 0.005 ? 'up' : mine < -0.005 ? 'down' : '', eur(mine, true))); v.appendChild(el('span', '', ` · ${W.sym} ${eur(other, true)}`)); };
+      for (const x of W.rows) line(`${x.s} · ${dmy(x.d)}`, x.mine, x.fund);
+      for (const x of (Hd ? Hd.rows : [])) line(`${x.s} · held`, x.mine, x.fund);
+      c.appendChild(el('div', 'g-hint x-worth-note', 'Past results, not a forecast and not advice. Not yet checked by an accountant.'));
+      c.appendChild(el('div', 'g-hint', `The yardstick is ${W.say}. It is bought with the same euros on the days you bought and sold on the days you sold, with the same fees and the same tax rule.${W.daily ? ` Before ${dmy(W.daily)} its prices are weekly closes, not daily.` : ''} Coins, CFDs, other brokers and the dividends paid to you are not in it.`));
+    }
   }
   function drawReport(box, y) {
     const Rp = report(SRApp.config().trades || [], y, fxOf());
@@ -400,7 +482,8 @@
     // what needs a look before the figures are used
     const warn = [Rp.flags.short ? `${Rp.flags.short} sale${Rp.flags.short === 1 ? '' : 's'} sold more than the app saw bought: add the missing purchase, the totals are incomplete.` : '', Rp.flags.guess ? `${Rp.flags.guess} sale${Rp.flags.guess === 1 ? '' : 's'} with a fee the app assumed (Revolut’s standard fee): put the real one from your statement.` : '',
       Rp.flags.missing ? `${Rp.flags.missing} trade${Rp.flags.missing === 1 ? '' : 's'} left out: no euro rate for that day.` : '',
-      Rp.flags.old ? `${Rp.flags.old} dollar trade${Rp.flags.old === 1 ? '' : 's'} older than the euro rates kept on this device (from ${dmy(Rp.flags.oldFrom)}): turned into euros at that first rate, not their own day’s. Check them.` : '', Rp.flags.cfd ? `${Rp.flags.cfd} CFD result${Rp.flags.cfd === 1 ? '' : 's'} (${eur(Rp.flags.cfdNet, true)}) counted in the total: on form 2074 they go in the part for “instruments financiers à terme”, not in cadre 5.` : ''].filter(Boolean);
+      Rp.flags.old ? `${Rp.flags.old} dollar trade${Rp.flags.old === 1 ? '' : 's'} older than the euro rates kept on this device (from ${dmy(Rp.flags.oldFrom)}): turned into euros at that first rate, not their own day’s. Check them.` : '',
+      Rp.flags.weekly ? `${Rp.flags.weekly} dollar trade${Rp.flags.weekly === 1 ? '' : 's'} from before ${dmy(Rp.flags.weeklyTo)}: turned into euros at that week’s rate (the daily rates kept start then).` : '', Rp.flags.cfd ? `${Rp.flags.cfd} CFD result${Rp.flags.cfd === 1 ? '' : 's'} (${eur(Rp.flags.cfdNet, true)}) counted in the total: on form 2074 they go in the part for “instruments financiers à terme”, not in cadre 5.` : ''].filter(Boolean);
     for (const w of warn) c.appendChild(el('div', 'x-rep-warn', w));
     if (S.lines.length) {
       const d = SRApp.disclosure(c, 'tax-report-2074', `Form 2074, sale by sale (${S.lines.length})`);
@@ -481,5 +564,5 @@
   dash.draw('petax', (outer) => drawEtoro(outer));
   setInterval(() => { if (document.hidden) return; SRApp.renderDraw('ptax'); }, 10000);   // live: the values move with the prices
 
-  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, worth, fundOf, fxOf };
+  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, worth, held, fundOf, fxOf, joined, closeAt, loadYard, _yard: yard };
 })();
