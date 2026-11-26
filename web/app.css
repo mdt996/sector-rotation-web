@@ -1757,3 +1757,37 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .av-page:not(.is-wide) .av-about, .av-page:not(.is-wide) .av-ta { border-top: 0; padding-top: 0; }
 .av-page .ab-ma, .av-page .ab-dvc, .av-page .ab-tgt, .av-page .ta-plan, .av-page .ta-lv { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--color-border-line); border-radius: 18px; background: var(--color-panel); }
 .t-labhero-word { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--pro-well); color: var(--color-fg-muted); }
+/* ---- after tax (build 152): under the large figure, what the portfolio would leave if sold now, and the way to "I need €…";
+   a Value | After tax switch turns the whole list; the sheet works out what to sell for an amount, least tax first. ---- */
+.g-hero-after { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.g-after-t { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); }
+.g-after-t b { font-size: 17px; font-weight: 800; color: var(--color-fg); font-variant-numeric: tabular-nums; }
+.g-after-n { font-size: 12px; }
+.g-need-b, .g-after-add { flex: none; min-height: 40px; padding: 0 15px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-tint); color: var(--accent-ink); font: inherit; font-size: 13.5px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.g-after-add { border-color: var(--color-border-line); background: none; color: var(--color-fg-muted); }
+#pfolio .g-holdings-head h2 { margin-inline-end: auto; } #pfolio .g-holdings-head { flex-wrap: wrap; }
+/* on a phone the switch takes the title's place (the tab above already says Holdings; the title stays for a screen reader) */
+@media (max-width: 1099px) { #pfolio .g-holdings-head.has-view h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } #pfolio .g-holdings-head.has-view .pf-view { margin-inline-end: auto; } }
+.pf-view { display: inline-flex; flex: none; padding: 2px; border-radius: 20px; background: var(--pro-well); }
+.pf-view-b { position: relative; min-height: 36px; padding: 0 12px; border: 0; border-radius: 18px; background: none; color: var(--color-fg-muted); font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.pf-view-b::after { content: ''; position: absolute; inset: -4px 0; }   /* a taller place to tap */
+.pf-view-b.is-on { background: color-mix(in srgb, var(--color-fg) 13%, transparent); color: var(--color-fg); }
+.pf-row .g-row-c.pf-tax { font-size: 13.5px; font-weight: 600; color: var(--row-sub, var(--color-fg-muted)); } .pf-row .g-row-c.pf-tax.up { color: var(--av-up); }
+.pf-row .g-row-v b.pf-nokeep { color: var(--color-fg-muted); }
+.g-sold-why { margin: -4px 0 8px 86px; }
+.g-need-f { display: flex; align-items: center; gap: 8px; margin: 8px 0 10px; padding: 0 16px; border: 1px solid var(--color-border-line); border-radius: 16px; background: var(--pro-well); }
+.g-need-f:focus-within { border-color: var(--accent); }
+.g-need-f span { font-size: 26px; font-weight: 800; color: var(--color-fg-muted); }
+.g-need-f input { flex: 1; min-width: 0; height: 58px; padding: 0; border: 0; outline: 0; background: none; color: var(--color-fg); font: inherit; font-size: 30px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.g-need-say { padding: 0 2px 10px; font-size: 13.5px; line-height: 1.45; color: var(--color-fg-muted); }
+.g-need-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; padding: 5px 2px; border-top: 1px solid var(--color-border-line); }
+.g-need-row > div { display: grid; gap: 2px; min-width: 0; } .g-need-row b { font-size: 15px; font-weight: 700; } .g-need-row span { font-size: 12.5px; color: var(--row-sub, var(--color-fg-muted)); }
+.g-need-row .g-need-v { flex: none; justify-items: end; text-align: end; } .g-need-v b { font-variant-numeric: tabular-nums; } .g-need-v .up { color: var(--av-up); } .g-need-v .down { color: var(--av-down); }
+.g-need-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.g-need-3 > div { display: grid; gap: 3px; padding: 10px 12px; border-radius: 14px; background: var(--pro-well); }
+.g-need-3 span, .g-need-keep span { font-size: 12px; font-weight: 600; color: var(--color-fg-muted); } .g-need-3 b { font-size: 16px; font-weight: 800; font-stretch: 92%; font-variant-numeric: tabular-nums; white-space: nowrap; } .g-need-3 b.up { color: var(--av-up); }
+.g-need-keep { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 4px 2px 8px; } .g-need-keep b { font-size: 22px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.pf-row .g-row-n.pf-why { font-style: italic; }
+.g-need-save, .g-need-warn { margin: 4px 0 6px; padding: 10px 12px; border-radius: 12px; font-size: 13.5px; font-weight: 700; line-height: 1.4; }
+.g-need-save { background: color-mix(in srgb, var(--av-up) 13%, transparent); color: var(--av-up); } .g-need-warn { background: color-mix(in srgb, var(--color-warn) 14%, transparent); color: var(--color-warn); }
+.g-need-note { margin-top: 10px; }

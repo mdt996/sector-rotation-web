@@ -78,6 +78,18 @@
   const terOf = (t) => { if (TER_MORE[t] != null) return TER_MORE[t]; const r = (window.SR_REVOLUT || []).find((x) => x.revolut_ticker === t); return r && r.ter != null ? r.ter : null; };   // null: a share, no fund fee
   const gainOf = (h) => (h.live && h.paid > 0 && h.value >= 0 ? h.value - h.paid : null);
   const taxOf = (h, sold) => { const g = gainOf(h); return g == null ? null : g > 0 ? TAX * g * Math.min(1, (sold == null ? h.value : sold) / h.value) : 0; };
+  // what a sale would leave (tax.js, build 152): the year's other sales and the earlier losses counted first, the selling fee
+  // taken off. K.rows: each holding as if sold alone; K.all: everything at once; K.keep: the whole portfolio after tax.
+  const keepNow = () => { try { return window.SRTax && window.SRTax.keepNow ? window.SRTax.keepNow() : null; } catch (e) { return null; } };
+  const freeCash = (all) => Math.max(0, d3.sum(all.filter((h) => h.ticker === 'CASH'), (h) => h.value) - d3.sum(all, (h) => h.pendingEur || 0));
+  // an amount as typed: 1500, 1,500, 1 500, 1500.50, 1.500,50 (the last separator before one or two digits is the decimal one)
+  const amountOf = (t) => {
+    let v = String(t || '').replace(/[\s€]/g, ''); const c = v.lastIndexOf(','), d = v.lastIndexOf('.');
+    if (c >= 0 && d >= 0) v = c > d ? v.replace(/\./g, '').replace(',', '.') : v.replace(/,/g, '');
+    else if (c >= 0) v = /^\d{1,3}(,\d{3})+$/.test(v) ? v.replace(/,/g, '') : v.replace(',', '.');
+    else if (d >= 0 && /^\d{1,3}(\.\d{3})+$/.test(v)) v = v.replace(/\./g, '');
+    const x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0;
+  };
   // ---- what a plan could become: every 5- and 10-year stretch of the 2000–2026 test, with money added each month ----
   let ocMemo = null;
   function outcomes(key, start, add) {
@@ -683,7 +695,14 @@
       kv(s, 'Share', `${p0(h.value / (st.total || 1))} of your portfolio${h.chg != null ? ` · ${pct(h.chg)} today` : ''}`);
       stakeLines(s, h, stakeInfo(H));
       if (st.P) kv(s, 'In the plan', kept ? 'Kept outside the plan: the app never asks you to sell it.' : line ? `Plan line ${line.t}: target ${eur(st.size * line.w)}, you hold ${eur(st.cur[line.t] || 0)}.` : st.T && lineFor(h, allLines(st.p)) ? 'Part of the plan, but its signal is off: Today asks you to sell it.' : `Outside “${st.P.name}”: the set-up on Today would sell it. No deadline.`);
-      { const g = gainOf(h), t = terOf(h.ticker); if (g != null) kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eur(Math.abs(g))} (${pct(g / h.paid)}) · tax ${eur(taxOf(h))} · you keep ${eur(h.value - taxOf(h))}`); if (t > 0) kv(s, 'Fund fee', `${d3.format('.2%')(t)} a year, about ${eur(t * h.value)}`); }
+      { const t = terOf(h.ticker), K = h.paid > 0 && h.value > 0 && h.ticker !== 'CASH' ? keepNow() : null, r = K && K.rows.get(h.ticker), g = r ? h.value - h.paid : gainOf(h);
+        if (r) {   // the year's other sales and earlier losses first, the selling fee off (tax.js): the same figures as the list's After tax
+          kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eurc(Math.abs(g))} (${pct(g / h.paid)}) · fee ${eurc(r.fees)} · tax ${r.tax < -0.005 ? eurc(-r.tax) + ' back' : eurc(r.tax)} · you keep ${eurc(r.keep)}`).classList.add('g-kv-sold');
+          const why = r.tax < -0.005 ? 'Selling at a loss lowers the tax already due on this year’s gains.' : r.later > 0.005 ? `The loss with its fee (${eurc(r.later)}) can be set against gains of the next 10 years.` : r.covered > 0.005 ? (r.tax < 0.005 ? 'No tax: your losses so far cover this gain.' : `Your losses so far cover ${eurc(r.covered)} of the gain.`) : '';
+          if (why) s.appendChild(el('div', 'g-hint g-sold-why', why));
+        } else if (g != null) kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eur(Math.abs(g))} (${pct(g / h.paid)}) · tax ${eur(taxOf(h))} · you keep ${eur(h.value - taxOf(h))}`);
+        else if (h.ticker !== 'CASH' && !(h.paid > 0)) kv(s, 'If sold', 'Add what you paid (Edit) to see the tax and what you keep.');
+        if (t > 0) kv(s, 'Fund fee', `${d3.format('.2%')(t)} a year, about ${eur(t * h.value)}`); }
       if (h.overheated) kv(s, 'Flag', 'Overheated (weekly RSI above 70): in the tests, sector funds earned less over the next 3 months. Don\'t add.');
       const row = s.appendChild(el('div', 'g-btns'));
       if (st.P && !line) row.appendChild(btn(kept ? 'Let the plan use it' : `Keep ${h.ticker}`, 'primary', () => { const q = plan(), k = keepSet(q, H); if (kept) k.delete(h.ticker); else k.add(h.ticker); q.keep = [...k]; closeSheet(); savePlan(q); toast(kept ? `${h.ticker} is back in the set-up.` : `${h.ticker} kept.`); }));
@@ -698,6 +717,57 @@
     const sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null); if (!known.length) return;
     const g = d3.sum(known, gainOf), paid = d3.sum(known, (h) => h.paid), l = hr.appendChild(el('div', 'g-hero-gain ' + (g > 0.005 ? 'up' : g < -0.005 ? 'down' : '')));
     l.appendChild(el('span', 'g-hero-pill', pct(paid ? g / paid : 0, 1))); l.appendChild(el('span', '', `${TL('gain')} ${eurc(g, true)}${known.length < sold.length ? ` (${known.length} of ${sold.length})` : ''}`));
+  }
+  // after tax (build 152): what the whole portfolio would leave if sold now, and the way to "I need €…"
+  function afterLine(hr, K, all, st, total) {
+    if (!K) return;
+    const l = hr.appendChild(el('div', 'g-hero-after'));
+    if (!K.known) {
+      if (!all.some((h) => h.value > 0 && h.ticker !== 'CASH')) { l.remove(); return; }
+      const b = l.appendChild(el('button', 'g-after-add', `${TL('afterTax')}: add what you paid`)); b.type = 'button'; b.addEventListener('click', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); });
+      return;
+    }
+    const t = l.appendChild(el('div', 'g-after-t')); t.appendChild(el('span', 'g-after-k', TL('afterTax'))); t.appendChild(el('b', '', eurc(total - K.all.fees - K.all.tax)));
+    if (K.unknown.length) { const n = t.appendChild(el('span', 'g-after-n', `${K.known} of ${K.known + K.unknown.length}`)); n.title = `No price paid: ${K.unknown.join(', ')}. They stay at their full value.`; }
+    t.title = `If you sold everything now: fees ${eurc(K.all.fees)}, tax ${eurc(K.all.tax)}`;
+    const b = l.appendChild(el('button', 'g-need-b', `${TL('iNeed')} €…`)); b.type = 'button'; b.addEventListener('click', () => needSheet(all, st));
+  }
+  // "I need €…": type an amount, see what to sell to lose the least to tax and fees (tax.js need()). Figures only: the app never sells.
+  function needSheet(all, st) {
+    sheet(`${TL('iNeed')} €…`, (s) => {
+      s.classList.add('g-need');
+      const f = s.appendChild(el('label', 'g-need-f')); f.appendChild(el('span', '', '€'));
+      const inp = f.appendChild(el('input')); inp.type = 'text'; inp.inputMode = 'decimal'; inp.autocomplete = 'off'; inp.placeholder = '0'; inp.value = ui.need || ''; inp.setAttribute('aria-label', 'The amount you need, in euros');
+      const out = s.appendChild(el('div', 'g-need-out')); out.setAttribute('aria-live', 'polite');
+      const row = (a, sub, v, vsub, cls) => { const r = out.appendChild(el('div', 'g-need-row')); const l = r.appendChild(el('div')); l.appendChild(el('b', '', a)); l.appendChild(el('span', '', sub)); const w = r.appendChild(el('div', 'g-need-v')); w.appendChild(el('b', '', v)); w.appendChild(el('span', cls || '', vsub)); return r; };
+      const keptT = st.P ? st.keep : new Set();   // a holding kept outside the plan is never offered for sale
+      const draw = () => {
+        const x = amountOf(inp.value), K = keepNow(); out.replaceChildren();
+        if (!K) return;
+        if (!(x > 0)) { out.appendChild(el('div', 'g-need-say', 'Type an amount. You see what to sell to lose the least to tax and fees.')); return; }
+        const N = window.SRTax.need(x, K.base, freeCash(all), K.H.filter((h) => !keptT.has(h.ticker)));
+        if (!N.ok) out.appendChild(el('div', 'g-need-warn', `Not enough: your cash and these holdings leave at most ${eurc(N.max)} after tax.`));
+        if (N.sells.length) {   // the answer first: how much to sell, what it costs
+          const st3 = out.appendChild(el('div', 'g-need-3'));
+          for (const [k, v, cls] of [[TL('sell'), eurc(N.money), ''], [TL('fees'), eurc(N.fees), ''], [TL('tax'), N.tax < -0.005 ? `+${eurc(-N.tax)}` : eurc(N.tax), N.tax < -0.005 ? 'up' : '']]) { const c = st3.appendChild(el('div')); c.appendChild(el('span', '', k)); c.appendChild(el('b', cls, v)); }
+        }
+        { const k = out.appendChild(el('div', 'g-need-keep')); k.appendChild(el('span', '', TL('youKeep'))); k.appendChild(el('b', '', eurc(N.keep))); }
+        const say = N.tax < -0.005 ? 'Selling at a loss lowers the tax already due on this year’s gains.' : N.tax > 0.005 ? `Set ${eurc(N.tax)} aside: the tax is paid next year, with your return.` : N.sells.length && N.gain > 0.005 && N.covered > 0.005 ? 'No tax: your losses so far cover the gain.' : N.sells.some((z) => z.gain > 0.005) && N.sells.some((z) => z.gain < -0.005) ? 'No tax: the losses sold cover the gains.' : !N.sells.length ? 'Your cash covers it: nothing to sell, no tax.' : '';
+        if (say) out.appendChild(el('div', 'g-need-say', say));
+        { const less = N.even ? N.even.tax + N.even.fees - N.tax - N.fees : 0; if (N.ok && less > 1) out.appendChild(el('div', 'g-need-save', `${eurc(less)} less in tax and fees than selling a part of every holding.`)); }
+        if (N.cash > 0.005 && N.sells.length) row(TL('cash'), 'no sale, no tax', eurc(N.cash), '');
+        for (const z of N.sells) row(z.ticker, z.all ? `${TL('sell')} all` : `${TL('sell')} a part of ${eurc(z.of)}`, eurc(z.value), `${z.gain >= 0 ? 'gain' : 'loss'} ${eurc(Math.abs(z.gain))}`, z.gain > 0.005 ? 'up' : z.gain < -0.005 ? 'down' : '').dataset.t = z.ticker;
+        if (N.later > 0.005 && !(N.tax < -0.005)) out.appendChild(el('div', 'g-hint', `The net loss with the fees (${eurc(N.later)}) can be set against gains of the next 10 years.`));
+        // what is not offered, and why
+        const kept = all.filter((h) => h.value > 0 && h.ticker !== 'CASH' && keptT.has(h.ticker)).map((h) => h.ticker), coins = K.H.filter((h) => h.crypto && h.value > 0 && !keptT.has(h.ticker)).map((h) => h.ticker), blind = K.unknown.filter((t) => !keptT.has(t) && !coins.includes(t));
+        const left = [kept.length ? `${kept.join(', ')} (kept)` : '', coins.length ? `${coins.join(', ')} (coins: which coin is sold does not change French tax)` : '', blind.length ? `${blind.join(', ')} (no price paid)` : ''].filter(Boolean);
+        if (left.length) out.appendChild(el('div', 'g-hint g-need-left', `Left out: ${left.join(' · ')}.`));
+      };
+      let wait = 0; inp.addEventListener('input', () => { ui.need = inp.value; clearTimeout(wait); wait = setTimeout(draw, 120); });   // a pause in the typing, then the sum
+      draw();
+      s.appendChild(el('div', 'g-hint g-need-note', 'Figures only: the app never sells. An estimate at 31.4% with Revolut’s standard fee; the rules are not yet checked by an accountant.'));
+      setTimeout(() => { try { inp.focus(); } catch (e) { /* not shown */ } }, 60);
+    });
   }
   function pfColors(all) {
     const top = new Set(all.filter((h) => h.value > 0 && h.ticker !== 'CASH').slice().sort((a, b) => b.value - a.value).slice(0, 8).map((h) => h.ticker)), M = new Map(); let k = 0;
@@ -725,14 +795,17 @@
     if (window.SRLive && SRLive.marketAsk && SRLive.liveOf) SRLive.marketAsk(all.map((h) => { const l = SRLive.liveOf(h); return l && l.id; }));
     // the list's order: by value unless a word of the header line was tapped (Symbol, Value, Today)
     const sortKey = ui.pfSort || 'value', noChg = (h) => h.chg == null || h.ticker === 'CASH';
-    const ORD = { value: (a, b) => b.value - a.value, valueLo: (a, b) => a.value - b.value, az: (a, b) => a.ticker.localeCompare(b.ticker), za: (a, b) => b.ticker.localeCompare(a.ticker),
-      day: (a, b) => noChg(a) - noChg(b) || (noChg(a) ? 0 : b.chg - a.chg), dayLo: (a, b) => noChg(a) - noChg(b) || (noChg(a) ? 0 : a.chg - b.chg) };
+    // After tax (the switch above the list): the value column is what selling the holding alone would leave, the last one its tax
+    const K = keepNow(), after = !!(ui.pfAfter && K && K.known), kr = (h) => (after ? K.rows.get(h.ticker) : null) || null;
+    const val = (h) => (kr(h) ? kr(h).keep : h.value), noTax = (h) => !kr(h), taxV = (h) => (kr(h) ? kr(h).tax : 0);
+    const ORD = { value: (a, b) => val(b) - val(a), valueLo: (a, b) => val(a) - val(b), az: (a, b) => a.ticker.localeCompare(b.ticker), za: (a, b) => b.ticker.localeCompare(a.ticker),
+      day: after ? (a, b) => noTax(a) - noTax(b) || taxV(b) - taxV(a) : (a, b) => noChg(a) - noChg(b) || (noChg(a) ? 0 : b.chg - a.chg), dayLo: after ? (a, b) => noTax(a) - noTax(b) || taxV(a) - taxV(b) : (a, b) => noChg(a) - noChg(b) || (noChg(a) ? 0 : a.chg - b.chg) };
     const H = all.filter((h) => h.value > 0).sort(ORD[sortKey] || ORD.value), T = totals(H), st = planState(all), colorOf = pfColors(all);
     outer.replaceChildren();
     // a wide window (the Mac): the total and the plan on the left, every holding on the right; one column on a phone
     const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
     outer.classList.toggle('g-two', two);
-    gainLine(hero(box, H), H);
+    { const hr = hero(box, H); gainLine(hr, H); afterLine(hr, K, all, st, T.total); }
     splitBar(box, all, colorOf, st);
     // against the plan, and the tax so far: beside the list on a wide window, AFTER it on a phone (the holdings come first)
     const cards = (box) => {
@@ -745,7 +818,7 @@
       const c = card(box, 'mix'); c.appendChild(el('div', 'g-line g-muted', 'No plan chosen: this is just what you hold.')); c.appendChild(btn('Choose a plan', '', () => go('plan')));
     }
     // the tax so far this year and if everything were sold now (live), from tax.js; tap for the Taxes tab
-    { const T = window.SRTax ? (() => { try { return window.SRTax.summary(); } catch (e) { return null; } })() : null;
+    { const T = K ? K.S : null;
       if (T) { const c = card(box, 'tax'); const both = T.comb ? T.comb.tax : T.R.due.tax, all = T.combAll ? T.combAll.tax : T.R.all.tax;
         c.appendChild(el('div', 'g-line', `Tax for ${T.y} so far: ${eurc(both)}${T.comb ? ' (Revolut and eToro)' : ''} · if you sold everything now: ${eurc(all)}`));
         c.appendChild(btn(TL('taxes'), '', () => go('taxes'))); } }
@@ -753,10 +826,14 @@
     if (two) cards(box);
     const toolbar = right.appendChild(el('div', 'g-holdings-head'));
     toolbar.appendChild(el('h2', '', TL('holdings')));
-    toolbar.appendChild(btn(TL('edit'), '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); })).setAttribute('aria-label', 'Edit holdings');
+    if (K && K.known) {   // Value | After tax: one tap turns the whole list
+      const sw = toolbar.appendChild(el('div', 'pf-view')); sw.setAttribute('role', 'group'); toolbar.classList.add('has-view'); sw.setAttribute('aria-label', 'Show each holding at its value or after tax');
+      for (const [label, on] of [[TL('value'), false], [TL('afterTax'), true]]) { const b = sw.appendChild(el('button', 'pf-view-b' + (after === on ? ' is-on' : ''), label)); b.type = 'button'; b.setAttribute('aria-pressed', String(after === on)); b.addEventListener('click', () => { ui.pfAfter = on; SRApp.renderDraw('pfolio'); }); }
+    }
+    toolbar.appendChild(btn(TL('edit'), 'pf-edit', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); })).setAttribute('aria-label', 'Edit holdings');
     if (H.length) {   // Symbol · Value · Today: a tap sorts by it, a second tap turns it round, a third goes back to the largest first
       const hd = right.appendChild(el('div', 'pf-head')); hd.setAttribute('role', 'group'); hd.setAttribute('aria-label', 'Sort the holdings');
-      for (const [label, cls, first, second] of [[TL('symbol'), 'pf-th-a', 'az', 'za'], [TL('value'), 'pf-th-v', 'value', 'valueLo'], [TL('today'), 'pf-th-c', 'day', 'dayLo']]) {
+      for (const [label, cls, first, second] of [[TL('symbol'), 'pf-th-a', 'az', 'za'], [after ? TL('afterTax') : TL('value'), 'pf-th-v', 'value', 'valueLo'], [after ? TL('tax') : TL('today'), 'pf-th-c', 'day', 'dayLo']]) {
         const on = sortKey === first ? 1 : sortKey === second ? 2 : 0, hb = hd.appendChild(el('button', 'pf-th ' + cls + (on ? ' is-on' : ''))); hb.type = 'button'; hb.dataset.sort = first; hb.setAttribute('aria-pressed', String(!!on));
         hb.appendChild(el('span', '', label)); if (on) hb.appendChild(el('i', '', (first === 'az') === (on === 1) ? '▴' : '▾'));
         hb.addEventListener('click', () => { ui.pfSort = on === 1 ? second : on === 2 ? 'value' : first; SRApp.renderDraw('pfolio'); });
@@ -765,7 +842,8 @@
     const costs = () => { const funds = H.filter((h) => terOf(h.ticker) > 0), fv = d3.sum(funds, (h) => h.value), terE = d3.sum(funds, (h) => h.value * terOf(h.ticker)), sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null), g = d3.sum(known, gainOf);
       const c = SRApp.disclosure(box, 'portfolio-costs', 'Costs and tax');
       if (fv > 0) c.appendChild(el('div', 'g-line', `Fund fees: ${eur(terE)} a year (${d3.format('.2%')(terE / fv)}), inside their prices.`));
-      if (known.length) c.appendChild(el('div', 'g-line', `If sold today: ${g > 0 ? `${eur(TAX * g)} tax on ${eur(g)} of gains` : 'no tax'}${known.length < sold.length ? ` (${known.length} of ${sold.length} holdings)` : ''}.`));
+      if (K && K.known) c.appendChild(el('div', 'g-line', `If sold today: ${K.all.tax > 0.005 ? `${eur(K.all.tax)} more tax` : K.all.tax < -0.005 ? `${eur(-K.all.tax)} less tax` : 'no more tax'} on ${K.all.gain >= 0 ? `${eur(K.all.gain)} of gains` : `a loss of ${eur(-K.all.gain)}`}, after ${eur(K.all.fees)} of selling fees${K.unknown.length ? ` (${K.known} of ${K.known + K.unknown.length} holdings)` : ''}.`));
+      else if (known.length) c.appendChild(el('div', 'g-line', `If sold today: ${g > 0 ? `${eur(TAX * g)} tax on ${eur(g)} of gains` : 'no tax'}${known.length < sold.length ? ` (${known.length} of ${sold.length} holdings)` : ''}.`));
       else if (sold.some((h) => h.paid > 0)) c.appendChild(el('div', 'g-hint', 'Tax needs a live value and an amount paid.'));
       else c.appendChild(el('div', 'g-hint', 'Add what you paid in Settings to see estimated tax.')); };
     if (two) costs();
@@ -783,8 +861,12 @@
       const sum = d3.sum(g.H, (h) => h.value), withChg = g.H.filter((h) => h.chg != null), was = d3.sum(withChg, (h) => h.value / (1 + h.chg)), now = d3.sum(withChg, (h) => h.value), d = now - was;
       const head = list.appendChild(el('div', 'g-group-h'));
       const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); const all$ = d3.sum(H, (h) => h.value); l.appendChild(el('span', 'g-muted', all$ ? ` ${p0(sum / all$)}` : ''));
-      const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eurc(sum)));
+      const v = head.appendChild(el('div', 'g-group-v')), GA = after ? (() => { const tk = new Set(g.H.map((h) => h.ticker)); try { return window.SRTax.afterTax(K.H.filter((h) => tk.has(h.ticker)), K.base); } catch (e) { return null; } })() : null;
+      if (GA) { v.appendChild(el('b', '', eurc(sum - GA.all.fees - GA.all.tax))); v.appendChild(el('span', 'g-row-c pf-tax ' + (GA.all.tax < -0.005 ? 'up' : ''), GA.known ? (GA.all.tax < -0.005 ? `+${eurc(-GA.all.tax)}` : eurc(GA.all.tax)) : '')); }
+      else {
+      v.appendChild(el('b', '', eurc(sum)));
       { const gc = v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? pct(was ? d / was : 0, 2) : 'not live')); if (withChg.length) gc.title = `${eurc(d, true)} today`; }
+      }
       // the coins' staking, under their group's total: what it pays a day and a month, the yearly rate, the last reward
       const S = g.H.some((h) => S0 && S0.coins[h.ticker] && h.tracks === h.ticker) ? S0 : null;
       if (S && S.perDayEur > 0) {
@@ -801,8 +883,16 @@
       const tags = a.appendChild(el('div', 'g-row-tags'));
       { const nm = NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : ''); a.appendChild(el('span', 'g-muted g-row-n', [T.total ? p0(h.value / T.total) : '', nm].filter(Boolean).join(' · '))); }
       const v = r.appendChild(el('div', 'g-row-v'));
+      if (after) {   // what selling this holding alone would leave, and its tax (a loss that lowers the year's tax reads "back")
+        const k = kr(h), cash = h.ticker === 'CASH';
+        v.appendChild(el('b', k || cash ? '' : 'pf-nokeep', k ? eurc(k.keep) : cash ? eurc(h.value) : '—'));
+        v.appendChild(el('span', 'g-row-c pf-tax ' + (k && k.tax < -0.005 ? 'up' : ''), k ? (k.tax < -0.005 ? `+${eurc(-k.tax)}` : eurc(k.tax)) : ''));
+        if (!k && !cash) { const n = a.querySelector('.g-row-n'); n.textContent = 'no price paid'; n.classList.add('pf-why'); }
+        r.dataset.keep = k ? k.keep.toFixed(2) : '';
+      } else {
       v.appendChild(el('b', '', eurc(h.value)));
       v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.ticker === 'CASH' ? '' : h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
+      }
       if (h.ticker === 'CASH') { const res = d3.sum(all.filter((x) => x.pendingEur > 0 && acc(x) === g.key), (x) => x.pendingEur); if (res > 0) a.querySelector('.g-row-n').textContent = `Revolut cash · ${eurc(res)} reserved for your order, ${eurc(h.value - res)} free`; }
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
       if (st.P && h.ticker !== 'CASH') {   // only what asks for attention. Whether a holding is in the plan or outside it is said in its sheet and under Plan (the mix, build 149)

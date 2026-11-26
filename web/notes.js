@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 151, "text": "Charts no longer leave you looking at an empty box: while eToro's candles load, the asset's page shows the line your phone already has. The chart you open now goes first in the queue."};
+window.SR_NOTES = {"build": 152, "text": "Portfolio now shows what you would keep after tax: in total under the large figure, and for each holding with the new Value | After tax switch. \"I need \u20ac\u2026\" works out what to sell to lose the least to tax and fees. Figures only: the app never sells, and the tax rules are not yet checked by an accountant."};

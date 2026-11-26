@@ -172,6 +172,79 @@
     return { y, R, E, c, comb, combAll };
   }
 
+  // ---- what a sale would leave (build 152): "After tax" on Portfolio and "I need €" ----
+  // A sale's tax is the EXTRA tax it adds to the year: this year's other gains and losses (both brokers, once eToro's trades
+  // are read) and the earlier losses come first. So a gain can cost nothing, and a loss can give back tax already due.
+  const baseOf = (S) => ({ sec: S.R.Y.sec + (S.E ? S.E.sec : 0), crypto: S.R.Y.crypto + (S.E ? S.E.by.crypto.eur : 0), cryptoSales: S.R.Y.cryptoSales + (S.E ? S.E.by.crypto.sales : 0), carry: S.R.carry });
+  // sales: [{ value: euros sold, gain: their gain before the selling fee, crypto }]
+  function ifSold(base, sales) {
+    let money = 0, fees = 0, sec = 0, cry = 0, cryMoney = 0;
+    for (const s of sales || []) {
+      if (!(s.value > 0)) continue;
+      const fee = feeFor(s.crypto ? 'crypto' : 'sec', s.value); money += s.value; fees += fee;
+      if (s.crypto) { cry += s.gain - fee; cryMoney += s.value; } else sec += s.gain - fee;
+    }
+    const was = taxOn(base.sec, base.crypto, base.cryptoSales, base.carry), now = taxOn(base.sec + sec, base.crypto + cry, base.cryptoSales + cryMoney, base.carry);
+    // on shares and funds: how much of the gain the year's losses took, and how much of a loss is left for later years
+    const room = Math.max(0, (base.carry || 0) - base.sec), covered = sec > 0 ? Math.min(sec, room) : 0, later = sec < 0 ? Math.max(0, -sec - Math.max(0, base.sec - (base.carry || 0))) : 0;
+    return { money, fees, gain: sec + cry, tax: now.tax - was.tax, keep: money - fees - (now.tax - was.tax), covered, later };
+  }
+  const partOf = (h, k) => ({ value: h.value * k, gain: (h.value - h.paid) * k, crypto: !!h.crypto });
+  const priced = (h) => h.paid > 0;   // as on the Taxes tab: a holding with no live price counts at the amount typed
+  // every holding as if sold alone, and all of them at once. One with no price paid cannot be worked out: it is named in
+  // `unknown` and stays at its full value in the total, which the screen says.
+  function afterTax(holdings, base) {
+    const rows = new Map(), known = [], unknown = [];
+    let cash = 0, other = 0;
+    for (const h of holdings || []) {
+      if (!(h.value > 0) || h.pending) continue;
+      if (h.ticker === 'CASH') { cash += h.value; continue; }
+      if (!priced(h)) { unknown.push(h.ticker); other += h.value; continue; }
+      known.push(h); rows.set(h.ticker, ifSold(base, [partOf(h, 1)]));
+    }
+    const all = ifSold(base, known.map((h) => partOf(h, 1)));
+    return { rows, all, cash, other, known: known.length, unknown, total: cash + other + all.money, keep: cash + other + all.keep };
+  }
+  // "I need €x": what to sell so that x is left after the selling fees and the extra tax, losing the least to tax and fees.
+  // Cash first (no tax). Then shares and funds from the smallest gain per euro sold, a loss first: at the average price a
+  // part sold carries the same part of the gain, so this order raises the money with the least taxable gain. Then a holding
+  // can be left out when doing without it costs less (a small sale's €1 fee can be more than the tax it saves): with up to
+  // ten holdings every choice of them is tried, with more one is dropped at a time until no drop helps. Coins are not offered (French tax on coins counts the whole crypto portfolio: which coin is sold
+  // does not change it), nor a holding with no price paid. `even` is the same money raised by selling the same part of
+  // every holding, to compare.
+  function need(x, base, cash, list) {
+    const C = (list || []).filter((h) => h.value > 0 && priced(h) && !h.crypto && h.ticker !== 'CASH' && !h.pending).slice().sort((a, b) => (a.value - a.paid) / a.value - (b.value - b.paid) / b.value);
+    const fromCash = Math.max(0, Math.min(x, cash || 0)), rest = x - fromCash, sumOf = (L) => L.reduce((s, h) => s + h.value, 0), G = sumOf(C);
+    const first = (L) => (g) => { const out = []; let left = g; for (const h of L) { if (left <= 1e-9) break; const v = Math.min(h.value, left); out.push({ ticker: h.ticker, value: v, of: h.value, gain: (h.value - h.paid) * (v / h.value), all: v >= h.value - 1e-9, crypto: false }); left -= v; } return out; };
+    const slice = (g) => C.map((h) => ({ ticker: h.ticker, value: h.value * (g / G), of: h.value, gain: (h.value - h.paid) * (g / G), all: g >= G - 1e-9, crypto: false }));
+    const solve = (make, top) => {   // the smallest sale that leaves `rest`; with all of it sold and still short, `short`
+      if (!(rest > 0.005)) return { sells: [], r: ifSold(base, []), short: false };
+      if (!(top > 0)) return { sells: [], r: ifSold(base, []), short: true };
+      const all = ifSold(base, make(top)); if (all.keep < rest - 0.005) return { sells: make(top), r: all, short: true };
+      let lo = 0, hi = top; for (let i = 0; i < 44; i++) { const m = (lo + hi) / 2; if (ifSold(base, make(m)).keep >= rest) hi = m; else lo = m; }
+      return { sells: make(hi), r: ifSold(base, make(hi)), short: false };
+    };
+    const cost = (S) => S.r.fees + S.r.tax;
+    let use = C, A = solve(first(use), G);
+    if (!A.short && A.sells.length > 1 && C.length <= 10) {   // up to ten holdings: every choice of them is tried
+      for (let mask = 1, all = (1 << C.length) - 1; mask < all; mask++) {
+        const L = C.filter((_, i) => mask & (1 << i)), top = sumOf(L); if (top < rest) continue;
+        const B = solve(first(L), top); if (!B.short && cost(B) < cost(A) - 0.005) A = B;
+      }
+    } else for (let again = !A.short && A.sells.length > 1, n = 0; again && n < 200; n++) {   // more: drop a holding while that costs less
+      again = false;
+      for (const z of A.sells) {
+        const L = use.filter((h) => h.ticker !== z.ticker), B = solve(first(L), sumOf(L));
+        if (!B.short && cost(B) < cost(A) - 0.005) { use = L; A = B; again = A.sells.length > 1; break; }
+      }
+    }
+    const E = C.length > 1 ? solve(slice, G) : null;
+    return { x, cash: fromCash, sells: A.sells, money: A.r.money, fees: A.r.fees, gain: A.r.gain, tax: A.r.tax, covered: A.r.covered, later: A.r.later, keep: fromCash + A.r.keep, ok: !A.short,
+      max: (cash || 0) + (G > 0 ? ifSold(base, first(C)(G)).keep : 0), even: E && !E.short && !A.short ? { tax: E.r.tax, fees: E.r.fees, money: E.r.money } : null, offered: C.map((h) => h.ticker) };
+  }
+  // the live figures for Portfolio: the year so far, each holding and the whole
+  function keepNow() { const S = summary(), base = baseOf(S), H = holdingsNow(); return { S, y: S.y, base, H, ...afterTax(H, base) }; }
+
   // ---- screens ----
   const kv = (box, k, v, cls) => { const r = box.appendChild(el('div', 'g-kv' + (cls ? ' ' + cls : ''))); r.appendChild(el('span', 'g-kv-k', k)); r.appendChild(el('span', 'g-kv-v', v)); return r; };
   const card = (box, title) => { const c = box.appendChild(el('div', 'g-card')); if (title) c.appendChild(el('div', 'g-card-t', title)); return c; };
@@ -246,5 +319,5 @@
   dash.draw('petax', (outer) => drawEtoro(outer));
   setInterval(() => { if (document.hidden) return; SRApp.renderDraw('ptax'); }, 10000);   // live: the values move with the prices
 
-  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf };
+  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf };
 })();
