@@ -1731,6 +1731,16 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .sc-row .sc-v b, .pf-row .g-row-v b { font-size: 15px; } .sc-row .sc-chg, .sc-row .sc-chg.up, .sc-row .sc-chg.down, .pf-row .g-row-c { font-size: 15px; font-weight: 800; }
 .sc-row.is-open, .g-row.pf-row.is-open { background: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: inset 4px 0 0 var(--accent); }
 .pf-split { height: 10px; } .pf-seg { height: 10px; border-radius: 3px; }
+/* ---- "meanwhile" (build 151): while eToro's candles are on their way, the line the phone already has, in the chart's place ---- */
+.av-mw { position: absolute; inset: 0; z-index: 4; overflow: hidden; background: var(--color-bg); }
+.av-qchart > .av-mw { position: relative; inset: auto; }
+.av-chart.is-loading.has-mw, .av-qchart.is-loading.has-mw { opacity: 1; }   /* the loading rule dims the box: not while it shows the line */
+.av-mw svg { display: block; width: 100%; height: 100%; }
+.av-mw-l { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; } .av-mw.up .av-mw-l { stroke: var(--av-up); } .av-mw.down .av-mw-l { stroke: var(--av-down); }
+.av-mw-a { opacity: .12; stroke: none; } .av-mw.up .av-mw-a { fill: var(--av-up); } .av-mw.down .av-mw-a { fill: var(--av-down); }
+.av-mw-say, .av-mw-wait { position: absolute; inset-inline: 16px; font-size: 12px; font-weight: 600; color: var(--color-fg-muted); } .av-mw-say { bottom: 10px; } .av-mw-wait { top: 6px; }
+.av-mw-wait::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-inline-end: 7px; border-radius: 50%; background: var(--accent); animation: av-mw-p 1.2s ease-in-out infinite; }
+@keyframes av-mw-p { 50% { opacity: .25; } } @media (prefers-reduced-motion: reduce) { .av-mw-wait::before { animation: none; } }
 /* ---- the watchlist (build 150): a star in the asset's sheet and on its page, gold when the asset is on the list; the list is
    Markets' first tab. ---- */
 .sc-star { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--color-fg-muted); cursor: pointer; }

@@ -524,7 +524,10 @@
   // fund history always completes and the screen keeps room. A 429 answer pauses the queue (4, 8, 16, 32 s) and the same
   // request is sent again: a chart waits instead of failing.
   const EQ = { q: [], run: 0, sent: [], pauseUntil: 0, strikes: 0, strikeAt: 0, timer: null, log: [] };
-  const CAP_SCREEN = 112;
+  // Build 151 (Matteo, 26 Nov 2026: "sometimes it takes too long to load"): the chart of the asset the user has just opened is
+  // prio 2.4. It goes before every other read of the screen (only the account's own reading, 2.5, is ahead), and four reads a
+  // minute are kept for it alone (116), so a busy first minute after launch does not make the chart wait for the window to turn.
+  const CAP_SCREEN = 112, CAP_OPEN = 116;
   function etoroSend(url, headers, prio) {
     return new Promise((resolve) => { EQ.q.push({ url, headers, prio: prio == null ? 2 : prio, tries: 0, resolve, queuedAt: Date.now() }); pump(); });
   }
@@ -533,7 +536,7 @@
     while (EQ.q.length && EQ.run < 4) {
       const now = Date.now(); EQ.sent = EQ.sent.filter((t) => now - t < 60000);
       let k = 0; for (let i = 1; i < EQ.q.length; i++) if (EQ.q[i].prio > EQ.q[k].prio) k = i;   // what the screen waits for first, then in order of arrival
-      const cap = EQ.q[k].prio >= 2 ? CAP_SCREEN : EQ.q[k].prio >= 1.5 ? 92 : EQ.q[k].prio >= 1 ? 60 : 48, wait = Math.max(EQ.pauseUntil - now, EQ.sent.length >= cap ? 60000 - (now - EQ.sent[EQ.sent.length - cap]) + 30 : 0);
+      const cap = EQ.q[k].prio === 2.4 ? CAP_OPEN : EQ.q[k].prio >= 2 ? CAP_SCREEN : EQ.q[k].prio >= 1.5 ? 92 : EQ.q[k].prio >= 1 ? 60 : 48, wait = Math.max(EQ.pauseUntil - now, EQ.sent.length >= cap ? 60000 - (now - EQ.sent[EQ.sent.length - cap]) + 30 : 0);
       if (wait > 0) { EQ.timer = setTimeout(pump, Math.min(wait, 4000)); return; }
       const job = EQ.q.splice(k, 1)[0]; job.sentAt = now;
       EQ.run++; EQ.sent.push(now);
@@ -550,7 +553,10 @@
       });
     }
   }
-  const etoroBoost = (path) => { for (const j of EQ.q) if (j.url.endsWith(path)) j.prio = 2; pump(); };   // a queued background read the screen now waits for
+  // a queued background read the screen now waits for: it moves up to the screen's priority. (Until build 150 this compared the END of
+  // the address with a path that stops before the candle count, so it never matched: an asset being preloaded when the user opened
+  // it stayed at the back of the queue.)
+  const etoroBoost = (path, to) => { const p = to || 2; for (const j of EQ.q) if (j.url.includes(path) && j.prio < p) j.prio = p; pump(); };
   // for the screens: how long the queue is paused by eToro's limit (seconds) and how many reads are waiting
   const etoroState = () => { const now = Date.now(), sent = EQ.sent.filter((t) => now - t < 60000), capWait = sent.length >= CAP_SCREEN ? 60000 - (now - sent[sent.length - CAP_SCREEN]) : 0; return { wait: Math.max(0, Math.ceil(Math.max(EQ.pauseUntil - now, capWait) / 1000)), queued: EQ.q.length, lastMinute: sent.length }; };
   // eToro reads for the live layer (prices, search, intraday candles) with the keys saved in Settings

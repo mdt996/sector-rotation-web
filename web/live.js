@@ -260,7 +260,7 @@
     if (hit && !hit.checked) { hit.checked = true; try { hit = await checkJumps(id, interval, key, hit, prio); } catch (e) { /* checked again next session */ hit.checked = false; } enough = hit && (hit.rows.length >= count || hit.all); }
     if (enough && now - hit.at < ttl) { stats.fromDevice++; return hit.rows.slice(-count); }
     const fkey = key + '/' + count;
-    if (flying.has(fkey)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/`); return flying.get(fkey); }   // already on its way: the screen's need moves it to the front
+    if (flying.has(fkey)) { if ((prio == null || prio >= 2) && SRApp.etoroBoost) SRApp.etoroBoost(`/instruments/${id}/history/candles/desc/${interval}/`, prio || 2); return flying.get(fkey); }   // already on its way: the screen's need moves it to the front
     const job = (async () => {
       if (enough && now - hit.fullAt < 10 * 864e5) {   // only the candles since the last one kept
         const lastT = hit.rows[hit.rows.length - 1].t, n = Math.max(5, Math.ceil((now - lastT) / ((SEC[interval] || 86400) * 1000)) + 3);
@@ -438,11 +438,40 @@
     const qBack = el('button', 'av-qmore av-qback', '‹ Simple price chart'); qBack.type = 'button'; wrap.insertBefore(qBack, frames);
     function setMode(m) { mode = m; lsSet('sr.avMode', m); page.classList.toggle('is-quick', m === 'quick'); quick.hidden = m !== 'quick'; qBack.hidden = m === 'quick'; if (m === 'quick') qLoad(); else { if (chFit) chFit(); if (ch.fit) ch.fit(); } }
     qMore.addEventListener('click', () => setMode('detail')); qBack.addEventListener('click', () => setMode('quick'));
+    // ---- "meanwhile" (build 151; Matteo, 26 Nov 2026: "sometimes it takes too long to load, do you have any chart to show
+    // meanwhile you sync with eToro?"): while eToro's candles are on their way, a plain line of what the phone ALREADY has, in the
+    // chart's place: this asset's daily closes kept on the device, or the three months of the nightly scan. Both are eToro's own
+    // closes (never another source: the app's prices are eToro's only). It says what it is and leaves when the chart is painted. ----
+    const OPEN = 2.4;   // the priority of the opened asset's reads in eToro's queue (runtime.js)
+    const mwEls = new Set(); let mwTries = 0;
+    const mwDim = (host) => (host === qBox ? qBox : box);   // the element the loading rule dims: not while the line is shown
+    const mwOff = (host) => { for (const o of [...mwEls]) if (!host || o.parentNode === host || !o.isConnected) { o.remove(); mwEls.delete(o); } if (host) mwDim(host).classList.remove('has-mw'); };
+    const mwStop = () => { for (const o of mwEls) { const w = o.querySelector('.av-mw-wait'); if (w) w.remove(); } };   // eToro did not answer: the line stays, without "loading"
+    async function meanwhile(host) {
+      if (dead || !host || [...mwEls].some((o) => o.parentNode === host)) return;
+      let v = null, say = '';
+      const kd = await kept(inst.id, 'OneDay').catch(() => null);
+      if (kd && kd.rows.length >= 20) { const R = kd.rows.slice(-130); v = R.map((x) => x.close); say = `Daily closes kept on this device, to ${new Date(R[R.length - 1].t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`; }
+      else {
+        const sp = window.SRScreen && window.SRScreen.spark ? window.SRScreen.spark(inst.id) : null;
+        if (sp && sp.v.length >= 8) { v = sp.v; say = 'The last three months, from the nightly scan'; }
+        else if (mwTries++ < 12) { if (window.SRScreen && window.SRScreen.loadWide) window.SRScreen.loadWide(); setTimeout(() => { if (!dead && host.classList.contains('is-loading')) meanwhile(host); }, 700); }   // the scan may still be arriving
+      }
+      if (!v || dead || !host.isConnected || !host.classList.contains('is-loading') || [...mwEls].some((o) => o.parentNode === host)) return;
+      const W = Math.max(220, host.clientWidth || 340), H = Math.max(160, Math.min(host.clientHeight || 220, 420)), pt = 30, pb = 40, lo = Math.min(...v), hi = Math.max(...v), n = v.length;
+      const x = (i) => (i / (n - 1)) * W, y = (q) => pt + (1 - (hi > lo ? (q - lo) / (hi - lo) : 0.5)) * (H - pt - pb);
+      const d = v.map((q, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(q).toFixed(1)}`).join(' ');
+      const o = el('div', 'av-mw ' + (v[n - 1] >= v[0] ? 'up' : 'down')); o.setAttribute('role', 'img'); o.setAttribute('aria-label', `${say}. eToro's live candles are loading.`); if (host === qBox) o.style.height = H + 'px';
+      o.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path class="av-mw-a" d="${d} L${W} ${H - pb} L0 ${H - pb} Z"/><path class="av-mw-l" d="${d}" vector-effect="non-scaling-stroke"/></svg>`;
+      o.appendChild(el('div', 'av-mw-say', say)); o.appendChild(el('div', 'av-mw-wait', 'Live candles loading'));
+      host.appendChild(o); mwEls.add(o); mwDim(host).classList.add('has-mw');
+    }
     async function qLoad() {
       const my = ++qSeq, r = qr;
       if (!hasKeys()) { qHead.textContent = ''; qBox.replaceChildren(el('div', 'av-qnote', 'Add your eToro keys in Settings for prices.')); return; }
       qBox.classList.add('is-loading');
-      let rows = null; try { rows = await candles(inst.id, r.iv, r.n, 2); } catch (e) { rows = null; }
+      if (!qBox.dataset.points) meanwhile(qBox);   // nothing drawn yet: the line the phone already has, meanwhile
+      let rows = null; try { rows = await candles(inst.id, r.iv, r.n, OPEN); } catch (e) { rows = null; }
       if (dead || my !== qSeq) return;
       qBox.classList.remove('is-loading');
       if (!rows || rows.length < 2) { qPts = null; qHead.textContent = ''; qBox.replaceChildren(el('div', 'av-qnote', 'No prices from eToro for this period.')); return; }
@@ -1002,7 +1031,7 @@
     let nodata = false;
     function noData() {
       last.textContent = '—'; chg.textContent = '';
-      nodata = true; sub.textContent = 'eToro lists this line but sends no prices for it.';
+      nodata = true; sub.textContent = 'eToro lists this line but sends no prices for it.'; mwStop();
       const t = twinOf();
       if (t && !wrap.querySelector('.av-twin')) {
         const b = el('button', 'btn primary av-twin', `Show ${t.symbol} instead (same holdings, live prices)`); b.type = 'button';
@@ -1016,7 +1045,7 @@
     }
     let retried = 0, retryBtn = null, loadSeq = 0, lastLoad = null, drawErr = '';
     function failed(msg, again) {
-      sub.textContent = msg; sub.className = 'av-sub';
+      sub.textContent = msg; sub.className = 'av-sub'; mwStop();
       if (!retryBtn) { retryBtn = el('button', 'btn av-retry', 'Try again'); retryBtn.type = 'button'; retryBtn.addEventListener('click', () => { retried = 0; load(true); }); sub.insertAdjacentElement('afterend', retryBtn); }
       retryBtn.hidden = false;
       if (again && retried < 2) { retried++; setTimeout(() => { if (!dead && retryBtn && !retryBtn.hidden) load(true); }, 4000 * retried); }   // two more tries on its own
@@ -1024,10 +1053,12 @@
     async function load(fit) {
       if (!hasKeys()) { header(); return; }
       box.classList.add('is-loading'); if (retryBtn) retryBtn.hidden = true; lastLoad = null;
+      { const cm = box.querySelector('.ch-main'); if (cm && !bars.length) { cm.classList.add('is-loading'); meanwhile(cm); } }   // nothing drawn yet: the line the phone already has, meanwhile
       // while waiting: say so when eToro's limit of 120 reads a minute is the reason
       const waiting = setInterval(() => { const st = SRApp.etoroState ? SRApp.etoroState() : null; if (st && st.wait > 0 && !dead) sub.textContent = `eToro allows 120 requests a minute and the limit is reached: the chart loads in about ${st.wait} s.`; }, 500);
       let d, pc, rows, shown = false; const mine = ++loadSeq, t0 = Date.now();
-      const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); } catch (e) { drawErr = String((e && e.message) || e).slice(0, 80); if (window.console) console.error(e); } try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
+      const mwDone = () => { const cm = box.querySelector('.ch-main'); if (cm) { cm.classList.remove('is-loading'); mwOff(cm); } };
+      const show = (dd, rr, fit2) => { if (dead || mine !== loadSeq || !rr.length) return; mwDone(); daily = dd; prev = prevFromRows(dd) || prev; L = zoneLevels(zonesFrom(inst.id, dd)); bars = toBars(rr); try { paint(fit2); } catch (e) { drawErr = String((e && e.message) || e).slice(0, 80); if (window.console) console.error(e); } try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); } };
       try {
         // 1. what the device already has: the chart appears at once
         let kd = await kept(inst.id, 'OneDay'); if ((!kd || kd.rows.length < 300) && await fromPack(inst.id)) kd = await kept(inst.id, 'OneDay');   // nothing on the device: the published history, if this asset is scanned
@@ -1035,14 +1066,14 @@
         if (kd && kd.rows.length >= 80 && kf && kf.rows.length >= 60) { show(kd.rows.slice(-1000), kf.rows.slice(-frame.n), fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: true, ms: Date.now() - t0 }; if (window.SRSpeed) window.SRSpeed.mark('asset', lastLoad.ms, 1); }
         // 2. an asset never opened: 300 candles first, the rest of its history right after
         const first = !kd || (kd.rows.length < 1000 && !kd.all);
-        d = await candles(inst.id, 'OneDay', first ? 300 : 1000);
+        d = await candles(inst.id, 'OneDay', first ? 300 : 1000, OPEN);
         if (first && !shown && d.length) {
-          const r0 = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n).catch(() => []);
+          const r0 = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n, OPEN).catch(() => []);
           show(d, r0.length ? r0 : d, fit); shown = true; box.classList.remove('is-loading'); lastLoad = { quick: false, ms: Date.now() - t0 }; if (window.SRSpeed) window.SRSpeed.mark('asset', lastLoad.ms, 0);
         }
-        if (first && d.length >= 300) d = await candles(inst.id, 'OneDay', 1000);   // the longer history: long-term lines and the asset's own test
-        pc = await prevClose(inst.id);
-        rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n).catch((e) => { if (d.length) return []; throw e; });   // the timeframe failed: fall back on daily candles
+        if (first && d.length >= 300) d = await candles(inst.id, 'OneDay', 1000, OPEN);   // the longer history: long-term lines and the asset's own test
+        pc = await prevClose(inst.id, OPEN);
+        rows = frame.iv === 'OneDay' ? d : await candles(inst.id, frame.iv, frame.n, OPEN).catch((e) => { if (d.length) return []; throw e; });   // the timeframe failed: fall back on daily candles
       } catch (e) {
         clearInterval(waiting); box.classList.remove('is-loading');
         if (dead || mine !== loadSeq) return;
@@ -1059,7 +1090,7 @@
       daily = d; prev = pc; L = zoneLevels(zonesFrom(inst.id, d));
       bars = toBars(rows);
       if (!lastLoad) lastLoad = { quick: false, ms: Date.now() - t0 };
-      drawErr = '';
+      drawErr = ''; mwDone();
       try { paint(fit); } catch (e) { drawErr = String((e && e.message) || e).slice(0, 80); if (window.console) console.error(e); }
       if (drawErr) failed('The chart could not be drawn (' + drawErr + '). Tell me this message.', false);
       try { liveCandle(); header(); facts(); } catch (e) { if (window.console) console.error(e); }
