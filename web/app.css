@@ -1609,20 +1609,32 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .sc-chip.is-on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
 /* a row: who it is, a small line of the last three months, the price and the day's change */
 .sc-list { gap: 0; }
-.sc-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: 0 12px; align-items: center; min-height: 64px; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--color-border-line); border-radius: 0; background: none; box-shadow: none; }
+/* build 148, after the picture Matteo sent ("a style like this"): a header line whose words sort, tighter rows, the price and the
+   day's change in two straight columns, the open row lit. Our own 3-month line and the buy-signal note stay. */
+.sc-head, .pf-head { display: grid; align-items: center; gap: 0 8px; padding: 0 2px; border-bottom: 1px solid var(--color-border-line); }
+.sc-head { grid-template-columns: minmax(0, 1fr) 46px 78px 62px; margin-top: -8px; } .pf-head { grid-template-columns: minmax(0, 1fr) 92px 62px; }
+.sc-th, .pf-th { display: inline-flex; align-items: center; gap: 3px; min-width: 0; min-height: 40px; padding: 0; border: 0; background: none; font: inherit; font-size: 11.5px; font-weight: 700; color: var(--color-fg-muted); white-space: nowrap; cursor: pointer; }
+.sc-th.is-on, .pf-th.is-on { color: var(--color-fg); } .sc-th i, .pf-th i { font-style: normal; font-size: 10px; color: var(--accent); }
+.sc-th-a, .pf-th-a { justify-self: start; padding-inline-start: 44px; } .pf-th-a { padding-inline-start: 52px; } .sc-th-m, .sc-th-p, .sc-th-c, .pf-th-v, .pf-th-c { justify-self: end; }
+.sc-row.is-open, .g-row.pf-row.is-open { background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent); }
+.sc-row { grid-template-columns: minmax(0, 1fr) 46px auto; gap: 0 8px; align-items: center; min-height: 54px; padding: 7px 2px; border: 0; border-bottom: 1px solid var(--color-border-line); border-radius: 0; background: none; box-shadow: none; }
 .sc-row.is-sig { border-color: var(--color-border-line); }
 .sc-row.is-sel { background: var(--accent-tint); }
-.sc-a { gap: 12px; }
+.sc-a { gap: 10px; }
 .sc-a .sc-nm b { font-size: 15px; font-weight: 700; }
 .sc-a .sc-nm span, .sc-a .sc-m { display: none; }
 .sc-a .sc-sub { font-size: 12px; font-weight: 600; color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-a .sc-sub.is-sig { color: var(--accent); } .sc-a .sc-sub.is-out { color: var(--color-warn); }
-.sc-mini { display: block; width: 64px; height: 28px; } .sc-mini svg { display: block; width: 64px; height: 28px; overflow: visible; }
+.sc-a .sc-sub.is-two { display: flex; min-width: 0; overflow: visible; } .sc-a .sc-sub-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .sc-a .sc-sub-p { flex: none; overflow: visible; white-space: pre; }   /* ".sc-a span" of the older layer would swallow the space before the dot */
+.sc-mini { display: block; width: 46px; height: 22px; } .sc-mini svg { display: block; width: 46px; height: 22px; overflow: visible; }
+.sc-card .sc-mini, .sc-card .sc-mini svg { width: 64px; height: 28px; }
 .sc-mini path { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .sc-mini.is-up { color: var(--av-up); } .sc-mini.is-down { color: var(--av-down); }
 .sc-v { min-width: 84px; gap: 3px; } .sc-v b { font-size: 15px; font-weight: 700; }
+.sc-row .sc-v { display: grid; grid-template-columns: 78px 62px; gap: 0 8px; align-items: center; justify-items: end; min-width: 0; } .sc-row .sc-v b { font-size: 14.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sc-chg { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
 .sc-chg.up { background: color-mix(in srgb, var(--av-up) 15%, transparent); } .sc-chg.down { background: color-mix(in srgb, var(--av-down) 15%, transparent); }
+.sc-row .sc-chg, .sc-row .sc-chg.up, .sc-row .sc-chg.down { padding: 0; border-radius: 0; background: none; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* the asset in a sheet that slides up; the full page is one more tap */
 .sc-sheet { position: fixed; inset: 0; z-index: 45; display: flex; flex-direction: column; justify-content: flex-end; }
 .sc-sheet-scrim { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: var(--scrim); cursor: pointer; }
@@ -1677,6 +1689,41 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .t-labring-t { fill: none; stroke: color-mix(in srgb, var(--accent) 20%, transparent); stroke-width: 4.5; } .t-labring-v { fill: none; stroke: var(--accent); stroke-width: 4.5; stroke-linecap: round; }
 .t-labring-m { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 1px; } .t-labring-m b { font-size: 26px; font-weight: 800; letter-spacing: -.02em; color: var(--accent); } .t-labring-m small { font-size: 11.5px; font-weight: 600; color: var(--color-fg-muted); }
 .t-labhero-w { flex: 1 1 0; min-width: 0; display: grid; gap: 7px; justify-items: start; } .t-labhero-w b { font-size: 19px; font-weight: 800; } .t-labhero-w > .g-muted { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-/* ---- the asset's full page: the price first, large ---- */
+/* ---- Portfolio (build 148): the gain under the large figure, the split as ONE bar (a piece per holding), then the holdings as a
+   list with a header line. The eight colours are the dataviz skill's set for each look, used in their fixed order (checked with
+   its validator on these two backgrounds: all pass on dark; on light four are under 3:1 against the page, which the rows below,
+   each naming its piece, make up for). Grey is "the smaller ones", the paler grey is cash. ---- */
+:root:not([data-theme="light"]) { --pf-1: #3987e5; --pf-2: #d95926; --pf-3: #199e70; --pf-4: #c98500; --pf-5: #d55181; --pf-6: #0ca30c; --pf-7: #9085e9; --pf-8: #e66767; --pf-0: #5B647E; --pf-cash: #3A4260; }
+:root[data-theme="light"] { --pf-1: #2a78d6; --pf-2: #eb6834; --pf-3: #1baf7a; --pf-4: #eda100; --pf-5: #e87ba4; --pf-6: #008300; --pf-7: #6250d6; --pf-8: #e34948; --pf-0: #8A91A8; --pf-cash: #C3C8D8; }
+.g-hero-gain { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); }
+.g-hero-gain .g-hero-pill { order: 0; margin: 0; } .g-hero-gain.up .g-hero-pill { color: var(--av-up); background: color-mix(in srgb, var(--av-up) 15%, transparent); } .g-hero-gain.down .g-hero-pill { color: var(--av-down); background: color-mix(in srgb, var(--av-down) 15%, transparent); }
+.pf-split { display: flex; gap: 3px; height: 14px; margin: -4px 2px 20px; }
+.pf-seg { position: relative; flex: 0 1 0; min-width: 4px; height: 14px; padding: 0; border: 0; border-radius: 5px; background: var(--pf-c); } button.pf-seg { cursor: pointer; } button.pf-seg::after { content: ''; position: absolute; inset: -15px 0; }
+#pfolio .g-holdings-head { margin: 0 2px 2px; } #pfolio .g-holdings-head h2 { font-size: 17px; font-weight: 700; }
+#pfolio .g-list { gap: 0; margin-bottom: 14px; }
+.g-row.pf-row { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-areas: none; gap: 0 10px; align-items: center; width: 100%; min-height: 54px; margin: 0; padding: 7px 2px 7px 10px; border: 0; border-bottom: 1px solid var(--color-border-line); border-radius: 0; background: none; box-shadow: none; }
+.g-row.pf-row::before { content: ''; position: absolute; inset-inline-start: 0; top: 50%; width: 4px; height: 30px; margin-top: -15px; border-radius: 2px; background: var(--pf-c, transparent); }
+.g-row.pf-row > .sr-logo, .g-row.pf-row.has-logo > .sr-logo { grid-area: auto; }
+.g-row.pf-row:not(.has-logo) { grid-template-columns: minmax(0, 1fr) auto; }
+.pf-row .g-row-a { grid-area: auto; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 6px; align-items: center; min-width: 0; text-align: start; }
+.pf-row .g-row-a b { font-size: 15px; font-weight: 700; } .pf-row .g-row-n { grid-column: 1 / -1; font-size: 12px; font-weight: 600; }
+.pf-row .g-row-tags { grid-area: auto; display: flex; flex-wrap: nowrap; gap: 4px; margin: 0; min-width: 0; overflow: hidden; }
+.pf-row .g-row-tags .g-chip { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 9px; white-space: nowrap; background: none; }
+.pf-row .g-row-v { grid-area: auto; display: grid; grid-template-columns: 92px 62px; gap: 0 8px; align-items: center; justify-items: end; text-align: end; }
+.pf-row .g-row-v b { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; } .pf-row .g-row-c { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pf-row .g-row-c.up { color: var(--av-up); } .pf-row .g-row-c.down { color: var(--av-down); }
+.g-row.pf-row.g-row-pending { border-bottom-style: dashed; }
+#pfolio .g-group-h { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 10px; min-height: 40px; margin: 0; padding: 8px 2px 4px 10px; text-transform: none; letter-spacing: 0; }
+#pfolio .g-group-h b { font-size: 13px; font-weight: 700; color: var(--color-fg); } #pfolio .g-group-h .g-muted { font-size: 12px; font-weight: 600; }
+#pfolio .g-group-v { display: grid; grid-template-columns: 92px 62px; gap: 0 8px; justify-items: end; align-items: center; } #pfolio .g-group-v b { font-size: 13px; font-variant-numeric: tabular-nums; } #pfolio .g-group-v .g-row-c { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#pfolio .g-group-v .g-row-c.up { color: var(--av-up); } #pfolio .g-group-v .g-row-c.down { color: var(--av-down); }
+#pfolio .g-group-note { margin: 0 2px 6px 10px; font-size: 12px; }
+/* ---- the asset's full page: the price first, large; on a phone the chart runs from edge to edge and the parts are short blocks ---- */
 .av-last { font-size: 42px; font-weight: 800; letter-spacing: -.03em; }
+.search-body .av-page:not(.is-wide) .av-chart .ch:not(.is-full) .ch-main, .search-body .av-page:not(.is-wide) .av-qchart { margin-inline: -16px; max-width: none; }   /* the picture only: the tools and the dates above it keep their margin */
+.av-jump { gap: 8px; margin: 12px -16px 8px; padding: 8px 16px; border-bottom: 0; }
+.av-verdict, .fv-g, .av-about, .av-ta, .av-stats { scroll-margin-top: 62px; }   /* the row of parts is taller now: a part it jumps to stops under it */
+.av-jump button { padding: 0 14px; min-height: 36px; border-radius: 18px; border: 1px solid var(--color-border-line); background: var(--color-panel); font-size: 13px; font-weight: 700; }
+.av-page:not(.is-wide) .av-about, .av-page:not(.is-wide) .av-ta { border-top: 0; padding-top: 0; }
+.av-page .ab-ma, .av-page .ab-dvc, .av-page .ab-tgt, .av-page .ta-plan, .av-page .ta-lv { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--color-border-line); border-radius: 18px; background: var(--color-panel); }
 .t-labhero-word { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--pro-well); color: var(--color-fg-muted); }

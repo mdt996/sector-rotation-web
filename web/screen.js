@@ -304,7 +304,10 @@
   }
   const by = (f, dir) => (a, b) => { const x = f(a), y = f(b), nx = x == null || !isFinite(x), ny = y == null || !isFinite(y); return nx - ny || (nx ? 0 : dir * (x - y)); };   // assets without the figure go last
   const SORTS = { rank: ['signals first', rankOrder], cap: ['market value, largest first', by((r) => r.cap, -1)], pop: ['most followed on eToro first', by((r) => r.pop, 1)], sales: ['revenue, largest first', by((r) => r.sales, -1)], rsiLo: ['RSI, lowest first', by((r) => r.rsi, 1)], rsiHi: ['RSI, highest first', by((r) => r.rsi, -1)],
-    day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
+    day: ['today, best first', by((r) => r.chg, -1)], dayLo: ['today, worst first', by((r) => r.chg, 1)],
+    // the list's header line (build 148): a tap on Symbol, 3 months, Price or Today sorts by it, a second tap turns it round, a third goes back to signals first
+    az: ['symbol, A to Z', (a, b) => String(a.sym).localeCompare(String(b.sym))], za: ['symbol, Z to A', (a, b) => String(b.sym).localeCompare(String(a.sym))],
+    m3: ['3 months, best first', by((r) => r.c60, -1)], m3Lo: ['3 months, worst first', by((r) => r.c60, 1)], px: ['price, highest first', by((r) => r.px, -1)], pxLo: ['price, lowest first', by((r) => r.px, 1)], c5: ['5 days, best first', by((r) => r.c5, -1)], c20: ['1 month, best first', by((r) => r.c20, -1)], sup: ['nearest support', by((r) => r.sup, -1)], res: ['nearest resistance', by((r) => r.res, 1)],
     rr: ['reward to risk, highest first', by((r) => r.rr, -1)], pe: ['P/E, lowest first', by((r) => (r.pe > 0 ? r.pe : null), 1)],
     'fin:all': ['financial health, healthiest first'], 'fin:all:lo': ['financial health, least healthy first'], 'fin:profit': ['profit, best first'], 'fin:cash': ['cash flow, best first'],
     'fin:debt': ['debt, soundest first'], 'fin:growth': ['growth, fastest first'], 'fin:outlook': ['outlook, best first'],
@@ -489,13 +492,14 @@
   const outWhy = (r) => (tooSmall(r) ? 'never tested at this size' : 'weak finances');
   const wideView = () => !!(window.matchMedia && window.matchMedia('(min-width: 1100px)').matches);
   function rowEl(r) {
-    const sg = isSig(r), b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '') + (sg ? ' is-sig' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id;
+    const sg = isSig(r), b = el('button', 'sc-row' + (r.id === selId ? ' is-sel' : '') + (sg ? ' is-sig' : '') + (r.id && sheetEl && sheetEl.dataset.id === String(r.id) ? ' is-open' : '')); b.type = 'button'; if (r.id) b.dataset.id = r.id;
     b.addEventListener('click', () => (wideView() ? open(r) : openSheet(r)));
-    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 38);
+    const a = b.appendChild(el('span', 'sc-a')); if (window.SRLogo) window.SRLogo.lead(a, r.id, r.sym, 34);
     const id = a.appendChild(el('span', 'sc-id')), nm = id.appendChild(el('span', 'sc-nm')); nm.appendChild(el('b', '', r.sym));
     const shut = shutOf(r), out = r.buy && !r.q;   // each row says when its market is shut
-    id.appendChild(el('span', 'sc-sub' + (sg ? ' is-sig' : out ? ' is-out' : ''),
+    const sub = id.appendChild(el('span', 'sc-sub' + (sg ? ' is-sig' : out ? ' is-out' : ''),
       sg ? `${T('buy')} · ${out ? outWhy(r) : r.od ? p0(r.od.win) : ''}` : out ? `Signal not counted: ${outWhy(r)}` : [r.name || r.group || '', shut].filter(Boolean).join(' · ')));
+    if (sg && !out && r.od) { sub.replaceChildren(el('span', 'sc-sub-t', T('buy')), el('span', 'sc-sub-p', ` · ${p0(r.od.win)}`)); sub.classList.add('is-two'); }   // on a narrow phone the words are cut, never the test's figure
     const fs = finSort(), ms = fs ? null : maSort(), ds = fs || ms ? null : dvSort(), strip = (fs && Array.isArray(r.f)) || ms || (ds && r[ds]);
     if (!strip) b.appendChild(miniSpark(r)); else b.appendChild(el('span', 'sc-mini'));
     const v = b.appendChild(el('span', 'sc-v')); v.appendChild(el('b', '', fmt(r.px))); v.appendChild(el('span', 'sc-chg ' + dir(r.chg), pct(r.chg)));
@@ -515,7 +519,8 @@
   // ---- the asset in a sheet: what the row left out, and the way to its full page ----
   let sheetEl = null;
   const sheetKey = (e) => { if (e.key === 'Escape') closeSheet(); };
-  function closeSheet() { if (!sheetEl) return false; sheetEl.remove(); sheetEl = null; document.removeEventListener('keydown', sheetKey); return true; }
+  const litRow = (id) => { for (const x of document.querySelectorAll('.sc-row.is-open')) x.classList.remove('is-open'); if (id) for (const x of document.querySelectorAll(`.sc-row[data-id="${+id}"]`)) x.classList.add('is-open'); };
+  function closeSheet() { if (!sheetEl) return false; sheetEl.remove(); sheetEl = null; litRow(null); document.removeEventListener('keydown', sheetKey); return true; }
   function openSheet(r) {
     closeSheet();
     const sh = el('div', 'sc-sheet'); sh.id = 'sc-sheet'; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-modal', 'true'); sh.setAttribute('aria-label', r.sym); if (r.id) sh.dataset.id = r.id;
@@ -538,7 +543,7 @@
     const st = p.appendChild(el('div', 'sc-sheet-stats'));
     for (const [lab, val, cls] of [[T('m3'), r.c60 == null ? (r.c20 == null ? '–' : pct(r.c20)) : pct(r.c60), dir(r.c60 == null ? r.c20 : r.c60)], ['RSI', r.rsi == null ? '–' : String(Math.round(r.rsi)), ''], [T('mcap'), r.cap ? big(r.cap) : '–', '']]) { const c = st.appendChild(el('span')); c.appendChild(el('small', '', lab)); c.appendChild(el('b', cls, val)); }
     const go = p.appendChild(el('button', 'sc-sheet-open', T('openFull'))); go.type = 'button'; go.addEventListener('click', () => { closeSheet(); open(r); });
-    document.body.appendChild(sh); sheetEl = sh; document.addEventListener('keydown', sheetKey);
+    document.body.appendChild(sh); sheetEl = sh; litRow(r.id); document.addEventListener('keydown', sheetKey);
   }
   dash.draw('screener', (outer) => {
     if (!window.SRTA) { outer.replaceChildren(); return; }
@@ -633,6 +638,14 @@
     finPos.clear(); if (fsN) L.forEach((r, k) => finPos.set(r.id, [fsN.lo ? L.length - k : k + 1, L.length]));
     maPos.clear(); if (msN) L.forEach((r, k) => maPos.set(r.id, [msN.lo ? L.length - k : k + 1, L.length]));
     dvPos.clear(); if (dsN) L.forEach((r, k) => dvPos.set(r.id, [k + 1, L.length]));
+    if (plain && L.length) {   // Symbol · 3 months · Price · Today, each a button that sorts (the picture Matteo sent on 26 Nov 2026)
+      const hd = box.appendChild(el('div', 'sc-head')); hd.setAttribute('role', 'group'); hd.setAttribute('aria-label', T('sort'));
+      for (const [label, cls, first, second] of [[T('symbol'), 'sc-th-a', 'az', 'za'], [T('m3'), 'sc-th-m', 'm3', 'm3Lo'], [T('price'), 'sc-th-p', 'px', 'pxLo'], [T('today'), 'sc-th-c', 'day', 'dayLo']]) {
+        const on = F.sort === first ? 1 : F.sort === second ? 2 : 0, hb = hd.appendChild(el('button', 'sc-th ' + cls + (on ? ' is-on' : ''))); hb.type = 'button'; hb.dataset.sort = first; hb.setAttribute('aria-pressed', String(!!on));
+        hb.appendChild(el('span', '', label)); if (on) hb.appendChild(el('i', '', (first === 'az') === (on === 1) ? '▴' : '▾'));
+        hb.addEventListener('click', () => pick({ sort: on === 1 ? second : on === 2 ? 'rank' : first }));
+      }
+    }
     const list = box.appendChild(el('div', 'sc-list')), vis = L.slice(0, shown);
     for (const r of vis) { const x = list.appendChild(rowEl(r)); if (r.id === hlId) x.classList.add('is-hl-keep'); }
     if (!L.length) list.appendChild(el('p', 'g-muted', 'No asset matches these filters.'));

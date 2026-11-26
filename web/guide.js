@@ -232,7 +232,7 @@
 
   // ---- a bottom sheet: the "why" behind an order or a holding ----
   let sheetEl = null;
-  function closeSheet() { if (sheetEl) { sheetEl.remove(); sheetEl = null; } }
+  function closeSheet() { if (sheetEl) { sheetEl.remove(); sheetEl = null; } if (ui.pfOpen) { ui.pfOpen = null; for (const x of document.querySelectorAll('.g-row.is-open')) x.classList.remove('is-open'); } }
   function sheet(title, build) {
     closeSheet();
     const back = el('div', 'g-sheet-back'), s = back.appendChild(el('div', 'g-sheet'));
@@ -690,18 +690,52 @@
       row.appendChild(btn('Open chart', '', () => { closeSheet(); openHolding(h); }));
     });
   }
+  // ---- Portfolio in the phone design (build 148): under the large figure the gain since bought, then the split as ONE bar,
+  // a piece per holding. The eight largest carry the eight colours, taken in the order the holdings are typed (so a holding
+  // keeps its colour while prices move); the smaller ones are one grey piece, cash a paler one. Each row below wears its
+  // piece's colour: the rows are the bar's legend. The colours and their order were checked with the dataviz validator. ----
+  function gainLine(hr, H) {
+    const sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null); if (!known.length) return;
+    const g = d3.sum(known, gainOf), paid = d3.sum(known, (h) => h.paid), l = hr.appendChild(el('div', 'g-hero-gain ' + (g > 0.005 ? 'up' : g < -0.005 ? 'down' : '')));
+    l.appendChild(el('span', 'g-hero-pill', pct(paid ? g / paid : 0, 1))); l.appendChild(el('span', '', `${TL('gain')} ${eurc(g, true)}${known.length < sold.length ? ` (${known.length} of ${sold.length})` : ''}`));
+  }
+  function pfColors(all) {
+    const top = new Set(all.filter((h) => h.value > 0 && h.ticker !== 'CASH').slice().sort((a, b) => b.value - a.value).slice(0, 8).map((h) => h.ticker)), M = new Map(); let k = 0;
+    for (const h of all) if (top.has(h.ticker) && !M.has(h.ticker)) M.set(h.ticker, ++k);
+    return (h) => (h.ticker === 'CASH' ? 'cash' : M.get(h.ticker) || 0);
+  }
+  function splitBar(box, all, colorOf, st) {
+    const live = all.filter((h) => h.value > 0), tot = d3.sum(live, (h) => h.value); if (!(tot > 0) || live.length < 2) return;
+    const bar = box.appendChild(el('div', 'pf-split')); bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', 'Your portfolio, a piece per holding');
+    const piece = (w, k, label, on) => {
+      if (!(w / tot > 0.004)) return;
+      const x = bar.appendChild(el(on ? 'button' : 'span', 'pf-seg')); if (on) { x.type = 'button'; x.addEventListener('click', on); }
+      x.style.flexGrow = String(w / tot); x.style.setProperty('--pf-c', `var(--pf-${k})`); x.title = label; x.setAttribute('aria-label', label);
+    };
+    const rest = live.filter((h) => colorOf(h) === 0), cash = live.filter((h) => colorOf(h) === 'cash'), sum = (L) => d3.sum(L, (h) => h.value);
+    for (const h of live) if (colorOf(h) > 0) piece(h.value, colorOf(h), `${h.ticker} ${p0(h.value / tot)}`, () => holdingSheet(h, st, all));
+    if (rest.length) piece(sum(rest), 0, `${rest.length} smaller holding${rest.length === 1 ? '' : 's'} ${p0(sum(rest) / tot)}`);
+    if (cash.length) piece(sum(cash), 'cash', `Cash ${p0(sum(cash) / tot)}`);
+  }
   // is a holding's market open (eToro's word, asked for all the holdings at once); coins and cash say nothing
   const mkt = (h) => { if (h.ticker === 'CASH' || h.pending || !window.SRLive || !SRLive.market || !SRLive.liveOf) return null; const l = SRLive.liveOf(h); return l && !(SRLive.isCoin && SRLive.isCoin(h)) ? SRLive.market(l.id) : null; };
   if (window.SRLive && SRLive.onMarket) SRLive.onMarket(() => { const p = document.querySelector('#pfolio'); if (p && !p.closest('[hidden]')) SRApp.renderDraw('pfolio'); });
   dash.draw('pfolio', (outer) => {
     const all = holdings();
     if (window.SRLive && SRLive.marketAsk && SRLive.liveOf) SRLive.marketAsk(all.map((h) => { const l = SRLive.liveOf(h); return l && l.id; }));
-    const H = all.filter((h) => h.value > 0).sort((a, b) => b.value - a.value), T = totals(H), st = planState(all);
+    // the list's order: by value unless a word of the header line was tapped (Symbol, Value, Today)
+    const sortKey = ui.pfSort || 'value', noChg = (h) => h.chg == null || h.ticker === 'CASH';
+    const ORD = { value: (a, b) => b.value - a.value, valueLo: (a, b) => a.value - b.value, az: (a, b) => a.ticker.localeCompare(b.ticker), za: (a, b) => b.ticker.localeCompare(a.ticker),
+      day: (a, b) => noChg(a) - noChg(b) || (noChg(a) ? 0 : b.chg - a.chg), dayLo: (a, b) => noChg(a) - noChg(b) || (noChg(a) ? 0 : a.chg - b.chg) };
+    const H = all.filter((h) => h.value > 0).sort(ORD[sortKey] || ORD.value), T = totals(H), st = planState(all), colorOf = pfColors(all);
     outer.replaceChildren();
     // a wide window (the Mac): the total and the plan on the left, every holding on the right; one column on a phone
     const two = window.innerWidth >= 1100, box = two ? outer.appendChild(el('div', 'g-col')) : outer, right = two ? outer.appendChild(el('div', 'g-col')) : outer;
     outer.classList.toggle('g-two', two);
-    hero(box, H);
+    gainLine(hero(box, H), H);
+    splitBar(box, all, colorOf, st);
+    // against the plan, and the tax so far: beside the list on a wide window, AFTER it on a phone (the holdings come first)
+    const cards = (box) => {
     if (st.T && st.size > 0) {
       const c = card(box, 'mix', 'Allocation vs plan');
       bucketBars(c, all, st);
@@ -714,10 +748,20 @@
     { const T = window.SRTax ? (() => { try { return window.SRTax.summary(); } catch (e) { return null; } })() : null;
       if (T) { const c = card(box, 'tax'); const both = T.comb ? T.comb.tax : T.R.due.tax, all = T.combAll ? T.combAll.tax : T.R.all.tax;
         c.appendChild(el('div', 'g-line', `Tax for ${T.y} so far: ${eurc(both)}${T.comb ? ' (Revolut and eToro)' : ''} · if you sold everything now: ${eurc(all)}`));
-        c.appendChild(btn('Taxes', '', () => go('taxes'))); } }
+        c.appendChild(btn(TL('taxes'), '', () => go('taxes'))); } }
+    };
+    if (two) cards(box);
     const toolbar = right.appendChild(el('div', 'g-holdings-head'));
-    toolbar.appendChild(el('h2', '', 'Holdings'));
-    toolbar.appendChild(btn('Edit holdings', '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); }));
+    toolbar.appendChild(el('h2', '', TL('holdings')));
+    toolbar.appendChild(btn(TL('edit'), '', () => { if (window.appOpenSettings) window.appOpenSettings('holdings'); })).setAttribute('aria-label', 'Edit holdings');
+    if (H.length) {   // Symbol · Value · Today: a tap sorts by it, a second tap turns it round, a third goes back to the largest first
+      const hd = right.appendChild(el('div', 'pf-head')); hd.setAttribute('role', 'group'); hd.setAttribute('aria-label', 'Sort the holdings');
+      for (const [label, cls, first, second] of [[TL('symbol'), 'pf-th-a', 'az', 'za'], [TL('value'), 'pf-th-v', 'value', 'valueLo'], [TL('today'), 'pf-th-c', 'day', 'dayLo']]) {
+        const on = sortKey === first ? 1 : sortKey === second ? 2 : 0, hb = hd.appendChild(el('button', 'pf-th ' + cls + (on ? ' is-on' : ''))); hb.type = 'button'; hb.dataset.sort = first; hb.setAttribute('aria-pressed', String(!!on));
+        hb.appendChild(el('span', '', label)); if (on) hb.appendChild(el('i', '', (first === 'az') === (on === 1) ? '▴' : '▾'));
+        hb.addEventListener('click', () => { ui.pfSort = on === 1 ? second : on === 2 ? 'value' : first; SRApp.renderDraw('pfolio'); });
+      }
+    }
     const costs = () => { const funds = H.filter((h) => terOf(h.ticker) > 0), fv = d3.sum(funds, (h) => h.value), terE = d3.sum(funds, (h) => h.value * terOf(h.ticker)), sold = H.filter((h) => h.ticker !== 'CASH'), known = sold.filter((h) => gainOf(h) != null), g = d3.sum(known, gainOf);
       const c = SRApp.disclosure(box, 'portfolio-costs', 'Costs and tax');
       if (fv > 0) c.appendChild(el('div', 'g-line', `Fund fees: ${eur(terE)} a year (${d3.format('.2%')(terE / fv)}), inside their prices.`));
@@ -740,7 +784,7 @@
       const head = list.appendChild(el('div', 'g-group-h'));
       const l = head.appendChild(el('div')); l.appendChild(el('b', '', g.name)); const all$ = d3.sum(H, (h) => h.value); l.appendChild(el('span', 'g-muted', all$ ? ` ${p0(sum / all$)}` : ''));
       const v = head.appendChild(el('div', 'g-group-v')); v.appendChild(el('b', '', eurc(sum)));
-      v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? `${eurc(d, true)} ${pct(was ? d / was : 0, 2)}` : 'not live'));
+      { const gc = v.appendChild(el('span', 'g-row-c ' + (d > 0.005 ? 'up' : d < -0.005 ? 'down' : ''), withChg.length ? pct(was ? d / was : 0, 2) : 'not live')); if (withChg.length) gc.title = `${eurc(d, true)} today`; }
       // the coins' staking, under their group's total: what it pays a day and a month, the yearly rate, the last reward
       const S = g.H.some((h) => S0 && S0.coins[h.ticker] && h.tracks === h.ticker) ? S0 : null;
       if (S && S.perDayEur > 0) {
@@ -749,17 +793,17 @@
       } else if (S) list.appendChild(el('div', 'g-group-note', 'Staked on Revolut X: the rewards show here once a device has read them.'));
     }
     for (const h of g.H) {
-      const r = list.appendChild(el('button', 'g-row')); r.type = 'button';
-      r.addEventListener('click', () => holdingSheet(h, st, all));
-      { const l = window.SRLive && SRLive.liveOf ? SRLive.liveOf(h) : null, lg = window.SRLogo ? window.SRLogo.logo(l ? l.id : 0, h.ticker, 32) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
+      const r = list.appendChild(el('button', 'g-row pf-row' + (ui.pfOpen === h.ticker ? ' is-open' : ''))); r.type = 'button'; r.style.setProperty('--pf-c', `var(--pf-${colorOf(h)})`);
+      r.addEventListener('click', () => { holdingSheet(h, st, all); ui.pfOpen = h.ticker; r.classList.add('is-open'); });
+      { const l = window.SRLive && SRLive.liveOf ? SRLive.liveOf(h) : null, lg = window.SRLogo ? window.SRLogo.logo(l ? l.id : 0, h.ticker, 34) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
       const a = r.appendChild(el('div', 'g-row-a'));
       a.appendChild(el('b', '', h.ticker));
-      a.appendChild(el('span', 'g-muted g-row-n', NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : '')));
+      const tags = a.appendChild(el('div', 'g-row-tags'));
+      { const nm = NAME[h.ticker] || h.name || (h.tracks !== h.ticker ? 'follows ' + h.tracks : ''); a.appendChild(el('span', 'g-muted g-row-n', [T.total ? p0(h.value / T.total) : '', nm].filter(Boolean).join(' · '))); }
       const v = r.appendChild(el('div', 'g-row-v'));
       v.appendChild(el('b', '', eurc(h.value)));
-      v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.ticker === 'CASH' ? 'cash' : h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
+      v.appendChild(el('span', 'g-row-c ' + (h.chg >= 0.00005 ? 'up' : h.chg <= -0.00005 ? 'down' : ''), h.ticker === 'CASH' ? '' : h.chg == null ? (h.live ? '' : 'not live') : pct(h.chg, 2)));
       if (h.ticker === 'CASH') { const res = d3.sum(all.filter((x) => x.pendingEur > 0 && acc(x) === g.key), (x) => x.pendingEur); if (res > 0) a.querySelector('.g-row-n').textContent = `Revolut cash · ${eurc(res)} reserved for your order, ${eurc(h.value - res)} free`; }
-      const tags = r.appendChild(el('div', 'g-row-tags'));
       if (h.overheated) tags.appendChild(el('span', 'g-chip g-chip-hot', 'Overheated'));
       if (st.P && h.ticker !== 'CASH') {
         if (st.keep.has(h.ticker)) tags.appendChild(el('span', 'g-chip', 'Kept'));
@@ -769,19 +813,17 @@
       }
       { const x = S0 && h.tracks === h.ticker ? S0.coins[h.ticker] : null; if (x && (x.staked > 0 || x.n30)) tags.appendChild(el('span', 'g-chip g-chip-stake', x.rate ? `Staking ${rateOf(x.rate)}` : 'Staked')); }
       { const M = mkt(h); if (M) { const t = M.delisted ? 'Delisted' : M.tradable === false ? 'Not tradable now' : M.open === false ? 'Market closed' : ''; if (t) tags.appendChild(el('span', 'g-chip g-chip-shut', t)); } }
-      tags.appendChild(el('span', 'g-muted', T.total ? p0(h.value / T.total) + ' of portfolio' : ''));
     }
     // orders not filled yet: shown under their account, not counted (their money is in the cash above)
     for (const h of all.filter((x) => x.pendingEur > 0 && acc(x) === g.key)) {
-      const r = list.appendChild(el('div', 'g-row g-row-pending'));
-      { const lg = window.SRLogo ? window.SRLogo.logo(0, h.ticker, 32) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
-      const a = r.appendChild(el('div', 'g-row-a')); a.appendChild(el('b', '', h.ticker)); a.appendChild(el('span', 'g-muted g-row-n', 'Order pending: paid from your cash, not counted twice'));
-      const v = r.appendChild(el('div', 'g-row-v')); v.appendChild(el('b', '', eurc(h.pendingEur))); v.appendChild(el('span', 'g-row-c', 'pending'));
-      r.appendChild(el('div', 'g-row-tags')).appendChild(el('span', 'g-chip', 'Order pending'));
+      const r = list.appendChild(el('div', 'g-row pf-row g-row-pending')); r.style.setProperty('--pf-c', 'transparent');
+      { const lg = window.SRLogo ? window.SRLogo.logo(0, h.ticker, 34) : null; if (lg) { r.appendChild(lg); r.classList.add('has-logo'); } }
+      const a = r.appendChild(el('div', 'g-row-a')); a.appendChild(el('b', '', h.ticker)); a.appendChild(el('div', 'g-row-tags')).appendChild(el('span', 'g-chip', 'Order pending')); a.appendChild(el('span', 'g-muted g-row-n', 'Paid from your cash, not counted twice'));
+      const v = r.appendChild(el('div', 'g-row-v')); v.appendChild(el('b', '', eurc(h.pendingEur))); v.appendChild(el('span', 'g-row-c', ''));
     }
     }
     if (!H.length) right.appendChild(el('div', 'g-line g-muted', 'No holdings yet.'));
-    if (!two) costs();
+    if (!two) { cards(box); costs(); }
   });
 
   // ---- Plan: three choices with the same three numbers, then your switches ----

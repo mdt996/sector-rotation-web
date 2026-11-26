@@ -2,7 +2,7 @@
 // screen is drawn again (the trading tab every 5 seconds). The whole text stays in the page, only its height is limited.
 (function () {
   'use strict';
-  const SEL = '.g-hint, .av-note, .tc-foot, .rot-foot, .sr-note, .g-sub, .sc-how p, .g-card > .g-line.g-muted';
+  const SEL = '.g-hint, .av-note, .tc-foot, .rot-foot, .sr-note, .g-sub, .sc-how p, .g-card > .g-line.g-muted, .ab-fin-n';   // .ab-fin-n: the asset page's own explanations (build 148: short blocks)
   const LIM = 140, opened = new Set(), key = (t) => t.slice(0, 90);
   function fold(e) {
     e.dataset.fold = '1';
