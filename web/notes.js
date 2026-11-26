@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 156, "text": "Coins now follow the French whole-portfolio rule: each coin sale gets every line of form 2086, and the tax so far uses that sum. The report's boxes show the whole euros to enter, and \"I need\" remembers the amount you typed. Not yet checked by an accountant."};
+window.SR_NOTES = {"build": 157, "text": "The coins you still hold now follow the same French rule as your coin sales, so \"After tax\" needs no price paid for them and \"I need\" offers them as one row. A share with no price paid typed takes what its trades cost. Not yet checked by an accountant."};

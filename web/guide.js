@@ -695,11 +695,15 @@
       kv(s, 'Share', `${p0(h.value / (st.total || 1))} of your portfolio${h.chg != null ? ` · ${pct(h.chg)} today` : ''}`);
       stakeLines(s, h, stakeInfo(H));
       if (st.P) kv(s, 'In the plan', kept ? 'Kept outside the plan: the app never asks you to sell it.' : line ? `Plan line ${line.t}: target ${eur(st.size * line.w)}, you hold ${eur(st.cur[line.t] || 0)}.` : st.T && lineFor(h, allLines(st.p)) ? 'Part of the plan, but its signal is off: Today asks you to sell it.' : `Outside “${st.P.name}”: the set-up on Today would sell it. No deadline.`);
-      { const t = terOf(h.ticker), K = h.paid > 0 && h.value > 0 && h.ticker !== 'CASH' ? keepNow() : null, r = K && K.rows.get(h.ticker), g = r ? h.value - h.paid : gainOf(h);
+      { const t = terOf(h.ticker), K = h.value > 0 && h.ticker !== 'CASH' ? keepNow() : null, r = K && K.rows.get(h.ticker), hh = r ? K.H.find((x) => x.ticker === h.ticker) : null;
+        // a coin under the whole-portfolio rule: its gain is the price times one ratio for all coins; a share with no price paid typed: what its trades cost
+        const pool = !!(hh && hh.crypto && K.coinRatio != null), g = r ? (pool ? h.value * K.coinRatio : h.value - hh.paid) : gainOf(h), paidOf = r ? h.value - g : h.paid;
         if (r) {   // the year's other sales and earlier losses first, the selling fee off (tax.js): the same figures as the list's After tax
-          kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eurc(Math.abs(g))} (${pct(g / h.paid)}) · fee ${eurc(r.fees)} · tax ${r.tax < -0.005 ? eurc(-r.tax) + ' back' : eurc(r.tax)} · you keep ${eurc(r.keep)}`).classList.add('g-kv-sold');
+          kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eurc(Math.abs(g))}${paidOf > 0 ? ` (${pct(g / paidOf)})` : ''} · fee ${eurc(r.fees)} · tax ${r.tax < -0.005 ? eurc(-r.tax) + ' back' : eurc(r.tax)} · you keep ${eurc(r.keep)}`).classList.add('g-kv-sold');
           const why = r.tax < -0.005 ? 'Selling at a loss lowers the tax already due on this year’s gains.' : r.later > 0.005 ? `The loss with its fee (${eurc(r.later)}) can be set against gains of the next 10 years.` : r.covered > 0.005 ? (r.tax < 0.005 ? 'No tax: your losses so far cover this gain.' : `Your losses so far cover ${eurc(r.covered)} of the gain.`) : '';
           if (why) s.appendChild(el('div', 'g-hint g-sold-why', why));
+          if (pool) s.appendChild(el('div', 'g-hint g-sold-why g-sold-pool', 'Coins: the gain is the same share of the price whichever coin you sell (the French rule counts all your coins together).'));
+          else if (hh && hh.paidFrom === 'trades') s.appendChild(el('div', 'g-hint g-sold-why g-sold-from', `The price paid (${eurc(hh.paid)}) comes from your trades in the app.`));
         } else if (g != null) kv(s, 'If sold', `${g >= 0 ? 'Gain' : 'Loss'} ${eur(Math.abs(g))} (${pct(g / h.paid)}) · tax ${eur(taxOf(h))} · you keep ${eur(h.value - taxOf(h))}`);
         else if (h.ticker !== 'CASH' && !(h.paid > 0)) kv(s, 'If sold', 'Add what you paid (Edit) to see the tax and what you keep.');
         if (t > 0) kv(s, 'Fund fee', `${d3.format('.2%')(t)} a year, about ${eur(t * h.value)}`); }
@@ -756,10 +760,10 @@
         if (say) out.appendChild(el('div', 'g-need-say', say));
         { const less = N.even ? N.even.tax + N.even.fees - N.tax - N.fees : 0; if (N.ok && less > 1) out.appendChild(el('div', 'g-need-save', `${eurc(less)} less in tax and fees than selling a part of every holding.`)); }
         if (N.cash > 0.005 && N.sells.length) row(TL('cash'), 'no sale, no tax', eurc(N.cash), '');
-        for (const z of N.sells) row(z.ticker, z.all ? `${TL('sell')} all` : `${TL('sell')} a part of ${eurc(z.of)}`, eurc(z.value), `${z.gain >= 0 ? 'gain' : 'loss'} ${eurc(Math.abs(z.gain))}`, z.gain > 0.005 ? 'up' : z.gain < -0.005 ? 'down' : '').dataset.t = z.ticker;
+        for (const z of N.sells) row(z.ticker === 'COINS' ? 'Coins' : z.ticker, z.ticker === 'COINS' ? 'any coin: the tax is the same whichever you sell' : z.all ? `${TL('sell')} all` : `${TL('sell')} a part of ${eurc(z.of)}`, eurc(z.value), `${z.gain >= 0 ? 'gain' : 'loss'} ${eurc(Math.abs(z.gain))}`, z.gain > 0.005 ? 'up' : z.gain < -0.005 ? 'down' : '').dataset.t = z.ticker;
         if (N.later > 0.005 && !(N.tax < -0.005)) out.appendChild(el('div', 'g-hint', `The net loss with the fees (${eurc(N.later)}) can be set against gains of the next 10 years.`));
         // what is not offered, and why
-        const kept = all.filter((h) => h.value > 0 && h.ticker !== 'CASH' && keptT.has(h.ticker)).map((h) => h.ticker), coins = K.H.filter((h) => h.crypto && h.value > 0 && !keptT.has(h.ticker)).map((h) => h.ticker), blind = K.unknown.filter((t) => !keptT.has(t) && !coins.includes(t));
+        const kept = all.filter((h) => h.value > 0 && h.ticker !== 'CASH' && keptT.has(h.ticker)).map((h) => h.ticker), coins = K.base.coinRatio != null ? [] : K.H.filter((h) => h.crypto && h.value > 0 && !keptT.has(h.ticker)).map((h) => h.ticker), blind = K.unknown.filter((t) => !keptT.has(t) && !coins.includes(t));
         const left = [kept.length ? `${kept.join(', ')} (kept)` : '', coins.length ? `${coins.join(', ')} (coins: which coin is sold does not change French tax)` : '', blind.length ? `${blind.join(', ')} (no price paid)` : ''].filter(Boolean);
         if (left.length) out.appendChild(el('div', 'g-hint g-need-left', `Left out: ${left.join(' · ')}.`));
       };
