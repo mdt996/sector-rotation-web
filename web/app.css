@@ -1853,3 +1853,28 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .x-worth-cap { margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); }
 .x-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }   /* for a screen reader only; no nowrap: its words must not reach past the card */
 .x-go:has(.sr-asset) { cursor: pointer; } .x-go:has(.sr-asset):active { opacity: .7; }
+
+/* build 161: your game plan (plan.js): the limits as chips, the plans against the live price, the sheet that works out a size */
+.gp { margin: 16px 0 6px; } .gp-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; } .gp-h h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--color-fg); letter-spacing: 0; text-transform: none; }
+.gp-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.gp-chip { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 8px; border-radius: 14px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); font: inherit; text-align: start; cursor: pointer; min-width: 0; }
+.gp-chip i { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 800; color: #000; background: var(--color-ok); }
+.gp-chip.is-bad { border-color: var(--color-bad); } .gp-chip.is-bad i { background: var(--color-bad); }
+.gp-chip span { display: grid; min-width: 0; } .gp-chip b, .gp-chip small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .gp-chip b { font-size: 12px; font-weight: 650; } .gp-chip small { font-size: 11.5px; color: var(--color-fg-muted); }
+.gp-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 50px; margin-top: 8px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); font: inherit; cursor: pointer; }
+.gp-sym { font-size: 15px; font-weight: 750; text-align: start; overflow: hidden; text-overflow: ellipsis; }
+.gp-track { position: relative; height: 8px; border-radius: 5px; background: linear-gradient(90deg, color-mix(in srgb, var(--color-bad) 75%, transparent), color-mix(in srgb, var(--color-fg-muted) 30%, transparent) 30%, color-mix(in srgb, var(--color-ok) 75%, transparent)); }
+.gp-tick { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--color-fg); transform: translateX(-1px); }
+.gp-dot { position: absolute; top: 50%; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: var(--accent); border: 2px solid var(--color-bg); transform: translate(-50%, -50%); }
+.gp-state { font-size: 12.5px; color: var(--color-fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; } .gp-row.is-stop .gp-state { color: var(--color-bad); } .gp-row.is-target .gp-state { color: var(--color-ok); }
+.gp-weather { margin-top: 10px; font-size: 12.5px; color: var(--color-fg-muted); }
+.gp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 12px; } .gp-rules .gp-grid { grid-template-columns: 1fr; }
+.gp-f { display: grid; gap: 4px; min-width: 0; } .gp-f span { font-size: 12px; color: var(--color-fg-muted); }
+.gp-f input { width: 100%; box-sizing: border-box; min-height: 46px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--color-border-line); background: var(--color-bg); color: var(--color-fg); font: inherit; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.gp-size { display: grid; gap: 2px; margin: 4px 0 12px; } .gp-size span { font-size: 13px; color: var(--color-fg-muted); } .gp-size b { font-size: 40px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.gp-rr { display: grid; gap: 6px; } .gp-rr-r { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; } .gp-rr-r span { color: var(--color-fg-muted); } .gp-rr-r b { font-variant-numeric: tabular-nums; }
+.gp-rr-t { height: 10px; border-radius: 6px; background: color-mix(in srgb, var(--color-fg-muted) 16%, transparent); overflow: hidden; } .gp-rr-t i { display: block; height: 100%; border-radius: 6px; } .gp-rr-r.is-stop i { background: var(--color-bad); } .gp-rr-r.is-target i { background: var(--color-ok); }
+.gp-facts { margin-top: 10px; font-size: 13px; color: var(--color-fg-muted); } .gp-why { margin: 8px 0; font-size: 14px; color: var(--color-fg-muted); }
+.gp-warn { margin-top: 8px; padding: 8px 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--color-bad) 14%, transparent); }
+.gp-btns { margin-top: 14px; } .gp-note { margin-top: 10px; font-size: 12px; color: var(--color-fg-muted); }
+.av-links { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; grid-column: 1 / -1; } .av-links:empty { display: none; } .av-plan.is-on { border-color: var(--accent); }

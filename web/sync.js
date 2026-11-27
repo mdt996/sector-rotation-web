@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   const API = 'https://api.github.com/repos/mdt996/sector-rotation-sync/contents/settings.json';
-  const SYNCED = ['holdings', 'holdingsBase', 'watch', 'starred', 'source', 'notify', 'notifyGo', 'notifyPhase', 'notifyWatch', 'notifyRegime', 'notifyHoldings', 'plan', 'alerts', 'notifyAlerts', 'revxPub', 'trades', 'staking'];
+  const SYNCED = ['holdings', 'holdingsBase', 'watch', 'starred', 'tradePlans', 'limits', 'source', 'notify', 'notifyGo', 'notifyPhase', 'notifyWatch', 'notifyRegime', 'notifyHoldings', 'plan', 'alerts', 'notifyAlerts', 'revxPub', 'trades', 'staking'];
   const $ = (id) => document.getElementById(id);
   const b64e = (s) => btoa(unescape(encodeURIComponent(s)));
   const b64d = (s) => decodeURIComponent(escape(atob(String(s).replace(/\s/g, ''))));

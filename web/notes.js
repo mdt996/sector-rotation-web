@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 160, "text": "Taxes now shows one figure and one picture: the year\u2019s tax with a bar (what stays, what tax takes), then each card as one line with its figure. A tap opens it, and it stays open. A sale\u2019s row opens that asset\u2019s page."};
+window.SR_NOTES = {"build": 161, "text": "New: your game plan. On any asset, \"Plan a trade\": type the entry, the stop and what you accept to lose, and the size follows. Your plans show on Today against the live price, with three limits of your own, each kept or broken. The app sends no order."};

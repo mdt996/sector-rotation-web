@@ -40,9 +40,9 @@
     if (!(total > 0)) return { total: 0, list: [] };
     const isCash = (h) => /^CASH/i.test(h.ticker || ''), cash = live.filter(isCash).reduce((a, h) => a + h.value, 0), top = live.filter((h) => !isCash(h)).sort((a, b) => b.value - a.value)[0] || null;
     const worst = (plans || []).filter((p) => p && p.risk > 0).sort((a, b) => b.risk - a.risk)[0] || null, list = [];
-    if (R.one > 0) list.push({ id: 'one', label: 'Largest holding', limit: `at most ${R.one}%`, actual: top ? `${top.ticker} ${pc(100 * top.value / total)}` : 'none', ok: !top || 100 * top.value / total <= R.one + 1e-9 });
-    if (R.cash > 0) list.push({ id: 'cash', label: 'Cash', limit: `at least ${R.cash}%`, actual: pc(100 * cash / total), ok: 100 * cash / total >= R.cash - 1e-9 });
-    if (R.risk > 0) list.push({ id: 'risk', label: 'Risk of a plan', limit: `at most ${R.risk}%`, actual: worst ? `${worst.s} ${pc(100 * worst.risk / total)}` : 'no plan', ok: !worst || 100 * worst.risk / total <= R.risk + 1e-9 });
+    if (R.one > 0) list.push({ id: 'one', short: 'Largest', label: 'Largest holding', limit: `at most ${R.one}%`, actual: top ? `${top.ticker} ${pc(100 * top.value / total)}` : 'none', ok: !top || 100 * top.value / total <= R.one + 1e-9 });
+    if (R.cash > 0) list.push({ id: 'cash', short: 'Cash', label: 'Cash', limit: `at least ${R.cash}%`, actual: pc(100 * cash / total), ok: 100 * cash / total >= R.cash - 1e-9 });
+    if (R.risk > 0) list.push({ id: 'risk', short: 'Plan risk', label: 'Risk of a plan', limit: `at most ${R.risk}%`, actual: worst ? `${worst.s} ${pc(100 * worst.risk / total)}` : 'no plan', ok: !worst || worst.risk <= total * R.risk / 100 + 0.005 });   // half a cent of grace: the amount offered is the limit rounded to the cent
     return { total, list, R };
   }
   // The S&P 500 against its own 200-day average: a fact shown beside the plan, not a rule and not a signal.
@@ -99,7 +99,7 @@
         one('is-stop', sz.loss, 'Stop', eur(-sz.loss)); if (sz.gain != null) one('is-target', sz.gain, 'Target', eur(sz.gain, true));
         const facts = [`The stop is ${pc(100 * sz.away)} away`]; if (sz.rr != null) facts.push(`the target pays ${sz.rr.toFixed(1)} for 1 risked`); out.appendChild(el('div', 'gp-facts', facts.join(' · ') + '.'));
         const warn = []; if (R.total > 0 && sz.value > R.total) warn.push('This size is more than your whole portfolio.'); else if (R.total > 0 && R.R.one > 0 && 100 * sz.value / R.total > R.R.one) warn.push(`This size is above your limit of ${R.R.one}% for one holding.`);
-        if (R.total > 0 && R.R.risk > 0 && 100 * sz.loss / R.total > R.R.risk + 1e-9) warn.push(`You would risk ${pc(100 * sz.loss / R.total)} of your portfolio: your limit is ${R.R.risk}%.`);
+        if (R.total > 0 && R.R.risk > 0 && sz.loss > R.total * R.R.risk / 100 + 0.005) warn.push(`You would risk ${pc(100 * sz.loss / R.total)} of your portfolio: your limit is ${R.R.risk}%.`);
         for (const w of warn) out.appendChild(el('div', 'gp-warn', w));
       };
       for (const i of [iE, iS, iT, iR]) i.addEventListener('input', draw);
@@ -129,7 +129,7 @@
     const add = hd.appendChild(el('button', 'g-link gp-add', '+ Plan a trade')); add.type = 'button'; add.addEventListener('click', () => { const b = document.getElementById('btn-search'); if (b) b.click(); });
     if (R.list.length) {
       const chips = s.appendChild(el('div', 'gp-chips'));
-      for (const r of R.list) { const c = chips.appendChild(el('button', 'gp-chip ' + (r.ok ? 'is-ok' : 'is-bad'))); c.type = 'button'; c.dataset.rule = r.id; c.title = `${r.label}: ${r.limit}. Now ${r.actual}.`; c.appendChild(el('i', '', r.ok ? '✓' : '✕')); const t = c.appendChild(el('span')); t.appendChild(el('b', '', r.label)); t.appendChild(el('small', '', r.actual)); c.addEventListener('click', openRules); }
+      for (const r of R.list) { const c = chips.appendChild(el('button', 'gp-chip ' + (r.ok ? 'is-ok' : 'is-bad'))); c.type = 'button'; c.dataset.rule = r.id; c.title = `${r.label}: ${r.limit}. Now ${r.actual}.`; c.appendChild(el('i', '', r.ok ? '✓' : '✕')); const t = c.appendChild(el('span')); t.appendChild(el('b', '', r.short)); t.appendChild(el('small', '', r.actual)); c.addEventListener('click', openRules); }
     }
     for (const p of P) {
       const q = quote(p.id), w = q ? where(p, q.price) : null, row = s.appendChild(el('button', 'gp-row' + (w ? ' is-' + w.zone : ''))); row.type = 'button'; row.dataset.id = p.id;

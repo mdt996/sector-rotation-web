@@ -633,6 +633,7 @@
     }
     if (st.P && st.P.signal && !sig) loadSignal();
     if (window.SRScreen && window.SRScreen.sectorsToday) window.SRScreen.sectorsToday(box);   // the day's sectors at a glance, red to green; a tap opens the sector fund's chart (Matteo, 27 Nov 2026)
+    if (window.SRPlan && window.SRPlan.todayBlock) window.SRPlan.todayBlock(box);   // your game plan: your limits kept or broken, your planned trades against the live price (plan.js, build 161)
     lookDeck(box); moversBlock(box, H, st);
     verdictCard(box, H, st);
     briefCard(box, H, st);
