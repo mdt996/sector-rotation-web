@@ -50,8 +50,8 @@
     if (busy) { if (urgent) again = true; return; }   // a read already on its way: one more right after it, so that a new asset is not left waiting for the next round (30 s with the stream)
     busy = true; again = false;
     try {
-      const ids = [...allIds()].slice(0, 100);
-      let j; try { j = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.join(','), urgent ? 2.5 : 2); PRD.ok = Date.now(); PRD.err = ''; } catch (e) { PRD.err = e.status === 429 ? "eToro's limit of 120 reads a minute" : e.status ? 'eToro answered ' + e.status : 'no answer from eToro'; PRD.errAt = Date.now(); throw e; }
+      const ids = [...allIds()].slice(0, 200);   // a hundred a read; Markets' board of tiles can pass that (build 159): then two reads, never more
+      let j; try { j = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.slice(0, 100).join(','), urgent ? 2.5 : 2); if (ids.length > 100) { const j2 = await getJSON('/api/v1/market-data/instruments/rates?instrumentIds=' + ids.slice(100).join(','), 2); j = { rates: [...(j.rates || []), ...(j2.rates || [])] }; } PRD.ok = Date.now(); PRD.err = ''; } catch (e) { PRD.err = e.status === 429 ? "eToro's limit of 120 reads a minute" : e.status ? 'eToro answered ' + e.status : 'no answer from eToro'; PRD.errAt = Date.now(); throw e; }
       for (const q of j.rates || []) {
         const p = q.bid > 0 && q.ask > 0 ? (q.bid + q.ask) / 2 : q.lastExecution || q.bid || q.ask;
         const conv = q.conversionRateBid > 0 ? q.conversionRateBid : 1;

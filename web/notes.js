@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 158, "text": "On Markets, a tap on a sector opens the chart of its fund, and \"Companies\" there lists the sector\u2019s companies. Each tab now shows its own tiles in a fixed order: ETFs (the old Funds) shows the sector, industry and bond funds, Commodities the commodities, and so on."};
+window.SR_NOTES = {"build": 159, "text": "The day at a glance, from red to green: the eleven sectors now open Today, and Markets\u2019 first page always shows the whole board (sectors, indices with Korea, commodities, currencies, leveraged ETFs, coins). A kind\u2019s own tab shows all of that kind; the ETFs tab adds the main 2x and 3x funds. New icon on the iPhone."};

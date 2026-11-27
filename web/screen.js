@@ -10,12 +10,52 @@
   // the wider picture: indices, the dollar, Treasuries, metals, energy, crypto (eToro instrument ids)
   const BOARD = [['SPX500', 27, 'S&P 500'], ['NSDQ100', 28, 'Nasdaq-100'], ['GER40', 32, 'Germany 40'], ['EUSTX50', 43, 'Euro Stoxx 50'], ['JPN225', 36, 'Japan 225'], ['HKG50', 38, 'Hong Kong 50'], ['CHINA50', 253, 'China A50'],
     ['USDOLLAR', 25, 'US dollar index'], ['IEF', 3101, '10-year Treasuries (fall when yields rise)'], ['GOLD', 18, 'Gold'], ['SILVER', 19, 'Silver'], ['OIL', 17, 'Oil'], ['NATGAS', 22, 'Natural gas'], ['BTC', 100000, 'Bitcoin'], ['ETH', 100001, 'Ether'], ['SOL', 100063, 'Solana']];
-  const BKIND = { SPX500: 'Indices', NSDQ100: 'Indices', GER40: 'Indices', EUSTX50: 'Indices', JPN225: 'Indices', HKG50: 'Indices', CHINA50: 'Indices', USDOLLAR: 'Forex', IEF: 'ETF', GOLD: 'Commodity', SILVER: 'Commodity', OIL: 'Commodity', NATGAS: 'Commodity', BTC: 'Crypto', ETH: 'Crypto', SOL: 'Crypto' };   // which tab shows a world tile
   const TILES = [['US sectors', [['XLK', 'Tech', 'Technology'], ['XLF', 'Financials', 'Financials'], ['XLE', 'Energy', 'Energy'], ['XLV', 'Health', 'Health care'], ['XLI', 'Industrials', 'Industrials'], ['XLY', 'Cons. disc.', 'Consumer discretionary'],
     ['XLP', 'Staples', 'Consumer staples'], ['XLU', 'Utilities', 'Utilities'], ['XLB', 'Materials', 'Materials'], ['XLRE', 'Real estate', 'Real estate'], ['XLC', 'Comms', 'Communication services']]],
   ['Industries', [['SMH', 'Chips', 'Semiconductors'], ['IGV', 'Software', 'Software'], ['XBI', 'Biotech', 'Biotech'], ['KRE', 'Reg. banks', 'Regional banks'], ['ITA', 'Defense', 'Aerospace & defense'], ['GDX', 'Gold miners', 'Gold miners'],
     ['SIL', 'Silver miners', 'Silver miners'], ['COPX', 'Copper', 'Copper miners'], ['URA', 'Uranium', 'Uranium']]]];
   const BONDS = ['Bonds', [['IEF', 'Treasuries', '10-year Treasuries (fall when yields rise)']]];   // under the ETFs tab only
+  // ---- the wider board (Matteo, 27 Nov 2026: "To the indices add kospi and also add more commodities and currencies. Also add the major
+  // 2x and 3x leveraged etfs", "Always display them at the opening page with the color code dynamically changing according to the daily
+  // performance, from red to green"). [symbol, eToro id, the tile's own label, a small line]. eToro has NO Kospi index: Korea is the
+  // fund EWY (iShares MSCI South Korea), and the tile says so. The ids were read in the nightly scan of 25 Nov 2026.
+  const WORLD = {
+    Indices: [['SPX500', 27], ['NSDQ100', 28], ['DJ30', 29], ['RTY', 310, 'RUSSELL'], ['GER40', 32], ['EUSTX50', 43], ['UK100', 30], ['FRA40', 31], ['JPN225', 36], ['HKG50', 38], ['CHINA50', 253], ['EWY', 3118, 'KOREA', 'EWY fund'],
+      ['ESP35', 34], ['NL25', 353], ['AUS200', 33], ['SGX', 301, 'SINGAPORE']],
+    Commodity: [['GOLD', 18], ['SILVER', 19], ['OIL', 17], ['EUROOIL', 341, 'BRENT'], ['NATGAS', 22], ['COPPER.FUT', 21, 'COPPER'], ['PLATINUM', 40], ['PALLADIUM.FUT', 91, 'PALLADIUM'], ['ALUMINUM', 344], ['NICKEL', 343], ['ZINC', 340],
+      ['GASOLINE.FUT', 335, 'GASOLINE'], ['WHEAT.FUT', 97, 'WHEAT'], ['CORN.FUT', 331, 'CORN'], ['SOYBEANS.FUT', 332, 'SOYBEANS'], ['SUGAR.FUT', 92, 'SUGAR'], ['COFFEE.FUT', 334, 'COFFEE'], ['COCOA.FUT', 96, 'COCOA'], ['COTTON.FUT', 93, 'COTTON'], ['LIVECATTLE.FUT', 337, 'CATTLE']],
+    Forex: [['USDOLLAR', 25, 'DOLLAR'], ['EURUSD', 1, 'EUR/USD'], ['GBPUSD', 2, 'GBP/USD'], ['USDJPY', 5, 'USD/JPY'], ['USDCHF', 6, 'USD/CHF'], ['AUDUSD', 7, 'AUD/USD'], ['USDCAD', 4, 'USD/CAD'], ['EURGBP', 8, 'EUR/GBP'],
+      ['NZDUSD', 3, 'NZD/USD'], ['EURCHF', 9, 'EUR/CHF'], ['EURJPY', 10, 'EUR/JPY'], ['USDCNH', 45, 'USD/CNH']],
+    Crypto: [['BTC', 100000], ['ETH', 100001], ['SOL', 100063], ['XRP', 100003], ['BNB', 100030], ['DOGE', 100043], ['ADA', 100017], ['LINK', 100040]],
+  };
+  const FIRST = { Indices: 12, Commodity: 8, Forex: 8, Crypto: 4 };   // how many of each kind Markets' opening page shows; the kind's own tab shows all of them
+  const LEVER = [['Leveraged', [['TQQQ', 4465, null, '3x Nasdaq'], ['UPRO', 3244, null, '3x S&P 500'], ['SSO', 3027, null, '2x S&P 500'], ['SOXL', 3226, null, '3x chips'], ['TECL', 10855, null, '3x tech'], ['TNA', 3241, null, '3x small caps'],
+    ['UDOW', 3243, null, '3x Dow'], ['FAS', 3183, null, '3x banks'], ['TMF', 3239, null, '3x Treasuries'], ['NUGT', 3205, null, '2x gold miners'], ['UCO', 3242, null, '2x oil'], ['BOIL', 3422, null, '2x gas']]],
+  ['Leveraged, falling', [['SQQQ', 4459, null, '−3x Nasdaq'], ['SPXU', 3232, null, '−3x S&P 500'], ['SDS', 3224, null, '−2x S&P 500'], ['SOXS', 3227, null, '−3x chips'], ['TZA', 4461, null, '−3x small caps'], ['SDOW', 3223, null, '−3x Dow'],
+    ['FAZ', 4462, null, '−3x banks'], ['SCO', 4464, null, '−2x oil']]]];
+  const LEVTOP = ['TQQQ', 'SQQQ', 'UPRO', 'SPXU', 'SOXL', 'SOXS', 'TNA', 'TZA'];   // the eight of them on the opening page
+  // The day's change as a colour, from red to green: none at zero, deeper with the move, full at 3% either way; paler for a last
+  // session's change (the market has not traded yet today). The cap keeps the white figures readable.
+  const heat = (m) => (Math.abs(m.chg) < 0.0005 ? '' : `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(62, 8 + Math.abs(m.chg) * 1800) * (m.day ? 0.6 : 1))}%, var(--color-panel))`);
+  // The wider board's prices: only the last six daily closes of each asset, read one at a time at the lowest priority and kept six
+  // hours on the device. With the live price (one read for all of them) that gives the day's change exactly as on the first board,
+  // without spending the minute's reads the charts need. Nothing here comes from the scan: a late scan cannot make a tile wrong.
+  const WL = 'sr.wb3', lite = new Map(), liteAt = new Map(), liteTry = new Map(); let liteBusy = false;
+  try { const all = JSON.parse(localStorage.getItem(WL) || '{}'); for (const [id, v] of Object.entries(all)) if (v && Array.isArray(v.r) && v.r.length >= 2) { lite.set(+id, v.r.map(([date, close]) => ({ date, close }))); liteAt.set(+id, +v.at || 0); } } catch (e) { /* read again */ }
+  async function loadLite(ids) {
+    if (liteBusy || !window.SRLive || !window.SRLive.candles) return;
+    const now = Date.now(), todo = [...new Set(ids)].filter((id) => id > 0 && now - (liteAt.get(id) || 0) > 6 * 3600e3 && now - (liteTry.get(id) || 0) > 10 * 60e3);
+    if (!todo.length) return;
+    liteBusy = true; let got = 0;
+    const keepAll = () => { try { const all = {}; for (const [id, r] of lite) all[id] = { at: liteAt.get(id), r: r.map((x) => [x.date, x.close]) }; localStorage.setItem(WL, JSON.stringify(all)); } catch (e) { /* storage full: read again next time */ } };
+    for (const id of todo) {
+      liteTry.set(id, Date.now());
+      try { const r = await window.SRLive.candles(id, 'OneDay', 6, 0); if (r && r.length >= 2) { lite.set(id, r.map(({ date, close }) => ({ date, close }))); liteAt.set(id, Date.now()); if (++got % 8 === 0) { keepAll(); SRApp.renderDraw('screener'); } } } catch (e) { /* asked again in ten minutes */ }
+    }
+    liteBusy = false; if (got) { keepAll(); SRApp.renderDraw('screener'); }
+  }
+  // a tile's change: from the daily candles the app holds (its own funds and the first board: 400 days) or the wider board's six
+  const mover = () => { const UN = new Map(universe().map((u) => [u.sym, u])); return (r) => { const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null) || lite.get(r.id) || null; return tooOld(r.sym, RR) ? null : dayMove(RR, r.id); }; };
   const SHORT = { tri_brk_up: 'Triangle breakout', wedge_fall_brk: 'Falling-wedge breakout', tl_brk_up: 'Trendline break', div_bull: 'RSI divergence', fib_sup: 'Fibonacci pullback', rsi30: 'RSI below 30', rsi70: 'RSI above 70', lo250: 'New 1-year low', neg_bear: 'Up candle negated', tri_brk_dn: 'Triangle breakdown', wedge_rise_brk: 'Rising-wedge breakdown' };
   const stats = () => (window.SR_TASTATS || {}).by || {};
   const cache = new Map(), extra = new Map();
@@ -597,47 +637,48 @@
       t.addEventListener('click', () => pick({ cls: val, sec: val === 'Stocks' ? F.sec : '' })); }
     // the day's change as coloured tiles: the world, then the eleven sectors (the same funds as the ranking)
     // before an asset's market has traded today its last session's change is shown, with that day's name, in paler colours (as eToro does), not 0.0%
-    const UN = new Map(universe().map((u) => [u.sym, u]));
-    const moveOf = (r) => { const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null); return tooOld(r.sym, RR) ? null : dayMove(RR, r.id); };
+    const moveOf = mover();
     // each grid in the order of the day's change: the most red first, the most green last (redrawn with the prices); not yet known: at the end
     const sorted = (items) => items.map((x) => Object.assign(x, { m: moveOf(x.r) })).sort((a, b) => (a.m == null) - (b.m == null) || (a.m ? a.m.chg : 0) - (b.m ? b.m.chg : 0));
-    const heat = (m) => `color-mix(in srgb, var(--color-${m.chg >= 0 ? 'ok' : 'bad'}) ${Math.round(Math.min(55, Math.abs(m.chg) * 1800) * (m.day ? 0.55 : 1))}%, var(--color-panel))`;
-    const tile = (map, r, short, m) => {
+    const tile = (map, r, short, m, label) => {
       const t = map.appendChild(el('button', 'sc-tile' + (r.id === selId ? ' is-sel' : ''))); t.type = 'button'; t.title = r.name; if (r.id) t.dataset.id = r.id; t.addEventListener('click', () => open(r));
-      t.appendChild(el('b', '', r.sym)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.title = `${r.name || r.sym}: ${m.day}'s change. Its market has not traded yet today.`; t.classList.add('is-last'); }
+      t.dataset.sym = r.sym; t.appendChild(el('b', '', label || r.sym)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.title = `${r.name || r.sym}: ${m.day}'s change. Its market has not traded yet today.`; t.classList.add('is-last'); }
       if (short) t.appendChild(el('small', '', short));
-      if (m) t.style.background = heat(m);
+      if (m && heat(m)) t.style.background = heat(m);
     };
     const strip = (cap, key, cls) => { const w = box.appendChild(el('div', 'sc-strip-w' + (cls ? ' ' + cls : ''))); w.appendChild(el('span', 'sc-strip-c', cap)); const m = w.appendChild(el('div', 'sc-map sc-strip')); keep(m, key); return m; };
     const bySym = new Map(R.map((r) => [r.sym, r])), extra = el('div', 'sc-extra');
-    // each tab shows its own kind, in a fixed order, so a tile stays where it was; All keeps the world's indices and the sectors
-    // (Matteo, 27 Nov 2026, under Funds: "I do not see the tabs with the funds ... a mix of everything, gold, silver, dollars, nasdaq ... You should order better")
-    const world = (kind, cap) => { const list = BOARD.filter(([sym]) => BKIND[sym] === kind).map(([sym]) => bySym.get(sym)).filter(Boolean); if (!list.length) return; const map = strip(cap, 'w-' + kind, 'is-grid'); map.dataset.kind = kind; for (const r of list) tile(map, r, null, moveOf(r)); };
-    if (!F.cls || F.cls === 'Indices') world('Indices', T('indices'));
-    if (F.cls === 'Commodity') world('Commodity', T('commodities'));
-    if (F.cls === 'Crypto') world('Crypto', T('crypto'));
-    if (F.cls === 'Forex') world('Forex', T('currencies'));
-    if (F.cls === 'ETF') for (const [head, list] of [...TILES, BONDS]) { const map = strip(head === 'US sectors' ? T('sectors') : head, 'e-' + head, 'is-grid'); map.dataset.kind = 'ETF'; for (const [sym, short, name] of list) { const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }; tile(map, r, short, moveOf(r)); } }
-    // the sectors, in view at once and in a fixed order: a tap lists that sector's companies, a second tap lets go
-    // (Matteo, 25 Nov 2026: "you removed the tabs of the sector, that should be visible immediately, like the rest")
-    if (!F.cls || F.cls === 'Stocks') {
-      const map = strip(T('sectors'), 'sec', 'is-grid');   // the phone design: a grid of tiles, all in view
-      for (const [sym, short, name] of TILES[0][1]) {
-        const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, m = moveOf(r), sec = SECTOR[sym], on = F.sec === sec;
-        const t = map.appendChild(el('button', 'sc-tile sc-sect' + (on ? ' is-on' : ''))); t.type = 'button'; t.dataset.sec = sec; t.setAttribute('aria-pressed', String(on)); t.title = `${name}: ${on ? 'back to every sector' : 'list its companies'}`;
-        t.appendChild(el('b', '', SECKEY[sym] ? T(SECKEY[sym]) : short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
-        if (m) t.style.background = heat(m);
-        // a tap opens the sector fund's own page, its chart first; its companies are one tap from there (Matteo, 27 Nov 2026:
-        // "when I click on those I want to see the chart related to the etf")
-        t.title = `${name}: the chart of its fund, ${sym}`; t.dataset.sym = sym; if (r.id) t.dataset.id = r.id;
-        t.addEventListener('click', () => { if (r.id) open({ ...r, name: r.name || name }); else pick({ sec: on ? '' : sec }); });
-      }
+    // ---- the board: coloured tiles, in a fixed order so a tile stays where it was. All, Markets' opening page, always shows every
+    // kind: the sectors first, then the main indices, commodities, currencies, leveraged funds and coins. A kind's own tab shows all
+    // of that kind (Matteo, 27 Nov 2026: under Funds "a mix of everything ... You should order better", then "Always display them at
+    // the opening page ... So the user has a clear view of the sectors that in the day are doing well or poorly").
+    const AS = new Map(ALL.map((r) => [r.sym, r])), tileIds = [], needLite = [];
+    const group = (cap, key, kind, items) => {   // items: [symbol, id, the tile's label, a small line]
+      const list = items.map(([sym, id, label, small]) => { const a = bySym.get(sym) || AS.get(sym); return { r: a && a.id ? a : { sym, id: id || SRApp.idOf(sym), name: (a && a.name) || label || sym, A: null }, label, small }; }).filter((x) => x.r.id);
+      if (!list.length) return;
+      const map = strip(cap, key, 'is-grid'); map.dataset.kind = kind;
+      for (const x of list) { const m = moveOf(x.r); tileIds.push(x.r.id); if (!m && !bySym.has(x.r.sym)) needLite.push(x.r.id); tile(map, x.r, x.small, m, x.label); }
+    };
+    const all0 = !F.cls, cut = (kind) => (all0 ? WORLD[kind].slice(0, FIRST[kind]) : WORLD[kind]);
+    if (all0 || F.cls === 'Stocks') {   // the sectors: a tap opens the sector fund's chart, its companies are one tap from there
+      sectorGrid(box, moveOf, bySym, F.sec, (r, name, sec, on) => { if (r.id) open({ ...r, name: r.name || name }); else pick({ sec: on ? '' : sec }); });
+      for (const [sym] of TILES[0][1]) { const r = bySym.get(sym); if (r && r.id) tileIds.push(r.id); }
       if (F.sec) {   // a sector's companies are listed: say which, and one tap lets go
         const sym = Object.keys(SECTOR).find((k) => SECTOR[k] === F.sec), c = box.appendChild(el('button', 'sc-secchip')); c.type = 'button';
         c.appendChild(el('span', '', (sym && SECKEY[sym] ? T(SECKEY[sym]) : F.sec) + ' · ' + T('companies'))); c.appendChild(el('b', '', '×')); c.setAttribute('aria-label', `${F.sec}: back to every sector`);
         c.addEventListener('click', () => pick({ sec: '' }));
       }
     }
+    if (all0 || F.cls === 'Indices') group(T('indices'), 'w-Indices', 'Indices', cut('Indices'));
+    if (all0 || F.cls === 'Commodity') group(T('commodities'), 'w-Commodity', 'Commodity', cut('Commodity'));
+    if (all0 || F.cls === 'Forex') group(T('currencies'), 'w-Forex', 'Forex', cut('Forex'));
+    if (F.cls === 'ETF') {
+      for (const [head, list] of [...TILES, BONDS]) group(head === 'US sectors' ? T('sectors') : head, 'e-' + head, 'ETF', list.map(([sym, short]) => [sym, 0, null, short]));
+      for (const [head, list] of LEVER) group(head, 'e-' + head, 'ETF', list);
+    }
+    if (all0) group('Leveraged ETFs', 'w-lever', 'ETF', LEVTOP.map((sym) => LEVER.flatMap((g) => g[1]).find((x) => x[0] === sym)));
+    if (all0 || F.cls === 'Crypto') group(T('crypto'), 'w-Crypto', 'Crypto', cut('Crypto'));
+    if (needLite.length) loadLite(needLite);
     const sectors = SRApp.disclosure(extra, 'market-sectors', 'Sectors and industries', 'weakest to strongest today'); { const sd = sectors.closest('details'); if (sd && F.cls === 'ETF') sd.hidden = true; }   // the ETFs tab shows them as tiles above
     for (const [head, list] of TILES) {
       sectors.appendChild(el('div', 'sc-maph', head)); const m2 = sectors.appendChild(el('div', 'sc-map sc-map2'));
@@ -698,7 +739,7 @@
     }
     if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `${T('more')} (${(L.length - shown).toLocaleString('en-US')})`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
-    if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...R.map((r) => r.id), ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)].filter(Boolean));
+    if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...new Set([...R.map((r) => r.id), ...tileIds, ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)])].filter(Boolean));
     box.appendChild(extra);
     box.appendChild(el('p', 'g-hint', 'The line is the last 3 months. The ring is how often a buy signal worked in the test for that kind of asset. Market value and finances are eToro\'s figures, in dollars. A scanned asset shows the scan\'s price until its live one arrives. Analysis, not advice.'));
     for (const f of later) f();
@@ -780,9 +821,22 @@
     box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
     return true;
   });
+  // The eleven sectors as a grid of coloured tiles, in a fixed order (Markets, and Today since build 159).
+  function sectorGrid(box, moveOf, bySym, secOn, onTap) {
+    const w = box.appendChild(el('div', 'sc-strip-w is-grid')); w.appendChild(el('span', 'sc-strip-c', T('sectors'))); const map = w.appendChild(el('div', 'sc-map sc-strip')); map.dataset.kind = 'Sectors';
+    for (const [sym, short, name] of TILES[0][1]) {
+      const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, m = moveOf(r), sec = SECTOR[sym], on = secOn === sec;
+      const t = map.appendChild(el('button', 'sc-tile sc-sect' + (on ? ' is-on' : ''))); t.type = 'button'; t.dataset.sec = sec; t.dataset.sym = sym; if (r.id) t.dataset.id = r.id; t.setAttribute('aria-pressed', String(on)); t.title = `${name}: the chart of its fund, ${sym}`;
+      t.appendChild(el('b', '', SECKEY[sym] ? T(SECKEY[sym]) : short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
+      if (m && heat(m)) t.style.background = heat(m);
+      t.addEventListener('click', () => onTap(r, name, sec, on));
+    }
+    return w;
+  }
+  const sectorsToday = (box) => { const bySym = new Map(rows().map((r) => [r.sym, r])); const w = sectorGrid(box, mover(), bySym, '', (r, name) => { if (r.id) open({ ...r, name: r.name || name }); }); w.classList.add('g-sectors'); return w; };
   // from a sector fund's page: its companies on Markets
   const showSector = (sym) => { const sec = SECTOR[sym]; if (!sec) return false; Object.assign(F, { sec, cls: F.cls === 'Stocks' ? 'Stocks' : '' }); shown = 60; hlId = null; allMemo = null; saveF();
     if (document.body.classList.contains('sheet-open') && window.SRLive && SRLive.close) SRLive.close();
     if (window.appGo) window.appGo('screener'); SRApp.renderDraw('screener'); return true; };
-  window.SRScreen = { showSector, sectorOf: (sym) => SECTOR[sym] || null, spark: (id) => { const r = all().find((x) => +x.id === +id); return r && r.k && r.k.length >= 8 ? { v: [...r.k].map((ch) => B64.indexOf(ch)).filter((q) => q >= 0), c60: r.c60 } : null; }, watch: { list: starred, has: isStar, toggle: toggleStar, button: starButton }, closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  window.SRScreen = { showSector, sectorOf: (sym) => SECTOR[sym] || null, sectorsToday, _lite: lite, spark: (id) => { const r = all().find((x) => +x.id === +id); return r && r.k && r.k.length >= 8 ? { v: [...r.k].map((ch) => B64.indexOf(ch)).filter((q) => q >= 0), c60: r.c60 } : null; }, watch: { list: starred, has: isStar, toggle: toggleStar, button: starButton }, closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
