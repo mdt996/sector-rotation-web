@@ -657,7 +657,7 @@
       const list = items.map(([sym, id, label, small]) => { const a = bySym.get(sym) || AS.get(sym); return { r: a && a.id ? a : { sym, id: id || SRApp.idOf(sym), name: (a && a.name) || label || sym, A: null }, label, small }; }).filter((x) => x.r.id);
       if (!list.length) return;
       const map = strip(cap, key, 'is-grid'); map.dataset.kind = kind;
-      for (const x of list) { const m = moveOf(x.r); tileIds.push(x.r.id); if (!m && !bySym.has(x.r.sym)) needLite.push(x.r.id); tile(map, x.r, x.small, m, x.label); }
+      for (const x of byDay(list, moveOf)) { tileIds.push(x.r.id); if (!x.m && !bySym.has(x.r.sym)) needLite.push(x.r.id); tile(map, x.r, x.small, x.m, x.label); }
     };
     const all0 = !F.cls, cut = (kind) => (all0 ? WORLD[kind].slice(0, FIRST[kind]) : WORLD[kind]);
     if (all0 || F.cls === 'Stocks') {   // the sectors: a tap opens the sector fund's chart, its companies are one tap from there
@@ -743,6 +743,7 @@
     box.appendChild(extra);
     box.appendChild(el('p', 'g-hint', 'The line is the last 3 months. The ring is how often a buy signal worked in the test for that kind of asset. Market value and finances are eToro\'s figures, in dollars. A scanned asset shows the scan\'s price until its live one arrives. Analysis, not advice.'));
     for (const f of later) f();
+    flip(box, 'markets');
     if (two && selId == null && outer.offsetParent !== null) { const first = L.find((r) => r.id); if (first) select(first); }   // the best-ranked asset is shown first
   });
   setInterval(() => { if (!document.hidden) SRApp.renderDraw('screener'); }, 15000);
@@ -821,11 +822,33 @@
     box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
     return true;
   });
-  // The eleven sectors as a grid of coloured tiles, in a fixed order (Markets, and Today since build 159).
+  // Every grid of tiles in the order of the day's change, the reddest first and the greenest last, sorted again at every redraw
+  // (Matteo, 28 Nov 2026: "ordered live from the reddest to the greenest. if there are changes, the app can automatically reorder them
+  // live"). WHICH assets a grid shows stays fixed; a tile with no change yet goes to the end in the list's own order (the sort is stable).
+  const byDay = (items, moveOf) => items.map((x) => Object.assign(x, { m: moveOf(x.r) })).sort((a, b) => (a.m == null) - (b.m == null) || (a.m ? a.m.chg : 0) - (b.m ? b.m.chg : 0));
+  // When a redraw changes a tile's place, it slides there from where it was (so the eye can follow it), unless motion is reduced.
+  const tilePos = new Map();
+  function flip(root, where) {
+    const still = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return true; } })();
+    requestAnimationFrame(() => {
+      for (const map of root.querySelectorAll('.sc-map.sc-strip')) {
+        if (!map.offsetParent) continue;   // not on screen: nothing to measure
+        const base = map.getBoundingClientRect();
+        for (const t of map.children) {
+          const k = where + '|' + (map.dataset.kind || '') + '|' + (t.dataset.sym || ''), r = t.getBoundingClientRect(), x = r.left - base.left, y = r.top - base.top, was = tilePos.get(k);
+          tilePos.set(k, [x, y]);
+          if (!was || still || !t.animate) continue;
+          const dx = was[0] - x, dy = was[1] - y; if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+          t.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 520, easing: 'cubic-bezier(.2, .7, .2, 1)' });
+        }
+      }
+    });
+  }
+  // The eleven sectors as a grid of coloured tiles (Markets, and Today since build 159), reddest first.
   function sectorGrid(box, moveOf, bySym, secOn, onTap) {
     const w = box.appendChild(el('div', 'sc-strip-w is-grid')); w.appendChild(el('span', 'sc-strip-c', T('sectors'))); const map = w.appendChild(el('div', 'sc-map sc-strip')); map.dataset.kind = 'Sectors';
-    for (const [sym, short, name] of TILES[0][1]) {
-      const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, m = moveOf(r), sec = SECTOR[sym], on = secOn === sec;
+    for (const { r, m, short, name } of byDay(TILES[0][1].map(([sym, short, name]) => ({ r: bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short, name })), moveOf)) {
+      const sym = r.sym, sec = SECTOR[sym], on = secOn === sec;
       const t = map.appendChild(el('button', 'sc-tile sc-sect' + (on ? ' is-on' : ''))); t.type = 'button'; t.dataset.sec = sec; t.dataset.sym = sym; if (r.id) t.dataset.id = r.id; t.setAttribute('aria-pressed', String(on)); t.title = `${name}: the chart of its fund, ${sym}`;
       t.appendChild(el('b', '', SECKEY[sym] ? T(SECKEY[sym]) : short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
       if (m && heat(m)) t.style.background = heat(m);
@@ -833,7 +856,7 @@
     }
     return w;
   }
-  const sectorsToday = (box) => { const bySym = new Map(rows().map((r) => [r.sym, r])); const w = sectorGrid(box, mover(), bySym, '', (r, name) => { if (r.id) open({ ...r, name: r.name || name }); }); w.classList.add('g-sectors'); return w; };
+  const sectorsToday = (box) => { const bySym = new Map(rows().map((r) => [r.sym, r])); const w = sectorGrid(box, mover(), bySym, '', (r, name) => { if (r.id) open({ ...r, name: r.name || name }); }); w.classList.add('g-sectors'); flip(w, 'today'); return w; };
   // from a sector fund's page: its companies on Markets
   const showSector = (sym) => { const sec = SECTOR[sym]; if (!sec) return false; Object.assign(F, { sec, cls: F.cls === 'Stocks' ? 'Stocks' : '' }); shown = 60; hlId = null; allMemo = null; saveF();
     if (document.body.classList.contains('sheet-open') && window.SRLive && SRLive.close) SRLive.close();

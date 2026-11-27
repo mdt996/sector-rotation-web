@@ -441,7 +441,7 @@
   const UNKNOWN = ['Dividends and interest (form 2047, cadre 2) and the tax already taken on them abroad.', 'Your other brokers: every box is the total of your household.', 'Losses of earlier years that are not among the trades in the app.',
     'Splits, mergers and transfers of securities.', 'The number, the opening date and the address of each account (form 3916-bis): they are on your Revolut statements.', 'How staking rewards are taxed when received (here they only count as coins bought at zero).'];
   function reportText(Rp) {
-    const L = [`GameView: ${Rp.year} return, Revolut. An estimate, not yet checked by an accountant. Box and line numbers as on the ${Rp.forms} forms.`, ''];
+    const L = [`GainView: ${Rp.year} return, Revolut. An estimate, not yet checked by an accountant. Box and line numbers as on the ${Rp.forms} forms.`, ''];
     for (const b of Rp.boxes) L.push((b.form === '2042 C' ? `Form 2042 C, box ${b.box}: ${eur(b.amount)}${b.used ? ` (after ${eur(b.used)} of earlier losses)` : ''}` : b.form === '2047' ? `Form 2047, cadre 3, line 30: ${eur(b.amount)}` : `Form 2086, then 2042 C box ${b.box}: ${eur(b.amount)} (${b.estimate ? 'the app\'s estimate, not the official sum' : 'the whole-portfolio rule, at each day\'s closes'})`) + `, to enter as ${b.whole}`);
     if (Rp.crypto.n && Rp.crypto.exempt) L.push(`Coins: ${eur(Rp.crypto.sales)} sold in the year, within €${ALLOWANCE}: exempt (form 2086 lists each sale's price).`);
     L.push('Accounts abroad: box 8UU, and one form 3916-bis for each account.');
