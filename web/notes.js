@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 159, "text": "The day at a glance, from red to green: the eleven sectors now open Today, and Markets\u2019 first page always shows the whole board (sectors, indices with Korea, commodities, currencies, leveraged ETFs, coins). A kind\u2019s own tab shows all of that kind; the ETFs tab adds the main 2x and 3x funds. New icon on the iPhone."};
+window.SR_NOTES = {"build": 160, "text": "Taxes now shows one figure and one picture: the year\u2019s tax with a bar (what stays, what tax takes), then each card as one line with its figure. A tap opens it, and it stays open. A sale\u2019s row opens that asset\u2019s page."};

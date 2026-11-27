@@ -1835,3 +1835,21 @@ body, button, input, select, textarea { font-family: var(--font-anthropic-sans);
 .g-sectors { margin: 14px 0 6px; }
 .sc-strip-w.is-grid .sc-map.sc-strip .sc-tile:not(.sc-sect) { min-height: 50px; }
 .sc-strip-w.is-grid .sc-tile .sc-day { font-size: 10px; font-style: normal; font-weight: 600; opacity: .8; }
+/* build 160: doors. One line, a title and its one figure; a tap opens the card under it. */
+.x-door.sr-disclosure { margin: 10px 0 0; border-radius: 16px; }
+.x-door > summary { min-height: 56px; padding: 8px 14px; font-size: 16px; font-weight: 650; gap: 4px 10px; }
+.x-door > summary .x-door-s { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--color-fg-muted); white-space: nowrap; }
+.x-door > summary .x-door-v { font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.x-door > summary .x-door-v:empty { display: none; } .x-door + .g-btns { margin-top: 10px; }
+.x-door > summary::after { margin-left: 4px; }
+.x-door-v.up { color: var(--color-ok); } .x-door-v.down { color: var(--color-bad); }
+.x-door > .g-card { border: 0; background: none; padding: 0; margin-top: 0; margin-bottom: 4px; box-shadow: none; }
+.x-door > .g-card > .g-card-t { display: none; }
+.x-door > .g-hint { margin-top: 4px; margin-bottom: 6px; }
+.x-legal { margin: 2px 0 6px; font-size: 12.5px; color: var(--color-fg-muted); }
+.x-split { margin-top: 12px; } .x-split-t { display: flex; height: 10px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.x-split-t i { display: block; height: 100%; } .x-split-t .is-keep { background: var(--color-ok); } .x-split-t .is-tax { background: var(--color-bad); }
+.x-split-l { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; color: var(--color-fg-muted); } .x-split-l b { color: var(--color-fg); font-variant-numeric: tabular-nums; }
+.x-worth-cap { margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: var(--color-fg-muted); }
+.x-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }   /* for a screen reader only; no nowrap: its words must not reach past the card */
+.x-go:has(.sr-asset) { cursor: pointer; } .x-go:has(.sr-asset):active { opacity: .7; }

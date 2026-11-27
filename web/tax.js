@@ -441,7 +441,7 @@
   const UNKNOWN = ['Dividends and interest (form 2047, cadre 2) and the tax already taken on them abroad.', 'Your other brokers: every box is the total of your household.', 'Losses of earlier years that are not among the trades in the app.',
     'Splits, mergers and transfers of securities.', 'The number, the opening date and the address of each account (form 3916-bis): they are on your Revolut statements.', 'How staking rewards are taxed when received (here they only count as coins bought at zero).'];
   function reportText(Rp) {
-    const L = [`Gameplan: ${Rp.year} return, Revolut. An estimate, not yet checked by an accountant. Box and line numbers as on the ${Rp.forms} forms.`, ''];
+    const L = [`GameView: ${Rp.year} return, Revolut. An estimate, not yet checked by an accountant. Box and line numbers as on the ${Rp.forms} forms.`, ''];
     for (const b of Rp.boxes) L.push((b.form === '2042 C' ? `Form 2042 C, box ${b.box}: ${eur(b.amount)}${b.used ? ` (after ${eur(b.used)} of earlier losses)` : ''}` : b.form === '2047' ? `Form 2047, cadre 3, line 30: ${eur(b.amount)}` : `Form 2086, then 2042 C box ${b.box}: ${eur(b.amount)} (${b.estimate ? 'the app\'s estimate, not the official sum' : 'the whole-portfolio rule, at each day\'s closes'})`) + `, to enter as ${b.whole}`);
     if (Rp.crypto.n && Rp.crypto.exempt) L.push(`Coins: ${eur(Rp.crypto.sales)} sold in the year, within €${ALLOWANCE}: exempt (form 2086 lists each sale's price).`);
     L.push('Accounts abroad: box 8UU, and one form 3916-bis for each account.');
@@ -455,6 +455,23 @@
   const kv = (box, k, v, cls) => { const r = box.appendChild(el('div', 'g-kv' + (cls ? ' ' + cls : ''))); r.appendChild(el('span', 'g-kv-k', k)); r.appendChild(el('span', 'g-kv-v', v)); return r; };
   const card = (box, title) => { const c = box.appendChild(el('div', 'g-card')); if (title) c.appendChild(el('div', 'g-card-t', title)); return c; };
   const big = (box, label, value, note) => { const h = box.appendChild(el('div', 'g-hero x-tax')); h.appendChild(el('div', 'g-hero-k', label)); h.appendChild(el('div', 'g-hero-v', value)); if (note) h.appendChild(el('div', 'g-hero-chg', note)); return h; };
+  // ---- doors (build 160; Matteo, 27 Nov 2026: "A good app does not show everything at the same time, but offers to click on any
+  // feature to open the desired information"). A door is one line, a title and the one figure that matters; a tap opens the card
+  // under it, and it stays open while the app runs (SRApp.disclosure keeps that). The cards inside are what they were. A device can
+  // ask for every door open (storage key sr.doors = 'open'; the checks use it, the app has no switch for it yet).
+  const DOORS = { all: false }; try { DOORS.all = localStorage.getItem('sr.doors') === 'open'; } catch (e) { /* closed */ }
+  const tone = (x) => (x > 0.005 ? 'up' : x < -0.005 ? 'down' : '');
+  const doorValue = (d, value, cls, sub) => { const sm = d.querySelector('summary'); let k = sm.querySelector('.x-door-s'), v = sm.querySelector('.x-door-v'); if (!k) k = sm.appendChild(el('small', 'x-door-s')); if (!v) v = sm.appendChild(el('b', 'x-door-v')); k.textContent = sub || ''; v.textContent = value == null ? '' : value; v.className = 'x-door-v' + (cls ? ' ' + cls : ''); };
+  const door = (box, id, title, value, cls, sub) => { const d = SRApp.disclosure(box, id, title); d.classList.add('x-door'); if (DOORS.all) d.open = true; doorValue(d, value, cls, sub); return d; };
+  // of the year's taxed gain, what tax takes and what stays: a picture where a sentence was
+  const taxBar = (h, tax) => {
+    if (!(tax > 0.005)) return; const gain = tax / RATE, keep = gain - tax, w = h.appendChild(el('div', 'x-split')); w.setAttribute('role', 'img'); w.setAttribute('aria-label', `Of ${eur(gain)} of taxed gains, ${eur(keep)} stays and ${eur(tax)} is tax`);
+    const t = w.appendChild(el('div', 'x-split-t')), a = t.appendChild(el('i', 'is-keep')), b = t.appendChild(el('i', 'is-tax')); a.style.width = (keep / gain * 100).toFixed(1) + '%'; b.style.width = (tax / gain * 100).toFixed(1) + '%';
+    const l = w.appendChild(el('div', 'x-split-l')), k = l.appendChild(el('span', 'is-keep')), x = l.appendChild(el('span', 'is-tax')); k.appendChild(el('b', '', eur(keep))); k.appendChild(document.createTextNode(' stays')); x.appendChild(el('b', '', eur(tax))); x.appendChild(document.createTextNode(' tax'));
+  };
+  // a row that names an asset opens that asset's page: the ticker in it is already a link (about.js), the whole row follows it
+  const opens = (row) => { row.classList.add('x-go'); row.addEventListener('click', (e) => { if (e.target.closest('.sr-asset, button, summary')) return; const a = row.querySelector('.sr-asset'); if (a) a.click(); }); return row; };
+  const LEGAL = 'An estimate, not advice. Not yet checked by an accountant.';
   const gainTxt = (g) => (g >= 0 ? `${eur(g)} of net gains` : `a net loss of ${eur(-g)}`);
   const cryptoTxt = (sales, g) => (sales <= ALLOWANCE ? `${eur(sales)} sold this year, under the €${ALLOWANCE} yearly allowance: no tax` : `${eur(sales)} sold this year: tax on ${gainTxt(g)}`);
   const note = 'An estimate at 31.4% (2026 flat tax), not tax advice: your official figures are the brokers\' yearly tax statements. Dividends are not counted.';
@@ -462,7 +479,7 @@
     if (!rows.length) return;
     const d = SRApp.disclosure(box, id, label);
     for (const x of rows.slice().sort((a, b) => String(b.d || b.c).localeCompare(String(a.d || a.c)))) {
-      const r = d.appendChild(el('div', 'x-row'));
+      const r = opens(d.appendChild(el('div', 'x-row')));
       r.appendChild(el('span', '', `${String(x.d || x.c).slice(0, 10)} · ${x.label}`));
       r.appendChild(el('b', x.gain > 0.005 ? 'up' : x.gain < -0.005 ? 'down' : '', eur(x.gain, true)));
     }
@@ -510,26 +527,27 @@
       }
     };
     // a sentence whose amounts never break between the sign and the figure
-    const say = (cls, parts) => { const d = c.appendChild(el('div', cls)); for (const p of parts) { if (typeof p === 'number') d.appendChild(el('span', 'x-nb', eur(p, true))); else d.appendChild(document.createTextNode(p)); } return d; };
+    const say = (cls, parts, cap) => { c.appendChild(el('div', 'x-worth-cap', cap)); const d = c.appendChild(el('div', cls + ' x-sr')); for (const p of parts) { if (typeof p === 'number') d.appendChild(el('span', 'x-nb', eur(p, true))); else d.appendChild(document.createTextNode(p)); } return d; };
     const diff = (d, cls) => c.appendChild(el('div', 'x-worth-diff ' + (d >= 0 ? 'up' : 'down') + (cls ? ' ' + cls : ''), `${eur(Math.abs(d))} ${d >= 0 ? 'more' : 'less'} than ${W.name}.`));
     if (W.n) {
-      say('x-worth-say', [`Your ${W.n} sale${W.n === 1 ? '' : 's'} left you `, W.mineNet, ` after fees and tax. The same euros in ${W.name}, over the same days: `, W.fundNet, '.']);
+      say('x-worth-say', [`Your ${W.n} sale${W.n === 1 ? '' : 's'} left you `, W.mineNet, ` after fees and tax. The same euros in ${W.name}, over the same days: `, W.fundNet, '.'], `${W.n} sale${W.n === 1 ? '' : 's'} · after fees and tax`);
       bars(W.mineNet, W.fundNet); diff(W.diff);
     } else if (W.left) c.appendChild(el('div', 'g-line g-muted x-worth-none', W.from ? `Nothing to compare among these sales: they were of holdings bought before ${dmy(W.from)}, where the prices of ${W.name} kept on this device start.` : `Nothing to compare yet: the prices of ${W.name} are not on this device.`));
     if (W.n && W.left) c.appendChild(el('div', 'g-hint x-worth-left', `${W.left} sale${W.left === 1 ? '' : 's'} left out: bought before ${dmy(W.from)}, where the fund’s prices kept on this device start, or with no price on its day.`));
     if (Hd && Hd.n) {   // what is still held, before tax
-      say('x-worth-say x-held-say', [`What you still hold (${Hd.n} holding${Hd.n === 1 ? '' : 's'}, ${eur(Hd.value)}): `, Hd.mine, ` since you bought, after the selling fee and before tax. The same euros in ${W.name}: `, Hd.fund, '.']);
+      say('x-worth-say x-held-say', [`What you still hold (${Hd.n} holding${Hd.n === 1 ? '' : 's'}, ${eur(Hd.value)}): `, Hd.mine, ` since you bought, after the selling fee and before tax. The same euros in ${W.name}: `, Hd.fund, '.'], `Still held · ${Hd.n} holding${Hd.n === 1 ? '' : 's'} · before tax`);
       bars(Hd.mine, Hd.fund, 'x-held-bars'); diff(Hd.mine - Hd.fund, 'x-held-diff');
     }
     if (Hd && Hd.left) c.appendChild(el('div', 'g-hint x-held-left', `${Hd.left} holding${Hd.left === 1 ? '' : 's'} left out: the trades in the app do not add up to the price paid typed for ${Hd.left === 1 ? 'it' : 'them'}, or a buy is older than the fund’s prices.`));
     if (W.n || (Hd && Hd.n)) {
       const d = SRApp.disclosure(c, 'tax-worth-sales', `One by one, before tax (${W.n + (Hd ? Hd.n : 0)})`);
-      const line = (a, mine, other) => { const r = d.appendChild(el('div', 'x-row x-worth-row')); r.appendChild(el('span', '', a)); const v = r.appendChild(el('span', 'x-worth-v')); v.appendChild(el('b', mine > 0.005 ? 'up' : mine < -0.005 ? 'down' : '', eur(mine, true))); v.appendChild(el('span', '', ` · ${W.sym} ${eur(other, true)}`)); };
+      const line = (a, mine, other) => { const r = opens(d.appendChild(el('div', 'x-row x-worth-row'))); r.appendChild(el('span', '', a)); const v = r.appendChild(el('span', 'x-worth-v')); v.appendChild(el('b', mine > 0.005 ? 'up' : mine < -0.005 ? 'down' : '', eur(mine, true))); v.appendChild(el('span', '', ` · ${W.sym} ${eur(other, true)}`)); };
       for (const x of W.rows) line(`${x.s} · ${dmy(x.d)}`, x.mine, x.fund);
       for (const x of (Hd ? Hd.rows : [])) line(`${x.s} · held`, x.mine, x.fund);
       c.appendChild(el('div', 'g-hint x-worth-note', 'Past results, not a forecast and not advice. Not yet checked by an accountant.'));
       c.appendChild(el('div', 'g-hint', `The yardstick is ${W.say}. It is bought with the same euros on the days you bought and sold on the days you sold, with the same fees and the same tax rule.${W.daily ? ` Before ${dmy(W.daily)} its prices are weekly closes, not daily.` : ''} Coins, CFDs, other brokers and the dividends paid to you are not in it.`));
     }
+    return { diff: W.n ? W.diff : Hd && Hd.n ? Hd.mine - Hd.fund : null, short: W.short, held: !W.n && !!(Hd && Hd.n) };
   }
   function drawReport(box, y) {
     const Rp = report(SRApp.config().trades || [], y, fxOf());
@@ -557,7 +575,7 @@
       const d = SRApp.disclosure(c, 'tax-report-2074', `Form 2074, sale by sale (${S.lines.length})`);
       d.appendChild(el('div', 'g-hint', 'Cadre 5, one column a sale. Needed when the broker did not work out your gains by the French rule (the average price paid).'));
       for (const l of S.lines) {
-        const b = d.appendChild(el('div', 'x-sale')); b.dataset.s = l.s; const h = b.appendChild(el('div', 'x-sale-h')); h.appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); h.appendChild(el('b', l.l524 > 0.005 ? 'up' : l.l524 < -0.005 ? 'down' : '', l.short ? 'incomplete' : eur(l.l524, true)));
+        const b = d.appendChild(el('div', 'x-sale')); b.dataset.s = l.s; const h = opens(b.appendChild(el('div', 'x-sale-h'))); h.appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); h.appendChild(el('b', l.l524 > 0.005 ? 'up' : l.l524 < -0.005 ? 'down' : '', l.short ? 'incomplete' : eur(l.l524, true)));
         const g = b.appendChild(el('div', 'x-lines')); for (const [k, lab, v] of lines2074(l).slice(1)) { const r = g.appendChild(el('div', 'x-line')); r.appendChild(el('span', 'x-code', k)); r.appendChild(el('span', '', lab)); r.appendChild(el('b', '', v)); }
         const n = [l.cur !== 'EUR' ? `In euros at each day’s ${l.cur} rate` : '', l.feeGuess ? 'selling fee assumed' : '', l.buyGuess ? 'a buying fee assumed' : '', l.short ? 'purchase missing in the app' : ''].filter(Boolean); if (n.length) b.appendChild(el('div', 'g-hint', n.join(' · ') + '.'));
       }
@@ -565,7 +583,7 @@
     if (C.lines.length) {
       const d = SRApp.disclosure(c, 'tax-report-2086', `Form 2086, sale by sale (${C.lines.length})`);
       d.appendChild(el('div', 'g-hint', 'Line 212, all your coins at that moment, is rebuilt from your Revolut X trades: the coin sold at its sale price, the others at their close of that day. Coins held elsewhere, and staking rewards that are not among the trades, are not in it. A sale with only four lines could not be rebuilt.'));
-      for (const l of C.lines) { const b = d.appendChild(el('div', 'x-sale')); b.dataset.s = l.s; const h = b.appendChild(el('div', 'x-sale-h')); h.appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); if (l.l224 != null) h.appendChild(el('b', l.l224 > 0.005 ? 'up' : l.l224 < -0.005 ? 'down' : '', eur(l.l224, true)));
+      for (const l of C.lines) { const b = d.appendChild(el('div', 'x-sale')); b.dataset.s = l.s; const h = opens(b.appendChild(el('div', 'x-sale-h'))); h.appendChild(el('b', '', `${l.s} · ${dmy(l.d)}`)); if (l.l224 != null) h.appendChild(el('b', l.l224 > 0.005 ? 'up' : l.l224 < -0.005 ? 'down' : '', eur(l.l224, true)));
         const g = b.appendChild(el('div', 'x-lines')); for (const [k, lab, v] of lines2086(l)) { const r = g.appendChild(el('div', 'x-line')); r.appendChild(el('span', 'x-code', k)); r.appendChild(el('span', '', lab)); r.appendChild(el('b', '', v)); } }
     }
     { const d = SRApp.disclosure(c, 'tax-report-unknown', 'What the app cannot know'); const u = d.appendChild(el('ul', 'x-unknown')); for (const t of UNKNOWN) u.appendChild(el('li', '', t)); }
@@ -573,29 +591,35 @@
     f.appendChild(btn(TL('copy'), '', async () => { const ok = await copyText(reportText(Rp)); repSaid = ok ? 'Copied: paste it in a note to keep it beside your return.' : 'Could not copy on this device.'; say.textContent = repSaid; })).classList.add('x-rep-copy');
     c.appendChild(el('div', 'g-hint x-rep-note', 'An estimate, not yet checked by an accountant.'));
     c.appendChild(el('div', 'g-hint', `Box and line numbers as on the ${Rp.forms} forms (for ${Rp.forms - 1}): check them on the forms of the year you file. The return takes whole euros. Made on this device from the trades in the app.`));
+    return { boxes: c.querySelectorAll('.x-box').length };
   }
   function drawRevolut(box) {
     { const syms = [...new Set((SRApp.config().trades || []).filter((t) => t && t.src === 'revx' && t.s).map((t) => t.s))];
       if (syms.length > 1 && !coinPx.busy && (coinPx.at ? Date.now() - coinPx.at > 6 * 3600e3 : Date.now() - coinPx.tried > 600e3)) loadCoins(syms).then((ok) => { if (ok) SRApp.renderDraw('ptax'); }); }
     box.replaceChildren();
     const S = summary(), R = S.R, Y = R.Y;
-    big(box, `Tax for ${S.y} so far (Revolut)`, eur(R.due.tax), Y.sales ? `On this year's ${Y.sales} sale${Y.sales === 1 ? '' : 's'}` : 'No sale this year yet');
-    const a = card(box, 'Sales this year');
+    taxBar(big(box, `Tax for ${S.y} so far (Revolut)`, eur(R.due.tax), Y.sales ? `On this year's ${Y.sales} sale${Y.sales === 1 ? '' : 's'}` : 'No sale this year yet'), R.due.tax);
+    box.appendChild(el('div', 'x-legal', LEGAL));
+    const dA = door(box, 'door-sales', 'Sales this year', Y.sales ? eur(Y.sec + Y.crypto, true) : '—', tone(Y.sec + Y.crypto), Y.sales ? 'gain' : ''), a = card(dA, 'Sales this year');
     kv(a, 'Shares and funds', `${gainTxt(Y.sec)}${R.carry > 0 ? `, less ${eur(R.carry)} of earlier losses` : ''} → ${eur(R.due.secTax)}`);
     kv(a, 'Crypto (Revolut X)', `${cryptoTxt(Y.cryptoSales, Y.crypto)}${Y.cryptoSales > ALLOWANCE ? ` → ${eur(R.due.cryptoTax)}` : ''}`);
     if (Y.fees > 0) kv(a, 'Fees', `${eur(Y.fees)} on this year's trades, deducted`);
     if (R.missing) a.appendChild(el('div', 'g-hint', `${R.missing} trade${R.missing === 1 ? '' : 's'} left out: no euro rate for that day yet.`));
-    const b = card(box, 'If you sold everything now (live)');
+    salesList(dA, 'tax-revolut-sales', `This year's sales (${Y.sales})`, Y.list.map((x) => ({ ...x, label: `${x.s}${x.cfd ? ' CFD' : ''}${x.kind === 'crypto' ? ' (crypto)' : ''} · sold ${eur(x.money)}` })));
+    const keep = R.secValue + R.cryValue - R.sellFees - R.all.tax;
+    const dB = door(box, 'door-sold', 'If you sold everything now', eur(keep), '', 'you keep'), b = card(dB, 'If you sold everything now (live)');
     b.appendChild(el('div', 'x-big', eur(R.all.tax)));
     kv(b, 'Investments', `${eur(R.secValue)} now, ${gainTxt(R.secU)} on what you hold → ${eur(R.all.secTax)} with this year's sales`);
     kv(b, 'Revolut X', `${eur(R.cryValue)} now, ${gainTxt(R.cryU)} → ${eur(R.all.cryptoTax)}`);
     if (R.sellFees > 0) kv(b, 'Selling fees', `about ${eur(R.sellFees)}, deducted`);
-    kv(b, 'You would keep', eur(R.secValue + R.cryValue - R.sellFees - R.all.tax));
+    kv(b, 'You would keep', eur(keep));
     if (R.unknown.length) b.appendChild(el('div', 'g-hint', `Not counted (no amount paid typed): ${R.unknown.join(', ')}.`));
     if (S.combAll) kv(b, 'With eToro too', `${eur(S.combAll.tax)} in all (both brokers add up on the return)`);
-    salesList(box, 'tax-revolut-sales', `This year's sales (${Y.sales})`, Y.list.map((x) => ({ ...x, label: `${x.s}${x.cfd ? ' CFD' : ''}${x.kind === 'crypto' ? ' (crypto)' : ''} · sold ${eur(x.money)}` })));
-    { const y = yearOf(box, S.y); drawWorth(box, y); drawReport(box, y); }
-    box.appendChild(el('div', 'g-hint', note + ' Gains use the average price paid and each day\'s euro-dollar rate; staking rewards count as bought at zero.'));
+    { const y = yearOf(box, S.y);
+      const dW = door(box, 'door-worth', 'Was it worth it?', '', ''), w = drawWorth(dW, y);
+      if (!w) dW.remove(); else if (w.diff != null) doorValue(dW, eur(w.diff, true), tone(w.diff), `${w.held ? 'held, ' : ''}against ${w.short}`);
+      const dR = door(box, 'door-report', `Your ${y} return`, '', ''), rp = drawReport(dR, y); doorValue(dR, `${rp.boxes} box${rp.boxes === 1 ? '' : 'es'}`, '', ''); }
+    door(box, 'door-about', 'About these figures', '', '').appendChild(el('div', 'g-hint', note + ' Gains use the average price paid and each day\'s euro-dollar rate; staking rewards count as bought at zero.'));
   }
   function drawEtoro(box) {
     box.replaceChildren();
@@ -607,15 +631,17 @@
       return;
     }
     big(box, `Tax for ${S.y} so far (eToro)`, eur(E.due.tax), `On ${E.n} closed trade${E.n === 1 ? '' : 's'} this year${E.copy ? `, ${E.copy} of them copy trading` : ''}`);
-    const a = card(box, 'Closed this year (real account)');
+    const eNet = E.sec + E.by.crypto.eur, names = c.names || {};
+    const dA = door(box, 'door-etoro', 'Closed this year', E.n ? eur(eNet, true) : '—', tone(eNet), E.n ? 'gain' : ''), a = card(dA, 'Closed this year (real account)');
     kv(a, 'Shares and ETFs', `${E.by.real.n} trades, ${gainTxt(E.by.real.eur)} (${usd(E.by.real.usd)})`);
     kv(a, 'CFDs', `${E.by.cfd.n} trades (leverage, short, commodities), ${gainTxt(E.by.cfd.eur)} (${usd(E.by.cfd.usd)})`);
     kv(a, 'Together', `${gainTxt(E.sec)} → ${eur(E.due.secTax)}`);
     kv(a, 'Crypto', `${E.by.crypto.n} trades, ${cryptoTxt(E.by.crypto.sales, E.by.crypto.eur)}${E.by.crypto.sales > ALLOWANCE ? ` → ${eur(E.due.cryptoTax)}` : ''}`);
     if (E.fees) kv(a, 'Fees', `${usd(E.fees)}, deducted`);
     if (E.missing) a.appendChild(el('div', 'g-hint', `${E.missing} trade${E.missing === 1 ? '' : 's'} left out: no euro rate for that day yet.`));
+    salesList(dA, 'tax-etoro-trades', `This year's closed trades (${E.n})`, E.list.map((t) => ({ c: t.c, gain: t.g, label: `${t.s || names[t.i] || '#' + t.i}${t.k === 'cfd' ? ` CFD${t.lev > 1 ? ' x' + t.lev : ''}${t.buy ? '' : ' short'}` : t.k === 'crypto' ? ' (crypto)' : ''}${t.m ? ' · copy' : ''}` })));
     if (S.comb) {
-      const b = card(box, `Your ${S.y} return, Revolut and eToro together`);
+      const dC = door(box, 'door-both', 'Revolut and eToro together', eur(S.comb.tax), '', 'tax'), b = card(dC, `Your ${S.y} return, Revolut and eToro together`);
       b.appendChild(el('div', 'x-big', eur(S.comb.tax)));
       kv(b, 'Shares, funds, CFDs', `${gainTxt(S.R.Y.sec + E.sec)} → ${eur(S.comb.secTax)}`);
       kv(b, 'Crypto', `${cryptoTxt(S.R.Y.cryptoSales + E.by.crypto.sales, S.R.Y.crypto + E.by.crypto.eur)}${S.comb.cryptoTax ? ` → ${eur(S.comb.cryptoTax)}` : ''}`);
@@ -623,11 +649,9 @@
       if (net < 0) kv(b, 'Loss to carry forward', `${eur(-net)}: no tax on shares, funds and CFDs this year, and this loss can be set against such gains in the next 10 years`);
       b.appendChild(el('div', 'g-hint', 'Gains and losses of both brokers net out on the return; the €305 crypto allowance is for all platforms together.'));
     }
-    const names = c.names || {};
-    salesList(box, 'tax-etoro-trades', `This year's closed trades (${E.n})`, E.list.map((t) => ({ c: t.c, gain: t.g, label: `${t.s || names[t.i] || '#' + t.i}${t.k === 'cfd' ? ` CFD${t.lev > 1 ? ' x' + t.lev : ''}${t.buy ? '' : ' short'}` : t.k === 'crypto' ? ' (crypto)' : ''}${t.m ? ' · copy' : ''}` })));
     const f = box.appendChild(el('div', 'g-btns'));
     f.appendChild(btn('Read again', '', () => readThenDraw(true)));
-    box.appendChild(el('div', 'g-hint', `Read ${new Date(c.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${c.err ? ` (the last try failed: ${c.err})` : ''}. ` + note + ' eToro\'s amounts are in dollars: each is turned into euros at that day\'s rate; positions still open are not counted until closed.'));
+    door(box, 'door-about-etoro', 'About these figures', '', '').appendChild(el('div', 'g-hint', `Read ${new Date(c.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${c.err ? ` (the last try failed: ${c.err})` : ''}. ` + note + ' eToro\'s amounts are in dollars: each is turned into euros at that day\'s rate; positions still open are not counted until closed.'));
     if (Date.now() - Math.max(c.at || 0, c.errAt || 0) > 6 * 3600e3) readThenDraw(false);   // a failed try waits 6 hours too
   }
 
@@ -635,5 +659,5 @@
   dash.draw('petax', (outer) => drawEtoro(outer));
   setInterval(() => { if (document.hidden) return; SRApp.renderDraw('ptax'); }, 10000);   // live: the values move with the prices
 
-  window.SRTax = { RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, lines2086, loadCoins, _coins: coinPx, worth, held, coinRatio, fundOf, fxOf, joined, closeAt, loadYard, _yard: yard };
+  window.SRTax = { _doors: DOORS, RATE, ALLOWANCE, realised, revolut, taxOn, carryFor, compact, etoroYear, etoroRead, summary, kindOf, ifSold, afterTax, need, keepNow, baseOf, report, reportText, lines2074, lines2086, loadCoins, _coins: coinPx, worth, held, coinRatio, fundOf, fxOf, joined, closeAt, loadYard, _yard: yard };
 })();
