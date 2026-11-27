@@ -71,7 +71,7 @@ async function page() {
     `<meta name="sr-build" content="${m.build}">`,
     '<meta name="apple-mobile-web-app-capable" content="yes">',
     '<meta name="mobile-web-app-capable" content="yes">',
-    '<meta name="apple-mobile-web-app-title" content="Proofbench">',
+    '<meta name="apple-mobile-web-app-title" content="Gameplan">',
     '<meta name="apple-mobile-web-app-status-bar-style" content="default">',
     '<meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)">',
     '<meta name="theme-color" content="#0e1013" media="(prefers-color-scheme: dark)">',
@@ -97,7 +97,7 @@ async function webmanifest() {
   let icon = null;
   try { const m = await manifest(); if (m.files['icon-512.png']) icon = `/c/${m.files['icon-512.png']}/icon-512.png`; } catch (e) { icon = null; }
   return new Response(JSON.stringify({
-    name: 'Proofbench', short_name: 'Proofbench', start_url: '/', scope: '/', display: 'standalone',
+    name: 'Gameplan', short_name: 'Gameplan', start_url: '/', scope: '/', display: 'standalone',
     background_color: '#0f1520', theme_color: '#0f1520', icons: icon ? [{ src: icon, sizes: '512x512', type: 'image/png' }] : [],
   }), { headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'max-age=3600' } });
 }
@@ -173,11 +173,11 @@ async function android() {
 
 // ---- the page to give to people ----
 const getPage = (origin) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Proofbench</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 22px;color:#1d2330;background:#f3f4f6}
+<title>Gameplan</title><style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:560px;margin:0 auto;padding:32px 22px;color:#1d2330;background:#f3f4f6}
 h1{font-size:26px;margin:0 0 6px}h2{font-size:19px;margin:28px 0 6px}.c{background:#fff;border-radius:16px;padding:16px 18px;margin:12px 0;border:1px solid #e3e6ea}
 a.b{display:inline-block;background:#2f6fed;color:#fff;text-decoration:none;padding:12px 18px;border-radius:12px;font-weight:600}ol{padding-left:22px;margin:6px 0}
 .m{color:#5b6472;font-size:15px}@media(prefers-color-scheme:dark){body{background:#0e1013;color:#e7e9ee}.c{background:#171a20;border-color:#262b33}.m{color:#9aa3b2}}</style>
-<h1>Proofbench</h1><p class="m">Market screener, charts and your own portfolio, with live eToro prices. You need your own eToro API keys.</p>
+<h1>Gameplan</h1><p class="m">Market screener, charts and your own portfolio, with live eToro prices. You need your own eToro API keys.</p>
 <div class="c"><h2>iPhone</h2><ol><li>Open <b>${origin}</b> in <b>Safari</b>.</li><li>Tap Share, then <b>Add to Home Screen</b>.</li><li>Open it from the Home Screen.</li></ol></div>
 <div class="c"><h2>Android</h2><p><a class="b" href="/android">Download the app (.apk)</a></p><p class="m">Open the file to install it. Android asks once to allow installing from your browser.</p></div>
 <div class="c"><h2>Then</h2><ol><li>Settings → <b>eToro</b>: paste your own API keys (from eToro: Settings → Trading → API keys; read-only is enough).</li>

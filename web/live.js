@@ -398,6 +398,10 @@
     idt.appendChild(el('div', 'av-sym', inst.symbol));
     if (window.SRLogo && window.SRLogo.lead(idt, inst.id, inst.symbol, 40)) idt.classList.add('has-logo');
     idt.appendChild(el('div', 'av-name', [inst.name, inst.exchange].filter(Boolean).join(' · ')));
+    if (window.SRScreen && window.SRScreen.sectorOf && window.SRScreen.sectorOf(inst.symbol)) {   // a sector's fund: its companies are one tap away
+      const b = idt.appendChild(el('button', 'av-sect', (window.SRI18n ? window.SRI18n.t('companies') : 'Companies') + ' ›')); b.type = 'button'; b.title = `The companies of this sector, on Markets`;
+      b.addEventListener('click', () => window.SRScreen.showSector(inst.symbol));
+    }
     if (opts.picker) top.appendChild(opts.picker);
     if (window.SRScreen && window.SRScreen.watch && inst.id) top.appendChild(window.SRScreen.watch.button({ id: inst.id, sym: inst.symbol, name: inst.name }));   // the star: on your watchlist (screen.js)
     // signal alert for this asset on the candle size shown (the phone's hourly background check sends it)

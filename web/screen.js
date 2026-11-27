@@ -10,10 +10,12 @@
   // the wider picture: indices, the dollar, Treasuries, metals, energy, crypto (eToro instrument ids)
   const BOARD = [['SPX500', 27, 'S&P 500'], ['NSDQ100', 28, 'Nasdaq-100'], ['GER40', 32, 'Germany 40'], ['EUSTX50', 43, 'Euro Stoxx 50'], ['JPN225', 36, 'Japan 225'], ['HKG50', 38, 'Hong Kong 50'], ['CHINA50', 253, 'China A50'],
     ['USDOLLAR', 25, 'US dollar index'], ['IEF', 3101, '10-year Treasuries (fall when yields rise)'], ['GOLD', 18, 'Gold'], ['SILVER', 19, 'Silver'], ['OIL', 17, 'Oil'], ['NATGAS', 22, 'Natural gas'], ['BTC', 100000, 'Bitcoin'], ['ETH', 100001, 'Ether'], ['SOL', 100063, 'Solana']];
+  const BKIND = { SPX500: 'Indices', NSDQ100: 'Indices', GER40: 'Indices', EUSTX50: 'Indices', JPN225: 'Indices', HKG50: 'Indices', CHINA50: 'Indices', USDOLLAR: 'Forex', IEF: 'ETF', GOLD: 'Commodity', SILVER: 'Commodity', OIL: 'Commodity', NATGAS: 'Commodity', BTC: 'Crypto', ETH: 'Crypto', SOL: 'Crypto' };   // which tab shows a world tile
   const TILES = [['US sectors', [['XLK', 'Tech', 'Technology'], ['XLF', 'Financials', 'Financials'], ['XLE', 'Energy', 'Energy'], ['XLV', 'Health', 'Health care'], ['XLI', 'Industrials', 'Industrials'], ['XLY', 'Cons. disc.', 'Consumer discretionary'],
     ['XLP', 'Staples', 'Consumer staples'], ['XLU', 'Utilities', 'Utilities'], ['XLB', 'Materials', 'Materials'], ['XLRE', 'Real estate', 'Real estate'], ['XLC', 'Comms', 'Communication services']]],
   ['Industries', [['SMH', 'Chips', 'Semiconductors'], ['IGV', 'Software', 'Software'], ['XBI', 'Biotech', 'Biotech'], ['KRE', 'Reg. banks', 'Regional banks'], ['ITA', 'Defense', 'Aerospace & defense'], ['GDX', 'Gold miners', 'Gold miners'],
     ['SIL', 'Silver miners', 'Silver miners'], ['COPX', 'Copper', 'Copper miners'], ['URA', 'Uranium', 'Uranium']]]];
+  const BONDS = ['Bonds', [['IEF', 'Treasuries', '10-year Treasuries (fall when yields rise)']]];   // under the ETFs tab only
   const SHORT = { tri_brk_up: 'Triangle breakout', wedge_fall_brk: 'Falling-wedge breakout', tl_brk_up: 'Trendline break', div_bull: 'RSI divergence', fib_sup: 'Fibonacci pullback', rsi30: 'RSI below 30', rsi70: 'RSI above 70', lo250: 'New 1-year low', neg_bear: 'Up candle negated', tri_brk_dn: 'Triangle breakdown', wedge_rise_brk: 'Rising-wedge breakdown' };
   const stats = () => (window.SR_TASTATS || {}).by || {};
   const cache = new Map(), extra = new Map();
@@ -132,7 +134,7 @@
   // them (F.q = 'all'); signals come in the order of how their kind of asset did in the test, and each row shows that figure.
   // Finances are a choice, not a tested rule: there is no history of them to test on.
   const KIND = (r) => (r.cls === 'ETF' ? 'ETF' : r.cls === 'Crypto' ? 'Crypto' : r.cls !== 'Stocks' ? null : /\./.test(r.sym || '') ? 'non-US shares' : r.cap >= 10e9 ? 'US large (over $10B)' : r.cap >= 2e9 ? 'US medium ($2B to $10B)' : 'US small (under $2B)');
-  const KINDSAY = { ETF: 'funds', Crypto: 'crypto', 'non-US shares': 'shares outside the US', 'US large (over $10B)': 'US companies over $10B', 'US medium ($2B to $10B)': 'US companies of $2B to $10B', 'US small (under $2B)': 'US companies under $2B' };
+  const KINDSAY = { ETF: 'ETFs', Crypto: 'crypto', 'non-US shares': 'shares outside the US', 'US large (over $10B)': 'US companies over $10B', 'US medium ($2B to $10B)': 'US companies of $2B to $10B', 'US small (under $2B)': 'US companies under $2B' };
   // the test's record for this kind of asset: { win, base, kind } (the strict test: fitted on 79 assets to 2012, judged on 869 others from 2013)
   function oddsOf(r) {
     const W = MST().wide, k = KIND(r), t = W && W.tiers && k ? W.tiers[k] : null;
@@ -286,7 +288,7 @@
   const saveF = () => { try { localStorage.setItem(FK, JSON.stringify(F)); } catch (e) { /* not kept */ } };
   let shown = 60, howOpen = false, filtOpen = false, selAt = 0; const scrollX = {};
   const T = (k) => (window.SRI18n ? window.SRI18n.t(k) : k);   // a label in the chosen language (i18n.js)
-  const CLS = [['@watch', 'watchlist'], ['', 'all'], ['Stocks', 'stocks'], ['ETF', 'funds'], ['Crypto', 'crypto'], ['Indices', 'indices'], ['Commodity', 'commodities'], ['Forex', 'currencies'], ['@mine', 'yours']], CLSNAME = { ETF: 'Fund', Forex: 'Currency', Indices: 'Index' };
+  const CLS = [['@watch', 'watchlist'], ['', 'all'], ['Stocks', 'stocks'], ['ETF', 'funds'], ['Crypto', 'crypto'], ['Indices', 'indices'], ['Commodity', 'commodities'], ['Forex', 'currencies'], ['@mine', 'yours']], CLSNAME = { ETF: 'ETF', Forex: 'Currency', Indices: 'Index' };
   const SECKEY = { XLK: 'tech', XLF: 'finance', XLE: 'energy', XLV: 'health', XLI: 'industry', XLY: 'consumer', XLP: 'staples', XLU: 'utilities', XLB: 'materials', XLRE: 'realestate', XLC: 'comms' };
   const SECTOR = { XLK: 'Information Technology', XLF: 'Financials', XLE: 'Energy', XLV: 'Healthcare', XLI: 'Industrials', XLY: 'Consumer Discretionary', XLP: 'Consumer Staples', XLU: 'Utilities', XLB: 'Materials', XLRE: 'Real Estate', XLC: 'Communication Services' };
   const SIZE = { mega: ['Over $200B', 200e9, Infinity], large: ['$10B to $200B', 10e9, 200e9], mid: ['$2B to $10B', 2e9, 10e9], small: ['Under $2B', 0, 2e9] };
@@ -608,7 +610,14 @@
     };
     const strip = (cap, key, cls) => { const w = box.appendChild(el('div', 'sc-strip-w' + (cls ? ' ' + cls : ''))); w.appendChild(el('span', 'sc-strip-c', cap)); const m = w.appendChild(el('div', 'sc-map sc-strip')); keep(m, key); return m; };
     const bySym = new Map(R.map((r) => [r.sym, r])), extra = el('div', 'sc-extra');
-    if (F.cls !== 'Stocks') { const map = strip(T('world'), 'world'); for (const x of sorted(R.filter((r) => r.group === 'World').map((r) => ({ r })))) tile(map, x.r, null, x.m); }
+    // each tab shows its own kind, in a fixed order, so a tile stays where it was; All keeps the world's indices and the sectors
+    // (Matteo, 27 Nov 2026, under Funds: "I do not see the tabs with the funds ... a mix of everything, gold, silver, dollars, nasdaq ... You should order better")
+    const world = (kind, cap) => { const list = BOARD.filter(([sym]) => BKIND[sym] === kind).map(([sym]) => bySym.get(sym)).filter(Boolean); if (!list.length) return; const map = strip(cap, 'w-' + kind, 'is-grid'); map.dataset.kind = kind; for (const r of list) tile(map, r, null, moveOf(r)); };
+    if (!F.cls || F.cls === 'Indices') world('Indices', T('indices'));
+    if (F.cls === 'Commodity') world('Commodity', T('commodities'));
+    if (F.cls === 'Crypto') world('Crypto', T('crypto'));
+    if (F.cls === 'Forex') world('Forex', T('currencies'));
+    if (F.cls === 'ETF') for (const [head, list] of [...TILES, BONDS]) { const map = strip(head === 'US sectors' ? T('sectors') : head, 'e-' + head, 'is-grid'); map.dataset.kind = 'ETF'; for (const [sym, short, name] of list) { const r = bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }; tile(map, r, short, moveOf(r)); } }
     // the sectors, in view at once and in a fixed order: a tap lists that sector's companies, a second tap lets go
     // (Matteo, 25 Nov 2026: "you removed the tabs of the sector, that should be visible immediately, like the rest")
     if (!F.cls || F.cls === 'Stocks') {
@@ -618,10 +627,18 @@
         const t = map.appendChild(el('button', 'sc-tile sc-sect' + (on ? ' is-on' : ''))); t.type = 'button'; t.dataset.sec = sec; t.setAttribute('aria-pressed', String(on)); t.title = `${name}: ${on ? 'back to every sector' : 'list its companies'}`;
         t.appendChild(el('b', '', SECKEY[sym] ? T(SECKEY[sym]) : short)); const v = t.appendChild(el('span', '', m ? pct(m.chg) : '…')); if (m && m.day) { v.appendChild(el('i', 'sc-day', ' ' + m.day)); t.classList.add('is-last'); }
         if (m) t.style.background = heat(m);
-        t.addEventListener('click', () => pick({ sec: on ? '' : sec }));
+        // a tap opens the sector fund's own page, its chart first; its companies are one tap from there (Matteo, 27 Nov 2026:
+        // "when I click on those I want to see the chart related to the etf")
+        t.title = `${name}: the chart of its fund, ${sym}`; t.dataset.sym = sym; if (r.id) t.dataset.id = r.id;
+        t.addEventListener('click', () => { if (r.id) open({ ...r, name: r.name || name }); else pick({ sec: on ? '' : sec }); });
+      }
+      if (F.sec) {   // a sector's companies are listed: say which, and one tap lets go
+        const sym = Object.keys(SECTOR).find((k) => SECTOR[k] === F.sec), c = box.appendChild(el('button', 'sc-secchip')); c.type = 'button';
+        c.appendChild(el('span', '', (sym && SECKEY[sym] ? T(SECKEY[sym]) : F.sec) + ' · ' + T('companies'))); c.appendChild(el('b', '', '×')); c.setAttribute('aria-label', `${F.sec}: back to every sector`);
+        c.addEventListener('click', () => pick({ sec: '' }));
       }
     }
-    const sectors = SRApp.disclosure(extra, 'market-sectors', 'Sectors and industries', 'weakest to strongest today');
+    const sectors = SRApp.disclosure(extra, 'market-sectors', 'Sectors and industries', 'weakest to strongest today'); { const sd = sectors.closest('details'); if (sd && F.cls === 'ETF') sd.hidden = true; }   // the ETFs tab shows them as tiles above
     for (const [head, list] of TILES) {
       sectors.appendChild(el('div', 'sc-maph', head)); const m2 = sectors.appendChild(el('div', 'sc-map sc-map2'));
       for (const x of sorted(list.map(([sym, short, name]) => ({ r: bySym.get(sym) || { sym, id: SRApp.idOf(sym), name, A: null }, short })))) tile(m2, x.r, x.short, x.m);
@@ -763,5 +780,9 @@
     box.appendChild(el('p', 'g-hint', 'Shares under $2 billion are left out of these lists. A ranking is a reading of figures, not advice.'));
     return true;
   });
-  window.SRScreen = { spark: (id) => { const r = all().find((x) => +x.id === +id); return r && r.k && r.k.length >= 8 ? { v: [...r.k].map((ch) => B64.indexOf(ch)).filter((q) => q >= 0), c60: r.c60 } : null; }, watch: { list: starred, has: isStar, toggle: toggleStar, button: starButton }, closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
+  // from a sector fund's page: its companies on Markets
+  const showSector = (sym) => { const sec = SECTOR[sym]; if (!sec) return false; Object.assign(F, { sec, cls: F.cls === 'Stocks' ? 'Stocks' : '' }); shown = 60; hlId = null; allMemo = null; saveF();
+    if (document.body.classList.contains('sheet-open') && window.SRLive && SRLive.close) SRLive.close();
+    if (window.appGo) window.appGo('screener'); SRApp.renderDraw('screener'); return true; };
+  window.SRScreen = { showSector, sectorOf: (sym) => SECTOR[sym] || null, spark: (id) => { const r = all().find((x) => +x.id === +id); return r && r.k && r.k.length >= 8 ? { v: [...r.k].map((ch) => B64.indexOf(ch)).filter((q) => q >= 0), c60: r.c60 } : null; }, watch: { list: starred, has: isStar, toggle: toggleStar, button: starButton }, closeSheet, sheet: openSheet, deckCard, fin: finOf, finRanks, ma: maOf, maRanks, dv: dvRankOf, dvRanks, dvSay, showRank, topOf, openRank, prepare, known, dayMove, scanMade: () => (wide ? wide.made : null), packs: () => packSet, rows, all, load, open, SHORT, top, loadWide, filters: F, odds: oddsText, count: () => all().length, record: () => (wide ? wide.record : null), loadPractice, practice: () => prac, review: () => review, audit: () => audit, vmSilent, demoWatch, demo: () => ({ p: demo, at: demoAt, err: demoErr, hist, curve }) };
 })();
