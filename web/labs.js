@@ -690,8 +690,8 @@
   }
   // how many combinations are under test, whether any stands out from luck, and which splits of the history differ beyond luck
   const luckN = (x) => (x >= 10 ? String(Math.round(x)) : x >= 1 ? x.toFixed(1) : x >= 0.01 ? x.toFixed(2) : 'under 0.01');
-  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit', higher: 'Higher trend', pace: 'Market pace', hour: 'Time of day', move: 'Trending or choppy' };
-  const CXV = { higher: { with: 'with it', against: 'against it', flat: 'flat' }, pace: { calm: 'calm', usual: 'usual', busy: 'busy' }, move: { trending: 'trending', mixed: 'mixed', choppy: 'choppy' }, hour: { morning: '07-12', midday: '12-16', late: '16-21', asia: '00-07', europe: '07-13', us: '13-21', night: '21-24' } };
+  const MARKET = { 18: 'GOLD', 32: 'GER40', 28: 'NSDQ100', 27: 'SPX500', 1: 'EURUSD', 5: 'USDJPY', 17: 'OIL' }, DIM = { rule: 'Rule', speed: 'Bar length', align: 'Place in the trend', asset: 'Market', side: 'Buys or shorts', exit: 'Exit', higher: 'Higher trend', pace: 'Market pace', hour: 'Time of day', move: 'Trending or choppy', event: 'US releases (Fed, inflation, jobs)' };
+  const CXV = { higher: { with: 'with it', against: 'against it', flat: 'flat' }, pace: { calm: 'calm', usual: 'usual', busy: 'busy' }, move: { trending: 'trending', mixed: 'mixed', choppy: 'choppy' }, hour: { morning: '07-12', midday: '12-16', late: '16-21', asia: '00-07', europe: '07-13', us: '13-21', night: '21-24' }, event: { ahead: 'a US release due within 24 h', just: 'just after a US release', none: 'no US release near' } };
   const dimName = (dim, k) => (CXV[dim] ? CXV[dim][k] || k : dim === 'rule' ? SHORT[k] || k : dim === 'speed' ? barShort(k) : dim === 'align' ? ALIGN_S[k] || k : dim === 'asset' ? MARKET[k] || String(k).replace(/-USD$/, '') : dim === 'side' ? (k === 'long' ? 'buys' : 'shorts') : EXIT_S[k] || k);
   // the lessons the lab has learned by itself: circumstances in which a setup loses clearly more than luck would give (learn.js)
   function lessonsBox(box, key, L, D) {
@@ -700,7 +700,7 @@
     head(box, 'Lessons learned');
     const K = (D && D.lessonK) || (bl && bl.K) || 0;
     box.appendChild(el('div', 'g-line t-lablessonv', live.length ? `${live.length} lesson${live.length === 1 ? '' : 's'} in force: the money stays out of these signals, and paper keeps following them so a lesson that stops being true is dropped.`
-      : `No lesson in force: among ${K.toLocaleString('en-US')} circumstances tested (the higher trend, trending or choppy markets, the market's pace, the time of day), none loses clearly more than luck would give.`));
+      : `No lesson in force: among ${K.toLocaleString('en-US')} circumstances tested (the higher trend, trending or choppy markets, the market's pace, the time of day, the US releases), none loses clearly more than luck would give.`));
     for (const l of live) {
       const r = box.appendChild(el('div', 't-lablesson'));
       r.appendChild(el('div', 't-lablesson-t', `${l.who}: no money when ${l.when}`));
@@ -709,7 +709,7 @@
     if (bl && bl.kept && bl.kept.n) box.appendChild(el('div', 'g-hint t-lablessonbt', bl.skipped && bl.skipped.n
       ? `In the history, walked forward: the lessons known at each signal kept the money out of ${bl.skipped.n.toLocaleString('en-US')} signals that went on to make ${rtxt(bl.skipped.mR)} each; the ones let through made ${rtxt(bl.kept.mR)}.`
       : `In the history, walked forward, no lesson was found that kept the money out of anything: ${bl.kept.n.toLocaleString('en-US')} signals, ${rtxt(bl.kept.mR)} each.`));
-    for (const [dim, name] of [['higher', 'By the higher trend'], ['move', 'By trending or choppy markets']]) {
+    for (const [dim, name] of [['higher', 'By the higher trend'], ['move', 'By trending or choppy markets'], ['event', 'Around the US releases (Fed, inflation, jobs)']]) {
       const hg = B && (B.splits || []).find((x) => x.dim === dim); if (!hg) continue;
       const d = box.appendChild(el('div', 'g-hint t-lablessonhg', `${name} in the history: best ${dimName(dim, hg.best[0])} (${rtxt(hg.best[1])} a signal over ${hg.best[2].toLocaleString('en-US')}), worst ${dimName(dim, hg.worst[0])} (${rtxt(hg.worst[1])} over ${hg.worst[2].toLocaleString('en-US')}); luck explains ${pct0(hg.luck)} of the difference.`)); d.dataset.dim = dim;
     }
