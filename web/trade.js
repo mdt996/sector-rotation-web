@@ -488,31 +488,33 @@
     const go = panel.appendChild(el('button', 'bk-go', 'Chart and more ›')); go.type = 'button'; go.addEventListener('click', () => openAsset(p));
   }
   function positions(root) {
+    const dm = (t) => (isFinite(t) ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '–');
     const M = calc(); root.textContent = ''; const B = window.SRBook, redraw = () => SRApp.renderDraw('tradepos');
     if (B && M.value > 0) {
       head(root, 'Portfolio split');
       B.split(root, { id: 'demo', total: M.value, cash: M.cash, redraw, items: M.positions.map((p) => ({ value: p.amount + p.pl, order: p.opened || 0, by: { asset: p.sym, cls: p.cls || 'Other', sec: p.sec || (p.cls && p.cls !== 'Stocks' ? p.cls : 'Not known'), rule: ARM[p.arm] || (p.arm === 'hand' ? 'By hand' : p.arm), side: p.side > 0 ? 'Long' : 'Short' } })),
         groups: [['asset', 'Asset'], ['cls', 'Class'], ['sec', 'Sector'], ['rule', 'Rule'], ['side', 'Long / short']] });
     }
+    // build 168: the rows sort by a tap on a column's name (book.js); the sort chips that were here are gone (each was a column:
+    // Result = P/L, Size = Position, Nearest stop = To stop, Newest = Opened). With no column chosen, the best result first.
     head(root, `Open positions (${M.positions.length})`);
-    const bar = root.appendChild(el('div', 't-chips bk-chips')); bar.appendChild(el('span', 't-chip-l', 'Sort'));
-    for (const [k, l] of [['pl', 'Result'], ['pct', 'Move %'], ['size', 'Size'], ['stop', 'Nearest stop'], ['age', 'Newest']]) { const b = bar.appendChild(el('button', 't-chip' + (ui.sort === k ? ' on' : ''), l)); b.type = 'button'; b.addEventListener('click', () => { ui.sort = k; SRApp.renderDraw('tradepos'); }); }
-    const key = { pl: (p) => -p.pl, pct: (p) => -p.move, size: (p) => -p.expo, stop: (p) => (p.stop > 0 ? Math.abs(p.now / p.stop - 1) : 9), age: (p) => -p.opened }[ui.sort], pos = M.positions.slice().sort((a, b) => key(a) - key(b));
+    const pos = M.positions.slice().sort((a, b) => b.pl - a.pl);
     if (!pos.length) root.appendChild(el('div', 'g-hint', M.live ? 'No open position.' : 'Waiting for eToro.'));
     else if (B) B.rows(root, { id: 'demo-pos', head: 'Asset', redraw,
-      fields: [['pl', 'P/L'], ['pct', 'P/L %'], ['share', 'Share'], ['day', 'Today'], ['value', 'Value'], ['r', 'R'], ['price', 'Price'], ['stop', 'To stop'], ['left', 'Ends in'], ['size', 'Position']],
+      fields: [['pl', 'P/L'], ['pct', 'P/L %'], ['share', 'Share'], ['day', 'Today'], ['value', 'Value'], ['move', 'Move %'], ['r', 'R'], ['price', 'Price'], ['stop', 'To stop'], ['left', 'Ends in'], ['size', 'Position'], ['opened', 'Opened']],
       defaults: ['pl', 'pct', 'share'],
       items: pos.map((p) => { const val = p.amount + p.pl, toStop = p.stop > 0 && p.now > 0 ? 100 * Math.abs(p.now - p.stop) / p.now : null;
         return { key: String((p.o && p.o.positionID) || p.id), name: p.sym, tag: `${p.side > 0 ? '' : 'Short'}${p.lev > 1 ? ' ×' + p.lev : ''}`.trim(), lead: (n) => { if (window.SRLogo) window.SRLogo.lead(n, p.id, p.sym, 22); },
-          cells: { pl: [usd2(p.pl), sign(p.pl)], pct: [pc(p.plPct), sign(p.pl)], share: [M.value > 0 ? pcs(100 * val / M.value) : '–'], day: p.day != null ? [usd2(p.day), sign(p.day)] : ['–'], value: [usd(val)],
-            r: [p.r != null ? `${p.r >= 0 ? '+' : '−'}${Math.abs(p.r).toFixed(2)}` : '–', p.r != null ? sign(p.r) : ''], price: [px(p.now)], stop: [toStop != null ? toStop.toFixed(1) + '%' : '–', toStop != null && toStop < 2 ? 'down' : ''], left: [p.due ? span(Math.max(0, p.due - Date.now())) : '–'], size: [usd(p.expo)] },
+          cells: { pl: [usd2(p.pl), sign(p.pl), p.pl], pct: [pc(p.plPct), sign(p.pl), p.plPct], share: [M.value > 0 ? pcs(100 * val / M.value) : '–', '', M.value > 0 ? val / M.value : null], day: p.day != null ? [usd2(p.day), sign(p.day), p.day] : ['–', '', null], value: [usd(val), '', val],
+            move: [Number.isFinite(p.move) ? pc(p.move) : '–', sign(p.move), Number.isFinite(p.move) ? p.move : null],
+            r: [p.r != null ? `${p.r >= 0 ? '+' : '−'}${Math.abs(p.r).toFixed(2)}` : '–', p.r != null ? sign(p.r) : '', p.r != null ? p.r : null], price: [px(p.now), '', p.now], stop: [toStop != null ? toStop.toFixed(1) + '%' : '–', toStop != null && toStop < 2 ? 'down' : '', toStop],
+            left: [p.due ? span(Math.max(0, p.due - Date.now())) : '–', '', p.due || null], size: [usd(p.expo), '', p.expo], opened: [p.opened > 0 ? dm(p.opened) : '–', '', p.opened > 0 ? p.opened : null] },
           detail: (panel) => posDetail(panel, p, M) }; }) });
     if (M.waiting.length) head(root, `Orders waiting for the market (${M.waiting.length})`);
-    const dm = (t) => (isFinite(t) ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '–');
     if (M.waiting.length && B) B.rows(root, { id: 'demo-wait', head: 'Order', redraw,
       fields: [['amount', 'Amount'], ['stop', 'Stop'], ['target', 'Target'], ['sent', 'Sent']], defaults: ['amount', 'sent'], limit: 5,
       items: M.waiting.map((w, i) => ({ key: String(w.t && w.t.placed ? w.sym + w.t.placed : w.sym + i), name: w.sym, tag: `${w.side > 0 ? 'Buy' : 'Short'} · ${ARM[w.arm] || w.arm}`, lead: (n) => { if (window.SRLogo) window.SRLogo.lead(n, w.id, w.sym, 22); },
-        cells: { amount: [usd(w.amount)], stop: [w.stop ? px(w.stop) : '–'], target: [w.target ? px(w.target) : '–'], sent: [dm(w.placed)] },
+        cells: { amount: [usd(w.amount), '', +w.amount || null], stop: [w.stop ? px(w.stop) : '–', '', w.stop || null], target: [w.target ? px(w.target) : '–', '', w.target || null], sent: [dm(w.placed), '', isFinite(w.placed) ? w.placed : null] },
         detail: (panel) => { panel.appendChild(el('div', 't-l2', `${isFinite(w.placed) ? 'Sent ' + when(w.placed) + ' · ' : ''}opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`));
           const go = panel.appendChild(el('button', 'bk-go', 'Chart and more ›')); go.type = 'button'; go.addEventListener('click', () => openAsset(w)); } })) });
     const stuck = (M.P.open || []).filter((t) => t.status !== 'open' && M.live && !M.waiting.some((w) => w.t === t) && !M.positions.some((p) => p.t === t));

@@ -1,2 +1,2 @@
 // What changed in this build of the screens (shown once after an update).
-window.SR_NOTES = {"build": 167, "text": "Open positions are now compact rows: the portfolio split in % (cash included) on top, tap a row for its details. The history shows a period, what it made and one row per market. The same for the paper portfolios."};
+window.SR_NOTES = {"build": 168, "text": "Tap a column's name (P/L, Today, Value...) to sort the rows by it: largest first, a second tap turns it round, a third goes back."};

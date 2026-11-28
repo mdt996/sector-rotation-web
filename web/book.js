@@ -61,7 +61,7 @@
   }
 
   // ---- compact rows that open ----
-  // o: { id, head, fields: [[key, label]], defaults: [keys], limit (rows shown before 'Show all'), items: [{ key, name, tag, lead(nameSpan), cells: { key: [text, cls] }, detail(panel) }], redraw, empty }
+  // o: { id, head, fields: [[key, label]], defaults: [keys], limit (rows shown before 'Show all'), items: [{ key, name, tag, lead(nameSpan), cells: { key: [text, cls, number to sort by] }, detail(panel) }], redraw, empty }
   function rows(box, o) {
     const known = new Set(o.fields.map((f) => f[0]));
     let chosen = get('sr.bookFields', o.id, o.defaults); if (!Array.isArray(chosen)) chosen = o.defaults; chosen = chosen.filter((k) => known.has(k)).slice(0, 3); if (!chosen.length) chosen = o.defaults.slice(0, 3);
@@ -72,12 +72,25 @@
     const pc0 = pick.appendChild(el('div', 't-chips bk-chips'));
     for (const [k, l] of o.fields) { const on = chosen.includes(k), b = pc0.appendChild(el('button', 't-chip' + (on ? ' on' : ''), l)); b.type = 'button'; b.dataset.k = k; b.setAttribute('aria-pressed', String(on));
       b.addEventListener('click', () => { let c = chosen.slice(); if (c.includes(k)) { if (c.length > 1) c = c.filter((x) => x !== k); } else { c.push(k); if (c.length > 3) c.shift(); } put('sr.bookFields', o.id, c); o.redraw(); }); }
-    pick.appendChild(el('div', 'g-hint', 'Up to three figures; a fourth replaces the first. Tap a row for everything else.'));
-    const hd = wrap.appendChild(el('div', 'bk-hd')); hd.appendChild(el('span', 'bk-hd-n', o.head || 'Asset'));
-    for (const k of chosen) hd.appendChild(el('span', 'bk-hd-c', o.fields.find((f) => f[0] === k)[1]));
+    pick.appendChild(el('div', 'g-hint', 'Up to three figures; a fourth replaces the first. Tap a column\'s name to sort by it, a row for everything else.'));
+    // Build 168 (Matteo, 28 Nov 2026: "Allow to click on today or value etc... on those, to sort the column values ascending or
+    // descending"): a column's name sorts the rows by it, largest first (the name: A to Z); a second tap turns it round, a third
+    // goes back to the box's own order. Kept on the device (sr.bookSort, never rename), only while that column is shown.
+    let so = get('sr.bookSort', o.id, null); if (!so || !(so.k === 'name' || chosen.includes(so.k)) || (so.d !== 1 && so.d !== -1)) so = null;
+    const hd = wrap.appendChild(el('div', 'bk-hd'));
+    const hb = (k, label, cls) => { const b = hd.appendChild(el('button', cls, label)); b.type = 'button'; b.dataset.k = k;
+      const on = so && so.k === k; if (on) b.setAttribute('aria-sort', so.d > 0 ? 'ascending' : 'descending'); b.classList.toggle('on', !!on);
+      b.addEventListener('click', () => { const first = k === 'name' ? 1 : -1, nx = !so || so.k !== k ? { k, d: first } : so.d === first ? { k, d: -first } : null; put('sr.bookSort', o.id, nx); o.redraw(); }); };
+    hb('name', o.head || 'Asset', 'bk-hd-n');
+    for (const k of chosen) hb(k, o.fields.find((f) => f[0] === k)[1], 'bk-hd-c');
+    // a cell's third element is the figure it sorts by; rows without one go last either way
+    let items = o.items;
+    if (so) { const val = (it) => (so.k === 'name' ? it.name : it.cells && it.cells[so.k] ? it.cells[so.k][2] : null), ok = (v) => (so.k === 'name' ? v != null && v !== '' : Number.isFinite(v));
+      items = o.items.map((it, i) => [it, val(it), i]).sort((a, b) => { const A = ok(a[1]), B = ok(b[1]); if (A !== B) return A ? -1 : 1; if (!A) return a[2] - b[2];
+        const c = so.k === 'name' ? String(a[1]).localeCompare(String(b[1])) : a[1] - b[1]; return c ? so.d * c : a[2] - b[2]; }).map((x) => x[0]); }
     if (!o.items.length && o.empty) wrap.appendChild(el('div', 'g-hint', o.empty));
     const open = mem.open.get(o.id) || new Set(); mem.open.set(o.id, open);
-    const showAll = !o.limit || mem.all.has(o.id + '|rows'), shown = showAll ? o.items : o.items.slice(0, o.limit);
+    const showAll = !o.limit || mem.all.has(o.id + '|rows'), shown = showAll ? items : items.slice(0, o.limit);
     for (const it of shown) {
       const isOpen = open.has(it.key), r = wrap.appendChild(el('div', 'bk-row' + (isOpen ? ' open' : ''))); r.dataset.key = it.key;
       const b = r.appendChild(el('button', 'bk-head')); b.type = 'button'; b.setAttribute('aria-expanded', String(isOpen));
@@ -124,7 +137,7 @@
     rows(card, { id: o.id + '-mk', head: `Market (${mk.length})`, redraw: o.redraw, empty: o.trades.length ? 'No trade closed in this period.' : 'No trade has closed yet.',
       fields: [['pl', 'P/L'], ['pct', 'P/L %'], ['inv', 'Invested'], ['fees', 'Fees'], ['end', 'End value'], ['n', 'Trades']], defaults: ['pl', 'pct', 'inv'],
       items: mk.map(([k, x]) => ({ key: k, name: x.name, lead: x.lead, tag: x.n > 1 ? `${x.n} trades` : '',
-        cells: { pl: [usd2(x.net), sign(x.net)], pct: [x.inv > 0 ? pc(100 * x.net / x.inv) : '–', sign(x.net)], inv: [x.inv > 0 ? usd(x.inv) : '–'], fees: [money(x.fees, 2)], end: [x.inv > 0 ? usd(x.inv + x.net) : '–'], n: [String(x.n)] },
+        cells: { pl: [usd2(x.net), sign(x.net), x.net], pct: [x.inv > 0 ? pc(100 * x.net / x.inv) : '–', sign(x.net), x.inv > 0 ? x.net / x.inv : null], inv: [x.inv > 0 ? usd(x.inv) : '–', '', x.inv > 0 ? x.inv : null], fees: [money(x.fees, 2), '', x.fees], end: [x.inv > 0 ? usd(x.inv + x.net) : '–', '', x.inv > 0 ? x.inv + x.net : null], n: [String(x.n), '', x.n] },
         detail: (panel) => {
           grid(panel, [['Trades', `${x.n} (${x.won} with a gain)`], ['Invested', x.inv > 0 ? usd(x.inv) : '–'], ['P/L', `${usd2(x.net)}${x.inv > 0 ? ' (' + pc(100 * x.net / x.inv) + ')' : ''}`, sign(x.net)], ['Fees', money(x.fees, 2)], ['End value', x.inv > 0 ? usd(x.inv + x.net) : '–']]);
           const L = panel.appendChild(el('div', 'bk-trades')); for (const t of x.list.slice().sort((a, b) => b.at - a.at)) t.line(L);
