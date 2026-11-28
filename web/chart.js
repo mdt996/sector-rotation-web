@@ -511,6 +511,28 @@
     }
     // the lines of one channel: made with Parallel they share d.ch; a parallel from before the link (build 163) has its line's
     // two days exactly, which is how it is still recognised
+    // a channel's lines stay parallel (Matteo, 28 Nov 2026, 08:44: "as i drag one of its two extremes up or down, the other extreme
+    // should go up or down the same way to guarantee that the line continues to be parallel"): the channel's first line leads (its
+    // ends move freely, and its parallels follow it at their distance); a parallel only moves up or down, both ends together, at
+    // the first line's days. All in screen space, like Parallel itself, so a channel stays parallel on a log scale too.
+    const yAtX = (d, x) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) return null; return Math.abs(x2 - x1) < 0.5 ? (y1 + y2) / 2 : y1 + (y2 - y1) * (x - x1) / (x2 - x1); };
+    function offsetOf(base, d) {   // how far below (+) or above (−) the first line a parallel lies, in pixels (the mean of both ends)
+      const xa = xOf(base.a.t), xb = xOf(base.b.t), ya = yOf(base.a.p), yb = yOf(base.b.p); if ([xa, xb, ya, yb].some((v) => v == null)) return null;
+      const oa = yAtX(d, xa), ob = yAtX(d, xb); return oa == null || ob == null ? null : ((oa - ya) + (ob - yb)) / 2;
+    }
+    function place(base, d, off) {   // a parallel at that distance from the first line, at its days
+      const xa = xOf(base.a.t), xb = xOf(base.b.t), ya = yOf(base.a.p), yb = yOf(base.b.p); if ([xa, xb, ya, yb].some((v) => v == null)) return;
+      const pa = ptXY(xa, ya + off), pb = ptXY(xb, yb + off); if (!pa || !pb) return;
+      d.a = { t: base.a.t, p: pa.p }; d.b = { t: base.b.t, p: pb.p };
+    }
+    function chanOf(i) {   // at a drag's start: the channel of drawing i, its first line and each parallel's distance
+      const ids = channels().find((v) => v.includes(i)); if (!ids) return null;
+      const lead = Math.min(...ids), base = drawings[lead], g = base.ch || Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      for (const j of ids) drawings[j].ch = g;   // a channel from before the link (build 163): linked now
+      const offs = new Map(); for (const j of ids) if (j !== lead) { const o = offsetOf(base, drawings[j]); if (o != null) offs.set(j, o); }
+      return { lead, offs };
+    }
+    function follow(c) { const base = drawings[c.lead]; for (const [j, o] of c.offs) if (drawings[j]) place(base, drawings[j], o); }
     function channels() {
       const g = new Map();
       drawings.forEach((d, i) => {
@@ -744,9 +766,9 @@
       if (d) {
         for (const g of (sel === 'm' ? gripsOf({ ...measure, type: 'trend' }) : gripsOf(d))) {
           const k = knob(g);
-          if (Math.hypot(q.x - k.x, q.y - k.y) <= 26 || Math.hypot(q.x - g.x, q.y - g.y) <= 14) { snap(); drag = { kind: 'end', k: g.k, off: { x: g.x - q.x, y: g.y - q.y } }; return; }
+          if (Math.hypot(q.x - k.x, q.y - k.y) <= 26 || Math.hypot(q.x - g.x, q.y - g.y) <= 14) { snap(); drag = { kind: 'end', k: g.k, off: { x: g.x - q.x, y: g.y - q.y }, y0: g.y, ch: typeof sel === 'number' ? chanOf(sel) : null }; return; }
         }
-        if (near(sel === 'm' ? { ...measure, type: 'rect' } : d, q.x, q.y) <= 16) { snap(); drag = { kind: 'body', start: q, orig: JSON.parse(JSON.stringify(d)) }; return; }
+        if (near(sel === 'm' ? { ...measure, type: 'rect' } : d, q.x, q.y) <= 16) { snap(); drag = { kind: 'body', start: q, orig: JSON.parse(JSON.stringify(d)), ch: typeof sel === 'number' ? chanOf(sel) : null }; return; }
       }
       const other = hitAt(q.x, q.y);
       select(other != null && other !== sel ? other : null);   // another drawing: selected at once; nothing: the edit ends
@@ -763,6 +785,13 @@
       }
       if (!drag) return;
       const d = typeof sel === 'number' ? drawings[sel] : measure; if (!d) return;
+      const c = drag.ch, par = c && sel !== c.lead && c.offs.has(sel);
+      if (par) {   // a parallel: up or down only, both ends together, by what the finger moved up or down
+        const dy = drag.kind === 'end' ? q.y + drag.off.y - drag.y0 : q.y - drag.start.y;
+        place(drawings[c.lead], d, c.offs.get(sel) + dy);
+        const y = yAtX(d, xOf(d[drag.k || 'a'].t)), x = xOf(d[drag.k || 'a'].t); guide = drag.kind === 'end' && x != null && y != null ? { x, y, ...ptXY(x, y) } : null;
+        showRead(); redraw(); return;
+      }
       if (drag.kind === 'end') {
         const x = q.x + drag.off.x, y = q.y + drag.off.y, pt = ptXY(x, y); if (!pt) return;
         if (d.type === 'hline') d.a.p = pt.p; else if (d.type === 'vline') d.a.t = pt.t; else d[drag.k] = pt;
@@ -771,6 +800,7 @@
         const dx = q.x - drag.start.x, dy = q.y - drag.start.y, o = drag.orig;
         for (const k of ['a', 'b']) if (o[k]) { const x = xOf(o[k].t), y = yOf(o[k].p); if (x == null || y == null) continue; const pt = ptXY(x + (d.type === 'hline' ? 0 : dx), y + (d.type === 'vline' ? 0 : dy)); if (pt) d[k] = { t: d.type === 'hline' ? o[k].t : pt.t, p: d.type === 'vline' ? o[k].p : pt.p }; }
       }
+      if (c) follow(c);   // the first line of a channel: its parallels come with it
       showRead(); redraw();
     });
     const lift = (ev) => {
