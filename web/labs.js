@@ -61,7 +61,7 @@
   const SLOW = { up: 'rising', down: 'falling', 'turning-down': 'turning down', 'turning-up': 'turning up' };
   const EXIT_S = { tight: '1 ATR stop and target', base: 'stop 1.5, target 2.25 ATR', trail: 'trailing stop', quick: 'out at +$1', wide: 'wide: stop 3.5, target 5.25 ATR' };
 
-  const LB = { live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', view: 'list', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, fold: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
+  const LB = { openRows: new Set(), live: null, liveAt: 0, liveOk: 0, sum: null, sumAt: 0, det: {}, detAt: {}, loading: false, failed: false, sel: 'gold', view: 'list', pane: 'now', tf: '5', style: 'candles', bench: true, vs: {}, vsOpen: false, more: {}, fold: {}, root: null, R: null, tv: null, bodySig: '', timer: null, untick: null, lastPaint: 0, wanted: '' };
   try { const k = localStorage.getItem('sr.labSel'); if (/^[a-z0-9]{3,12}$/.test(k || '')) LB.sel = k; const c = JSON.parse(localStorage.getItem('sr.labChart') || '{}'); if (TFS.some((t) => t[0] === c.tf)) LB.tf = c.tf; if (c.style === 'line') LB.style = 'line'; LB.bench = c.ref == null ? true : !!c.ref; } catch (e) { /* the gold lab, 5-minute candles */ }   // the market's line is on unless switched off (Matteo, 22 Nov 2026: the comparison "also in the chart")
   // The selected lab's page in four parts instead of one long scroll (Matteo, 21 Nov 2026: "very verbose ... less verbose and more
   // organized"): what it holds now, its trades, what the history says, what it learned. "All" is the long page as it was.
@@ -518,6 +518,18 @@
     if (L.resetPending) T.appendChild(el('div', 'g-warn', 'Reset pending: waiting for fresh prices to settle the remaining paper trades. No new entries.'));
   }
   // the open trades: a table whose figures follow the live prices
+  // Build 167 (Matteo, 28 Nov 2026: the portfolio split in %, cash included, compact rows that open, a history like eToro's,
+  // "same thing for the paper portfolios"): book.js draws the split and the history; the open trades keep their table, and each
+  // row's two lines of detail open on a tap (LB.openRows, kept across the redraws)
+  const repaint = () => { LB.bodySig = ''; paint(); };
+  function splitBox(box, key, L, V) {
+    if (!window.SRBook || !(V && V.equity > 0)) return;
+    const O = V.N.open, val = (o, i) => Math.max(0, (+o.margin > 0 ? +o.margin : +o.notional / Math.max(1, +o.lev || 1)) + (V.rows[i] ? V.rows[i][0] : 0));
+    const inPos = O.reduce((s, o, i) => s + val(o, i), 0);
+    head(box, 'Portfolio split');
+    SRBook.split(box, { id: 'lab-' + key, total: V.equity, cash: V.equity - inPos, redraw: repaint, cashName: 'Free money',
+      items: O.map((o, i) => ({ value: val(o, i), order: o.t0 || 0, by: { asset: o.sym, rule: short(o.rule), side: o.dir > 0 ? 'Buys' : 'Shorts' } })), groups: [['asset', 'Asset'], ['rule', 'Rule'], ['side', 'Buys / shorts']] });
+  }
   function openBox(box, key, L, V) {
     const W = V.N.waiting || [], O = V.N.open, T = LB.sum.text || {};
     head(box, `Open now: ${O.length}${W.length ? ` (+${W.length} waiting)` : ''}`);
@@ -534,9 +546,14 @@
       const l2 = tb.appendChild(el('div', 't-l2 t-labl2', `Stop ${px(o.stop)}${pc0(o.stop)}${o.tgt ? ` · target ${px(o.tgt)}${pc0(o.tgt)}` : o.quick ? ` · out at ${usd2(o.quick)} net` : ' · no target: the stop trails'} · $${Math.round(o.notional).toLocaleString('en-US')} position, ${usd(o.risk)} at risk · ${span(Date.now() - o.t0)} in${left != null && left > 0 ? `, at most ${span(left)} more` : ''}${o.swing ? ` · may stay overnight${o.nights ? `: ${o.nights} night${o.nights === 1 ? '' : 's'} paid (${usd(o.nightFee)})` : ''}` : ''}`));
       l2.dataset.openl2 = String(o.id); r.dataset.risk = String(o.risk);
       r.title = (T.rules && T.rules[o.rule]) || '';
+      // closed until tapped: the rule, the stake, the stop, the target, the size and the risk
+      const k = key + '|' + o.id, isOpen = LB.openRows.has(k), l1 = tb.querySelector(`[data-openl1="${o.id}"]`);
+      r.classList.add('t-labtap'); r.setAttribute('role', 'button'); r.tabIndex = 0; r.setAttribute('aria-expanded', String(isOpen)); l1.hidden = !isOpen; l2.hidden = !isOpen; r.classList.toggle('is-open', isOpen);
+      const tap = () => { const now = !LB.openRows.has(k); if (now) LB.openRows.add(k); else LB.openRows.delete(k); l1.hidden = !now; l2.hidden = !now; r.classList.toggle('is-open', now); r.setAttribute('aria-expanded', String(now)); };
+      r.addEventListener('click', tap); r.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tap(); } });
     });
     for (const o of W) { row(tb, `${o.sym} buy at ${px(o.lim)}`, `${short(o.rule)} · ${ALIGN_S[o.align] || ''} · waiting order, no fee`, [span(Date.now() - o.t), 'waiting'], 't-labwait'); }
-    box.appendChild(el('div', 'g-hint', V.live ? 'Valued here from live prices, as the lab does: the price to close at, minus costs.' : 'Values as of the VM\'s last report.'));
+    box.appendChild(el('div', 'g-hint', (O.length ? 'Tap a trade for its stop, target and size. ' : '') + (V.live ? 'Valued here from live prices, as the lab does: the price to close at, minus costs.' : 'Values as of the VM\'s last report.')));
   }
   // a folded part that stays open or closed across the redraws (every new report rebuilds the lab's parts)
   function fold(box, k, title) {
@@ -809,6 +826,18 @@
     box.appendChild(el('div', 'g-hint', 'Chance: how likely the setup earns after costs, from its paper trades (recent ones weigh more; few trades lean on the rule\'s wider record). Expected: R per trade. Test stake until 20 trades; half from 60%; full from 75%, ahead of random entries at the same speed, and only once 10 new trades since the half stake have earned too; benched under 25%. Since 17 Nov a bigger stake also needs a record that luck alone would rarely give among all the combinations under test ("luck alone gives…": how many as good as this one chance would produce; it must be well under 1).'));
     const V = (D && D.vetoes) || []; if (V.length) box.appendChild(el('div', 'g-hint', 'Blocked on one market: ' + V.map((v) => `${v.sym} ${v.side === 'long' ? 'buys' : 'shorts'} (${short(v.rule)}, ${ALIGN_S[v.align]}: ${rtxt(v.m)})`).join(' · ') + '.'));
   }
+  function historyBox(box, key, L, D) {
+    if (!window.SRBook) return; const C = (D && D.closed) || L.closed || [];
+    const first = Math.min(...C.map((c) => c.t0).filter((t) => t > 0), Date.now()), eq = (D && D.eq60) || [];
+    const valueAt = (t) => { if (t <= first) return +L.start || null; let best = null; for (const q of eq) if (Math.abs(q[0] - t) < 864e5 && (!best || Math.abs(q[0] - t) < Math.abs(best[0] - t))) best = q; return best ? best[4] : null; };
+    head(box, 'History');
+    SRBook.history(box, { id: 'lab-hist-' + key, redraw: repaint, valueAt, valueNow: (valued(key) || {}).equity || 0,
+      trades: C.map((c) => ({ market: String(c.a || c.sym), name: c.sym, at: c.t1, opened: c.t0, invested: +c.notional / Math.max(1, +c.lev || 1) || 0, net: +c.net || 0, fees: +c.cost || 0,
+        line: (Lb) => { const r = Lb.appendChild(el('div', 'bk-tr'));
+          r.appendChild(el('span', '', `${c.dir > 0 ? 'Buy' : 'Short'}${c.lev > 1.05 ? ' ' + levStep(c.lev) + 'x' : ''} · ${px(c.e)} → ${px(c.x)} · ${short(c.rule)}`));
+          r.appendChild(el('b', sign(c.net), `${usd2(c.net)} (${rtxt(c.R)})`));
+          r.appendChild(el('span', 'bk-tr-s', `ended by ${c.how} · held ${span(c.t1 - c.t0)} · closed ${when(c.t1)} · costs $${(+c.cost || 0).toFixed(2)}${c.net < 0 && c.why ? ' · why: ' + c.why : ''}`)); } })) });
+  }
   function closedBox(box, key, L, D) {
     const C = ((D && D.closed) || L.closed || []).slice().reverse(), show = LB.more['closed' + key] ? 60 : 10;
     head(box, `Closed trades${C.length ? ` (last ${Math.min(show, C.length)})` : ''}`);
@@ -884,8 +913,8 @@
     if (sig !== LB.bodySig) {   // built aside and swapped in at once: the page does not jump
       LB.bodySig = sig; const f = document.createDocumentFragment(), P = {};
       for (const [k] of PANES) if (k !== 'all') { P[k] = f.appendChild(el('div', 't-labpane')); P[k].dataset.pane = k; }
-      openBox(P.now, key, L, V); statsBox(P.now, L, D); trendBox(P.now, key, L, D);
-      closedBox(P.trades, key, L, D); reviewBox(P.trades, D); breakdownBox(P.trades, key, D);
+      splitBox(P.now, key, L, V); openBox(P.now, key, L, V); statsBox(P.now, L, D); trendBox(P.now, key, L, D);
+      historyBox(P.trades, key, L, D); closedBox(P.trades, key, L, D); reviewBox(P.trades, D); breakdownBox(P.trades, key, D);
       backtestBox(P.history, key, L); weekendBox(P.history, key, L, D); shortsBox(P.history, key, L, D); speedsBox(P.history, key, L, D); scanBox(P.history, key, L);
       lessonsBox(P.learning, key, L, D); searchBox(P.learning, key, L, D); journalBox(P.learning, key, L, D); setupsBox(P.learning, key, L, D); restBox(P.learning, key, L, D);
       for (const k of Object.keys(P)) if (!P[k].childElementCount) P[k].appendChild(el('div', 'g-hint', 'Nothing here yet.'));

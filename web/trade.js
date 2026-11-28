@@ -121,7 +121,7 @@
       const t = recClosed.find((q) => q.positionId === h.positionId) || rec.find((q) => q.positionId === h.positionId) || null, side = h.isBuy === false ? -1 : 1, net = +h.netProfit || 0;
       const sl = +h.stopLossRate || (t ? t.stop : 0), tp = +h.takeProfitRate || (t ? t.target : 0), x = +h.closeRate;
       const how = t && t.how ? t.how : tp > 0 && (side > 0 ? x >= tp * 0.9995 : x <= tp * 1.0005) ? 'target' : sl > 0 && (side > 0 ? x <= sl * 1.0005 : x >= sl * 0.9995) ? 'stop' : 'closed before either';
-      out.closed.push({ h, t, id: h.instrumentId, sym: symOf(h.instrumentId, t), cls: clsOf(h.instrumentId, t), arm: t ? t.arm : 'hand', side, lev: +h.leverage || 1, entry: +h.openRate, exit: x, net, fees: +h.fees || 0, r: t && t.riskMoney > 0 ? net / t.riskMoney : null, how, opened: Date.parse(h.openTimestamp), at: Date.parse(h.closeTimestamp), amount: +h.investment || 0 });
+      out.closed.push({ h, t, id: h.instrumentId, sym: symOf(h.instrumentId, t), cls: clsOf(h.instrumentId, t), arm: t ? t.arm : 'hand', side, lev: +h.leverage || 1, entry: +h.openRate, exit: x, net, fees: +h.fees || 0, r: t && t.riskMoney > 0 ? net / t.riskMoney : null, how, opened: Date.parse(h.openTimestamp), at: Date.parse(h.closeTimestamp), amount: +h.investment || +h.initialInvestment || (+h.units > 0 && +h.openRate > 0 ? +h.units * +h.openRate / (+h.leverage || 1) : 0) });   // eToro's history has investment and units
     }
     out.closed.sort((a, b) => b.at - a.at);
     const pos = out.positions, cl = out.closed, sum = (a, f) => a.reduce((x, y) => x + f(y), 0);
@@ -463,52 +463,81 @@
   }
 
   // ---- Positions ----
+  // Build 167 (Matteo, 28 Nov 2026: "I would like to visualize the open position more compactly, and if I click on the single asset
+  // have more information. The first thing I want to see is the entire portfolio with the open asset positions split in percentage
+  // (also show the percentage of cash) something similar to etoro, but more customizable"): the split first (book.js), then one
+  // compact row a position with the figures the reader picks; a tap opens eToro's figures, the stop and target, why, the chart.
+  const pcs = (x) => (window.SRBook ? SRBook.share(x) : x.toFixed(1) + '%');
+  function posDetail(panel, p, M) {
+    const B = window.SRBook, u = +(p.o && p.o.units) || (p.entry > 0 ? p.amount * p.lev / p.entry : 0), val = p.amount + p.pl;
+    B.grid(panel, [['Units', u > 0 ? u.toLocaleString('en-US', { maximumFractionDigits: u >= 100 ? 2 : 5 }) : null], ['Open', px(p.entry)], ['Now', px(p.now)], ['Stop (SL)', p.stop > 0 ? px(p.stop) : '–', 'down'], ['Target (TP)', p.target > 0 ? px(p.target) : '–', 'up'],
+      ['Invested', usd(p.amount)], ['Net value', usd(val)], ['Today', p.day != null ? usd2(p.day) : '–', p.day != null ? sign(p.day) : ''], ['P/L', `${usd2(p.pl)} (${pc(p.plPct)})`, sign(p.pl)], ['Share', M.value > 0 ? pcs(100 * val / M.value) : '–'],
+      ['Position', `${usd(p.expo)}${p.lev > 1 ? ' ×' + p.lev : ''}`], ['Opened', p.opened > 0 ? new Date(p.opened).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null], ['Ends in', p.due ? span(Math.max(0, p.due - Date.now())) : null]]);
+    // where the price stands between the stop and the target
+    if (p.stop > 0 && p.target > 0) { const lo = Math.min(p.stop, p.target), hi = Math.max(p.stop, p.target), at = (v) => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo || 1))), flip = p.side < 0;
+      const tr = panel.appendChild(el('div', 't-track')); const fill = tr.appendChild(el('i', 't-fill ' + sign(p.pl))); const a = at(p.entry), c = at(p.now); fill.style.left = Math.min(a, c) + '%'; fill.style.width = Math.abs(c - a) + '%';
+      const e = tr.appendChild(el('i', 't-entry')); e.style.left = a + '%'; const n = tr.appendChild(el('i', 't-now ' + sign(p.pl))); n.style.left = c + '%';
+      const ends = panel.appendChild(el('div', 't-ends')); ends.appendChild(el('span', flip ? 'up' : 'down', `${flip ? 'target' : 'stop'} ${px(lo)}`)); ends.appendChild(el('span', '', `now ${px(p.now)}`)); ends.appendChild(el('span', flip ? 'down' : 'up', `${flip ? 'stop' : 'target'} ${px(hi)}`)); }
+    panel.appendChild(el('div', 't-l2', `${ARM[p.arm] || (p.arm === 'hand' ? 'Opened by hand' : p.arm)}${p.cls ? ' · ' + p.cls : ''}${p.sec ? ' · ' + p.sec : ''}`));
+    const sc = (x) => (Math.round(x * 1000) / 10).toFixed(1), bar = ((window.SRTA && window.SRTA.model && window.SRTA.model()) || {}).buy;
+    if (p.t && p.score != null) { const n = p.t.now, nowS = n ? n.score : p.msNow, faded = n ? n.state !== 'holds' : p.side > 0 && p.buyNow === false;
+      panel.appendChild(el('div', 't-l2' + (faded ? ' g-warn' : ''), `Why: score ${sc(p.score)} at entry${nowS != null ? ` → ${sc(nowS)} now` : ''}${p.side > 0 && bar ? ` (buy from ${sc(bar)})` : p.side < 0 && !p.t.fast ? ' (lowest among big US shares)' : ''}${n ? ` · ${n.state === 'holds' ? 'holds' : n.state === 'gone' ? 'faded' : 'reversed'}` : faded ? ' · faded' : ''}`)); }
+    const ex2 = [p.risk > 0 ? `If stopped ${usd(-p.risk)}` : null, p.t && p.t.best != null ? `best ${rtxt(p.t.best)}` : null, p.t && p.t.worst != null ? `worst ${rtxt(p.t.worst)}` : null].filter(Boolean);
+    if (ex2.length) panel.appendChild(el('div', 't-l2', ex2.join(' · ')));
+    if (p.soft) panel.appendChild(el('div', 't-l2 g-warn', `Stop watched by the program at ${px(p.stop)} (eToro's own: ${px(p.etoroStop)}).`));
+    const go = panel.appendChild(el('button', 'bk-go', 'Chart and more ›')); go.type = 'button'; go.addEventListener('click', () => openAsset(p));
+  }
   function positions(root) {
-    const M = calc(); root.textContent = '';
+    const M = calc(); root.textContent = ''; const B = window.SRBook, redraw = () => SRApp.renderDraw('tradepos');
+    if (B && M.value > 0) {
+      head(root, 'Portfolio split');
+      B.split(root, { id: 'demo', total: M.value, cash: M.cash, redraw, items: M.positions.map((p) => ({ value: p.amount + p.pl, order: p.opened || 0, by: { asset: p.sym, cls: p.cls || 'Other', sec: p.sec || (p.cls && p.cls !== 'Stocks' ? p.cls : 'Not known'), rule: ARM[p.arm] || (p.arm === 'hand' ? 'By hand' : p.arm), side: p.side > 0 ? 'Long' : 'Short' } })),
+        groups: [['asset', 'Asset'], ['cls', 'Class'], ['sec', 'Sector'], ['rule', 'Rule'], ['side', 'Long / short']] });
+    }
     head(root, `Open positions (${M.positions.length})`);
-    const bar = root.appendChild(el('div', 't-chips')); bar.appendChild(el('span', 't-chip-l', 'Sort'));
+    const bar = root.appendChild(el('div', 't-chips bk-chips')); bar.appendChild(el('span', 't-chip-l', 'Sort'));
     for (const [k, l] of [['pl', 'Result'], ['pct', 'Move %'], ['size', 'Size'], ['stop', 'Nearest stop'], ['age', 'Newest']]) { const b = bar.appendChild(el('button', 't-chip' + (ui.sort === k ? ' on' : ''), l)); b.type = 'button'; b.addEventListener('click', () => { ui.sort = k; SRApp.renderDraw('tradepos'); }); }
     const key = { pl: (p) => -p.pl, pct: (p) => -p.move, size: (p) => -p.expo, stop: (p) => (p.stop > 0 ? Math.abs(p.now / p.stop - 1) : 9), age: (p) => -p.opened }[ui.sort], pos = M.positions.slice().sort((a, b) => key(a) - key(b));
     if (!pos.length) root.appendChild(el('div', 'g-hint', M.live ? 'No open position.' : 'Waiting for eToro.'));
-    for (const p of pos) {
-      const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(p));
-      const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, p.id, p.sym, 22); l1.appendChild(el('span', 'g-pill ' + (p.side > 0 ? 'g-buy' : 'g-sell'), p.sym)); l1.appendChild(el('span', 't-tag', `${p.side > 0 ? 'Long' : 'Short'}${p.lev > 1 ? ' ×' + p.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[p.arm] || p.arm));
-      const r = l1.appendChild(el('span', 't-pl ' + sign(p.pl))); r.appendChild(el('b', '', usd2(p.pl))); r.appendChild(el('span', '', ` ${pc(p.move)}${p.r != null ? ` · ${p.r >= 0 ? '+' : '−'}${Math.abs(p.r).toFixed(2)} R` : ''}`));
-      // where the price stands between the stop and the target
-      if (p.stop > 0 && p.target > 0) { const lo = Math.min(p.stop, p.target), hi = Math.max(p.stop, p.target), at = (v) => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo || 1))), flip = p.side < 0;
-        const tr = b.appendChild(el('div', 't-track')); const fill = tr.appendChild(el('i', 't-fill ' + sign(p.pl))); const a = at(p.entry), c = at(p.now); fill.style.left = Math.min(a, c) + '%'; fill.style.width = Math.abs(c - a) + '%';
-        const e = tr.appendChild(el('i', 't-entry')); e.style.left = a + '%'; const n = tr.appendChild(el('i', 't-now ' + sign(p.pl))); n.style.left = c + '%';
-        const ends = b.appendChild(el('div', 't-ends')); ends.appendChild(el('span', flip ? 'up' : 'down', `${flip ? 'target' : 'stop'} ${px(lo)}`)); ends.appendChild(el('span', '', `now ${px(p.now)}`)); ends.appendChild(el('span', flip ? 'down' : 'up', `${flip ? 'stop' : 'target'} ${px(hi)}`)); }
-      const sc = (x) => (Math.round(x * 1000) / 10).toFixed(1), bar = ((window.SRTA && window.SRTA.model && window.SRTA.model()) || {}).buy;
-      b.appendChild(el('div', 't-l2', [p.day != null ? `Today ${usd2(p.day)}` : null, `entry ${px(p.entry)}`, `${usd(p.expo)}${p.lev > 1 ? ` (${usd(p.amount)} set aside)` : ''}`, p.opened > 0 ? `${span(Date.now() - p.opened)} old` : null, p.due ? `ends in ${span(Math.max(0, p.due - Date.now()))}` : null].filter(Boolean).join(' · ')));
-      // why this trade: the signal it was opened on, against the same signal now
-      if (p.t && p.score != null) { const n = p.t.now, nowS = n ? n.score : p.msNow, faded = n ? n.state !== 'holds' : p.side > 0 && p.buyNow === false;
-        b.appendChild(el('div', 't-l2' + (faded ? ' g-warn' : ''), `Why: score ${sc(p.score)} at entry${nowS != null ? ` → ${sc(nowS)} now` : ''}${p.side > 0 && bar ? ` (buy from ${sc(bar)})` : p.side < 0 && !p.t.fast ? ' (lowest among big US shares)' : ''}${n ? ` · ${n.state === 'holds' ? 'holds' : n.state === 'gone' ? 'faded' : 'reversed'}` : faded ? ' · faded' : ''}`)); }
-      const ex2 = [p.risk > 0 ? `If stopped ${usd(-p.risk)}` : null, p.t && p.t.best != null ? `best ${rtxt(p.t.best)}` : null, p.t && p.t.worst != null ? `worst ${rtxt(p.t.worst)}` : null].filter(Boolean);
-      if (ex2.length) b.appendChild(el('div', 't-l2', ex2.join(' · ')));
-      if (p.soft) b.appendChild(el('div', 't-l2 g-warn', `Stop watched by the program at ${px(p.stop)} (eToro's own: ${px(p.etoroStop)}).`));
-    }
+    else if (B) B.rows(root, { id: 'demo-pos', head: 'Asset', redraw,
+      fields: [['pl', 'P/L'], ['pct', 'P/L %'], ['share', 'Share'], ['day', 'Today'], ['value', 'Value'], ['r', 'R'], ['price', 'Price'], ['stop', 'To stop'], ['left', 'Ends in'], ['size', 'Position']],
+      defaults: ['pl', 'pct', 'share'],
+      items: pos.map((p) => { const val = p.amount + p.pl, toStop = p.stop > 0 && p.now > 0 ? 100 * Math.abs(p.now - p.stop) / p.now : null;
+        return { key: String((p.o && p.o.positionID) || p.id), name: p.sym, tag: `${p.side > 0 ? '' : 'Short'}${p.lev > 1 ? ' ×' + p.lev : ''}`.trim(), lead: (n) => { if (window.SRLogo) window.SRLogo.lead(n, p.id, p.sym, 22); },
+          cells: { pl: [usd2(p.pl), sign(p.pl)], pct: [pc(p.plPct), sign(p.pl)], share: [M.value > 0 ? pcs(100 * val / M.value) : '–'], day: p.day != null ? [usd2(p.day), sign(p.day)] : ['–'], value: [usd(val)],
+            r: [p.r != null ? `${p.r >= 0 ? '+' : '−'}${Math.abs(p.r).toFixed(2)}` : '–', p.r != null ? sign(p.r) : ''], price: [px(p.now)], stop: [toStop != null ? toStop.toFixed(1) + '%' : '–', toStop != null && toStop < 2 ? 'down' : ''], left: [p.due ? span(Math.max(0, p.due - Date.now())) : '–'], size: [usd(p.expo)] },
+          detail: (panel) => posDetail(panel, p, M) }; }) });
     if (M.waiting.length) head(root, `Orders waiting for the market (${M.waiting.length})`);
-    for (const w of M.waiting) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(w)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, w.id, w.sym, 22); l1.appendChild(el('span', 'g-pill ' + (w.side > 0 ? 'g-buy' : 'g-sell'), w.sym)); l1.appendChild(el('span', 't-tag', w.side > 0 ? 'Buy order' : 'Short order')); l1.appendChild(el('span', 't-tag t-arm', ARM[w.arm] || w.arm)); l1.appendChild(el('span', 't-pl', usd(w.amount)));
-      b.appendChild(el('div', 't-l2', `${isFinite(w.placed) ? 'Sent ' + when(w.placed) + ' · ' : ''}opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`)); }
+    const dm = (t) => (isFinite(t) ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '–');
+    if (M.waiting.length && B) B.rows(root, { id: 'demo-wait', head: 'Order', redraw,
+      fields: [['amount', 'Amount'], ['stop', 'Stop'], ['target', 'Target'], ['sent', 'Sent']], defaults: ['amount', 'sent'], limit: 5,
+      items: M.waiting.map((w, i) => ({ key: String(w.t && w.t.placed ? w.sym + w.t.placed : w.sym + i), name: w.sym, tag: `${w.side > 0 ? 'Buy' : 'Short'} · ${ARM[w.arm] || w.arm}`, lead: (n) => { if (window.SRLogo) window.SRLogo.lead(n, w.id, w.sym, 22); },
+        cells: { amount: [usd(w.amount)], stop: [w.stop ? px(w.stop) : '–'], target: [w.target ? px(w.target) : '–'], sent: [dm(w.placed)] },
+        detail: (panel) => { panel.appendChild(el('div', 't-l2', `${isFinite(w.placed) ? 'Sent ' + when(w.placed) + ' · ' : ''}opens when its market opens${w.stop ? ` · planned stop ${px(w.stop)} · target ${px(w.target)}` : ''}`));
+          const go = panel.appendChild(el('button', 'bk-go', 'Chart and more ›')); go.type = 'button'; go.addEventListener('click', () => openAsset(w)); } })) });
     const stuck = (M.P.open || []).filter((t) => t.status !== 'open' && M.live && !M.waiting.some((w) => w.t === t) && !M.positions.some((p) => p.t === t));
     if (stuck.length) { head(root, 'Orders eToro did not open'); for (const t of stuck) root.appendChild(el('div', 'g-hint', `${t.s}: sent ${when(t.placed)}; eToro neither opened it nor keeps it waiting. No money was taken. The program clears it at its next look.`)); }
     return true;
   }
 
-  // ---- History ----
+  // ---- History (build 167, Matteo: "also the history of trades should be added", with eToro's History as the picture) ----
   function history(root) {
-    const M = calc(); root.textContent = '';
+    const M = calc(); root.textContent = ''; const B = window.SRBook, redraw = () => SRApp.renderDraw('tradehist');
     const arms = ['all', ...new Set(M.closed.map((c) => c.arm))];
-    const list = M.closed.filter((c) => ui.arm === 'all' || c.arm === ui.arm), net = list.reduce((x, c) => x + c.net, 0), won = list.filter((c) => c.net > 0).length;
+    const list = M.closed.filter((c) => ui.arm === 'all' || c.arm === ui.arm);
     head(root, `Closed trades (${list.length})`);
     if (arms.length > 2) { const bar = root.appendChild(el('div', 't-chips'));
-      for (const k of arms) { const b = bar.appendChild(el('button', 't-chip' + (ui.arm === k ? ' on' : ''), k === 'all' ? 'All rules' : ARM[k] || k)); b.type = 'button'; b.addEventListener('click', () => { ui.arm = k; ui.histAll = false; SRApp.renderDraw('tradehist'); }); } }
-    if (list.length) root.appendChild(el('div', 'g-line', `${won} with a gain (${Math.round(100 * won / list.length)}%), ${usd2(net)} after costs.`)); else root.appendChild(el('div', 'g-hint', 'No trade has closed yet. Each one will appear here with its entry, exit, result and how it ended.'));
-    for (const c of list.slice(0, ui.histAll ? 80 : 10)) { const b = root.appendChild(el('button', 't-pos')); b.type = 'button'; b.addEventListener('click', () => openAsset(c)); const l1 = b.appendChild(el('div', 't-l1')); if (window.SRLogo) window.SRLogo.lead(l1, c.id, c.sym, 22); l1.appendChild(el('span', 'g-pill ' + (c.side > 0 ? 'g-buy' : 'g-sell'), c.sym)); l1.appendChild(el('span', 't-tag', `${c.side > 0 ? 'Long' : 'Short'}${c.lev > 1 ? ' ×' + c.lev : ''}`)); l1.appendChild(el('span', 't-tag t-arm', ARM[c.arm] || c.arm));
-      const r = l1.appendChild(el('span', 't-pl ' + sign(c.net))); r.appendChild(el('b', '', usd2(c.net))); if (c.r != null) r.appendChild(el('span', '', ` ${c.r >= 0 ? '+' : '−'}${Math.abs(c.r).toFixed(2)} R`));
-      b.appendChild(el('div', 't-l2', `${px(c.entry)} → ${px(c.exit)} (${pc(100 * c.side * (c.exit / c.entry - 1))}) · ended by ${c.how}${isFinite(c.opened) ? ` · held ${span(c.at - c.opened)}` : ''} · closed ${when(c.at)}${c.fees ? ` · fees ${usd2(-c.fees).replace('−', '')}` : ''}`)); }
-    if (!ui.histAll && list.length > 10) { const b = root.appendChild(el('button', 'btn t-more', `Show all ${Math.min(80, list.length)}`)); b.type = 'button'; b.addEventListener('click', () => { ui.histAll = true; SRApp.renderDraw('tradehist'); }); }
+      for (const k of arms) { const b = bar.appendChild(el('button', 't-chip' + (ui.arm === k ? ' on' : ''), k === 'all' ? 'All rules' : ARM[k] || k)); b.type = 'button'; b.addEventListener('click', () => { ui.arm = k; SRApp.renderDraw('tradehist'); }); } }
+    if (!B) return true;
+    // the account's value at a moment: its starting value before the first trade, else the nearest point of its curve (within a day)
+    const first = Math.min(...[...M.closed, ...M.positions].map((x) => x.opened).filter((t) => t > 0), Date.now());
+    const valueAt = (t) => { if (ui.arm !== 'all') return null; if (M.start && t <= first) return M.start; const C = M.curve || []; let best = null; for (const q of C) if (Math.abs(q[0] - t) < 864e5 && (!best || Math.abs(q[0] - t) < Math.abs(best[0] - t))) best = q; return best ? best[1] : null; };
+    B.history(root, { id: 'demo-hist' + (ui.arm === 'all' ? '' : '-' + ui.arm), redraw, valueAt, valueNow: ui.arm === 'all' ? M.value : 0,
+      trades: list.map((c) => ({ market: String(c.id || c.sym), name: c.sym, lead: (n) => { if (window.SRLogo) window.SRLogo.lead(n, c.id, c.sym, 22); }, at: c.at, opened: c.opened, invested: c.amount || 0, net: c.net, fees: c.fees || 0,
+        line: (L) => { const r = L.appendChild(el('button', 'bk-tr')); r.type = 'button'; r.addEventListener('click', () => openAsset(c));
+          r.appendChild(el('span', '', `${c.side > 0 ? 'Buy' : 'Short'}${c.lev > 1 ? ' ×' + c.lev : ''} · ${px(c.entry)} → ${px(c.exit)} (${pc(100 * c.side * (c.exit / c.entry - 1))})`));
+          r.appendChild(el('b', sign(c.net), `${usd2(c.net)}${c.r != null ? ` · ${c.r >= 0 ? '+' : '−'}${Math.abs(c.r).toFixed(2)} R` : ''}`));
+          r.appendChild(el('span', 'bk-tr-s', `ended by ${c.how}${isFinite(c.opened) ? ` · held ${span(c.at - c.opened)}` : ''} · closed ${when(c.at)}${c.fees ? ` · fees ${usd2(-c.fees).replace('−', '')}` : ''} · ${ARM[c.arm] || c.arm}`)); } })) });
     return true;
   }
 
