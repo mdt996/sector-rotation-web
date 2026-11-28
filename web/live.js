@@ -608,7 +608,7 @@
     compareInput.type = 'search'; compareInput.placeholder = 'Search for a second asset'; compareInput.setAttribute('aria-label', 'Find an asset to compare');
     const compareMode = compareRow.appendChild(el('select', 'ch-compare-mode'));
     compareMode.setAttribute('aria-label', 'Comparison view');
-    for (const [value, label] of [['returns', 'Price change'], ['ratio', 'Price ratio']]) { const opt = compareMode.appendChild(el('option', '', label)); opt.value = value; }
+    for (const [value, label] of [['returns', 'Price change'], ['ratio', 'Relative, %']]) { const opt = compareMode.appendChild(el('option', '', label)); opt.value = value; }
     const compareClear = compareRow.appendChild(el('button', 'ch-compare-clear', 'Clear')); compareClear.type = 'button'; compareClear.hidden = true;
     const compareResults = comparePanel.appendChild(el('div', 'ch-compare-results')); compareResults.hidden = true;
     const compareStatus = comparePanel.appendChild(el('div', 'ch-compare-status')); compareStatus.setAttribute('aria-live', 'polite');
@@ -666,12 +666,16 @@
       compareStatus.dataset.from = String(first.time); compareStatus.dataset.to = String(last.time);
       compareStatus.replaceChildren();
       const summary = compareStatus.appendChild(el('div', 'ch-compare-summary'));
-      if (mode === 'ratio') summary.appendChild(el('b', 'ch-compare-b', a + ' / ' + b + ' ' + ratio));
-      else {
+      if (mode === 'ratio') {   // the line is a's price divided by b's, as a % of what it was on its first day: 0 is "as at the start"
+        summary.appendChild(el('b', 'ch-compare-b', a + ' / ' + b + ' ' + ratio));
+        const rv = last.ratio; summary.appendChild(el('span', '', Math.abs(rv) < 0.005 ? `${a} did as well as ${b}` : `${a} did ${fmtPct(Math.abs(rv) / 100).replace(/^[+−-]/, '')} ${rv > 0 ? 'better' : 'worse'} than ${b} in this view`));
+        // the number above is from the first day in view; the line itself is from the first shared day, so both are said
+        compareStatus.appendChild(el('div', 'ch-compare-how', `The line: ${a}'s price ÷ ${b}'s, in % of what it was on ${compareDate(data.start)} (0 = the same as then). Above 0, ${a} did better since then; below 0, ${b} did.`));
+      } else {
         summary.appendChild(el('b', 'ch-compare-a', a + ' ' + aPct));
         summary.appendChild(el('b', 'ch-compare-b', b + ' ' + bPct));
+        summary.appendChild(el('span', '', lead));
       }
-      summary.appendChild(el('span', '', lead));
       compareStatus.appendChild(el('div', '', compareDate(first.time) + ' – ' + compareDate(last.time) + ' · eToro prices in each asset’s currency'));
       if (startsLate) compareStatus.appendChild(el('div', '', 'No shared eToro prices before ' + compareDate(data.start) + '.'));
     }

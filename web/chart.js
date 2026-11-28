@@ -25,7 +25,14 @@
     compare: '<path d="M3 18l6-6 4 3 8-9M3 15l5 2 6-8 7 4"/>',
     full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     mine: '<circle cx="12" cy="12" r="8.5"/><path d="M9.5 16.5v-9h3a2.6 2.6 0 0 1 0 5.2h-3M12.6 12.7l2.6 3.8"/>',
+    draw: '<path d="M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/><path d="M13.5 6.5l3 3"/>',
+    ray: '<path d="M4 18L21 5"/><circle cx="4" cy="18" r="2"/><circle cx="11" cy="12.7" r="2"/>',
+    vline: '<path d="M12 3v18"/><circle cx="12" cy="12" r="2"/>',
+    rect: '<rect x="4" y="7" width="16" height="10" rx="1.5"/>',
   };
+  const DCOL = ['#3B82F6', '#F59E0B', '#22C55E', '#EF4444', '#A78BFA', '#E5E7EB'];   // the drawings' colours, in the order a tap on Colour goes through them
+  // how a chart draws its prices (Matteo, 28 Nov 2026: "I would like the charts to look clearer and nicer, with more options")
+  const STYLES = [['candles', 'Candles'], ['hollow', 'Hollow'], ['bars', 'Bars'], ['line', 'Line'], ['area', 'Area']];
   const svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 
   // ---- indicator maths ----
@@ -97,6 +104,8 @@
     let autos = [], marks = [], bench = [], posn = null, events = [], mine = [], mineDrawn = 0;   // mine: your own trades on Revolut   // bench: the S&P 500's candles of the same size; posn: the demo account's trade; events: dates ahead (results)
     let comparison = null;
     let drawings = lsGet(key, []), tool = 'cursor', draft = null, measure = null, bars = [], frame = { sec: 86400, show: 160 };
+    let sel = null, drag = null, hist = [], guide = null, lastColor = DCOL[0], paneH = 300;   // sel: the selected drawing (its index, or 'm' for the measure); guide: the point being placed or moved
+    let style = lsGet('sr.chartStyle', 'candles'); if (!STYLES.some(([k]) => k === style)) style = 'candles';
     let ind = Object.assign({}, IND_DEFAULT, lsGet('sr.ind3', {})), zones = null, fair = null, levels = [], dead = false;
     // Three ways to look at the chart (Matteo, 21 Nov 2026: "sometimes they are a bit crowded ... especially when I represent
     // trendlines and horizontal resistances/support zones ... the app should be complete, but adaptable"; then, the same evening:
@@ -123,7 +132,10 @@
     const slot = root.appendChild(el('div', 'ch-slot'));   // name, price and timeframes, shown in full view
     const tools = root.appendChild(el('div', 'ch-tools'));
     const btn = (k, title) => { const b = tools.appendChild(el('button', 'ch-btn')); b.type = 'button'; b.title = title; b.setAttribute('aria-label', title); b.innerHTML = svg(ICON[k]); b.dataset.k = k; return b; };
-    const bCursor = btn('cursor', 'Move and zoom'), bMeasure = btn('measure', 'Measure'), bFib = btn('fib', 'Fibonacci retracement'), bTrend = btn('trend', 'Trend line'), bH = btn('hline', 'Horizontal line');
+    const bCursor = btn('cursor', 'Move and zoom'), bMeasure = btn('measure', 'Measure'), bDraw = btn('draw', 'Draw a line or a zone'); bDraw.setAttribute('aria-expanded', 'false');
+    const drawBar = root.appendChild(el('div', 'ch-drawbar')); drawBar.hidden = true; drawBar.setAttribute('role', 'toolbar'); drawBar.setAttribute('aria-label', 'Drawing tools');
+    const dbtn = (k, label, title) => { const b = drawBar.appendChild(el('button', 'ch-dbtn')); b.type = 'button'; b.dataset.k = k; b.title = title; b.innerHTML = svg(ICON[k]); b.appendChild(el('span', '', label)); b.setAttribute('aria-pressed', 'false'); return b; };
+    dbtn('trend', 'Trend', 'Trend line'); dbtn('ray', 'Ray', 'A line that runs on past its second point'); dbtn('hline', 'Level', 'Horizontal line at a price'); dbtn('vline', 'Date', 'Vertical line on a day'); dbtn('rect', 'Zone', 'A zone between two prices and two days'); dbtn('fib', 'Fibonacci', 'Fibonacci retracement');
     tools.appendChild(el('span', 'ch-sep'));
     const bCompare = opts.onCompare ? btn('compare', 'Compare assets') : null;
     if (bCompare) { bCompare.addEventListener('click', opts.onCompare); bCompare.setAttribute('aria-expanded', 'false'); }
@@ -163,9 +175,16 @@
       b.addEventListener('click', () => { setView(k); openViews(false); }); viewBtn[k] = b;
     }
     viewButton.addEventListener('click', () => openViews(viewMenu.hidden));
+    const styleRow = viewMenu.appendChild(el('div', 'ch-styles')); styleRow.setAttribute('role', 'group'); styleRow.setAttribute('aria-label', 'How the prices are drawn');
+    const styleBtn = {}; for (const [k, label] of STYLES) { const b = styleRow.appendChild(el('button', 'ch-style', label)); b.type = 'button'; b.dataset.style = k; b.addEventListener('click', () => { style = k; lsSet('sr.chartStyle', k); applyStyle(); }); styleBtn[k] = b; }
     const main = root.appendChild(el('div', 'ch-main'));
     const legend = main.appendChild(el('div', 'ch-legend', ''));
     const overlay = main.appendChild(el('div', 'ch-overlay'));
+    const readout = main.appendChild(el('div', 'ch-read')); readout.hidden = true; readout.setAttribute('aria-live', 'polite');   // the measure, or the point being placed: at the top, never under the finger
+    const editBar = main.appendChild(el('div', 'ch-edit')); editBar.hidden = true; editBar.setAttribute('role', 'toolbar'); editBar.setAttribute('aria-label', 'The selected drawing');
+    const ebtn = (k, label) => { const b = editBar.appendChild(el('button', 'ch-ebtn', label)); b.type = 'button'; b.dataset.k = k; return b; };
+    const eParallel = ebtn('parallel', 'Parallel'), eColor = ebtn('color', ''), eDash = ebtn('dash', 'Dashed'), eDel = ebtn('delete', 'Delete'), eDone = ebtn('done', 'Done');
+    eColor.setAttribute('aria-label', 'Colour'); eColor.title = 'Colour'; eColor.appendChild(el('i', 'ch-swatch'));
     const menu = root.appendChild(el('div', 'ch-menu')); menu.hidden = true;
     const IND_LABEL = { ma20: 'MA 20', ma50: 'MA 50', ma200: 'MA 200', bb: 'Bollinger (20, 2)', rsi: 'RSI (14)', macd: 'MACD (12, 26, 9)', vol: 'Volume', zones: '2-year range bands', fair: 'Fundamental fair value', sr: 'Support, resistance and action levels', tl: 'Trendlines, wedges and gaps', sig: 'Buy and sell entries with their outcome', rs: 'Strength against the S&P 500', pos: 'Your demo trade: entry, stop, target', ev: 'Next results date' };
     for (const k of Object.keys(IND_LABEL)) {
@@ -199,13 +218,26 @@
     const chart = LW().createChart(main, {
       autoSize: true,
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: dark() ? '#a0a6b0' : '#5f6672', fontSize: 11, fontFamily: 'Archivo, system-ui, sans-serif', attributionLogo: true, panes: { separatorColor: dark() ? '#2a2e39' : '#e0e3eb' } },
-      grid: { vertLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, horzLines: { color: dark() ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } },
+      grid: { vertLines: { visible: false }, horzLines: { color: dark() ? 'rgba(255,255,255,0.055)' : 'rgba(0,0,0,0.06)' } },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.2 } },
       timeScale: { borderVisible: false, rightOffset: 6, minBarSpacing: 0.2, timeVisible: true, secondsVisible: false, tickMarkFormatter: (t, type) => tickText(t, type) },
-      crosshair: { mode: LW().CrosshairMode.Normal },
-      localization: { priceFormatter: fmtP, timeFormatter: (t) => (frame.sec >= 86400 ? fmt('cd', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : fmt('ct', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })).format(new Date(t * 1000)) },
+      crosshair: { mode: LW().CrosshairMode.Normal, vertLine: { color: dark() ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.3)', width: 1, style: 3, labelBackgroundColor: dark() ? '#2a2d36' : '#4b5060' }, horzLine: { color: dark() ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.3)', width: 1, style: 3, labelBackgroundColor: dark() ? '#2a2d36' : '#4b5060' } },
+      localization: { timeFormatter: (t) => (frame.sec >= 86400 ? fmt('cd', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : fmt('ct', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })).format(new Date(t * 1000)) },
     });
-    const candles = chart.addSeries(LW().CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down });
+    const pf = (minMove) => ({ type: 'custom', minMove: minMove || 0.01, formatter: fmtP });   // the prices' own format (each pane its own: a comparison in % keeps its %)
+    const candles = chart.addSeries(LW().CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down, priceFormat: pf(), priceLineStyle: 3 });
+    // the other ways to draw the prices: a series over the candles, which then stay (invisible) so that every line, level and drawing keeps its place
+    const styleS = { bars: chart.addSeries(LW().BarSeries, { upColor: up, downColor: down, thinBars: false, priceFormat: pf(), visible: false, priceLineStyle: 3 }), line: chart.addSeries(LW().LineSeries, { color: css('--accent', '#9C8CFF'), lineWidth: 2, priceFormat: pf(), visible: false, crosshairMarkerRadius: 4, priceLineStyle: 3 }),
+      area: chart.addSeries(LW().AreaSeries, { lineColor: css('--accent', '#9C8CFF'), topColor: 'rgba(156,140,255,0.28)', bottomColor: 'rgba(156,140,255,0.02)', lineWidth: 2, priceFormat: pf(), visible: false, crosshairMarkerRadius: 4, priceLineStyle: 3 }) };
+    const NONE = 'rgba(0,0,0,0)';
+    function styleData() { const o = bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })), c = bars.map((b) => ({ time: b.time, value: b.close })); styleS.bars.setData(style === 'bars' ? o : []); styleS.line.setData(style === 'line' ? c : []); styleS.area.setData(style === 'area' ? c : []); }
+    function applyStyle() {
+      const own = style === 'candles' || style === 'hollow';
+      candles.applyOptions(own ? { upColor: style === 'hollow' ? NONE : up, downColor: down, borderVisible: style === 'hollow', borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down, lastValueVisible: true, priceLineVisible: true }
+        : { upColor: NONE, downColor: NONE, borderVisible: false, wickUpColor: NONE, wickDownColor: NONE, lastValueVisible: false, priceLineVisible: false });
+      for (const [k, sr] of Object.entries(styleS)) sr.applyOptions({ visible: k === style });
+      styleData(); for (const [k, b] of Object.entries(styleBtn || {})) b.setAttribute('aria-pressed', String(k === style)); root.dataset.style = style;
+    }
     const vol = chart.addSeries(LW().HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
     // the dates after the last candle, as on TradingView: empty time slots on a series of their own (no value, nothing drawn)
@@ -303,6 +335,7 @@
     // the chart library answers 0 for an index between two slots, so place such a point between its two neighbours
     const xOf = (t) => { const ts = chart.timeScale(), l = timeToLogical(t), i = Math.floor(l), f = l - i, a = ts.logicalToCoordinate(i); if (!f || a == null) return a; const b2 = ts.logicalToCoordinate(i + 1); return b2 == null ? a : a + f * (b2 - a); };
     const yOf = (p) => candles.priceToCoordinate(p);
+    const dayText = (t) => (frame.sec >= 86400 ? fmt('cd', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : fmt('ct', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })).format(new Date(t * 1000));
 
     // ---- overlay drawing: zones, fair value, drawings, measure ----
     const prim = {
@@ -524,92 +557,214 @@
         });
       }
       ctx.lineWidth = Math.max(1, 1.3 * r);
-      const all = drawings.concat(draft ? [draft] : []);
-      for (const d of all) {
-        const x1 = xOf(d.a.t), y1 = yOf(d.a.p); if (x1 == null || y1 == null) continue;
-        const x2 = d.b ? xOf(d.b.t) : null, y2 = d.b ? yOf(d.b.p) : null;
-        if (d.type === 'hline') {
-          ctx.strokeStyle = '#2962ff'; ctx.beginPath(); ctx.moveTo(0, y1 * r); ctx.lineTo(W, y1 * r); ctx.stroke();
-          ask({ text: fmtP(d.a.p), x: W / hr - 4, align: 'right', y: y1 - 8, color: '#2962ff', bg: true, pri: 90, must: true });
-        } else if (d.type === 'trend' && x2 != null && y2 != null) {
-          ctx.strokeStyle = '#2962ff'; ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke();
-          for (const [x, y] of [[x1, y1], [x2, y2]]) { ctx.beginPath(); ctx.arc(x * hr, y * r, 3 * r, 0, 7); ctx.fillStyle = '#2962ff'; ctx.fill(); }
-        } else if (d.type === 'fib' && x2 != null && y2 != null) {
-          const left = Math.min(x1, x2) * hr;
-          FIB.forEach((lv, i) => {
+      const H = sc.bitmapSize.height / r; paneH = H;   // the price pane's height in CSS px (the grips and the hit tests use the same)
+      const all = drawings.map((d, i) => [d, i]).concat(draft && draft.type !== 'measure' ? [[draft, -1]] : []);
+      for (const [d, i] of all) {
+        const col = d.color || DCOL[0], on = i === sel, x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = d.b ? xOf(d.b.t) : null, y2 = d.b ? yOf(d.b.p) : null;
+        ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = Math.max(1, (on ? 2.2 : 1.5) * r); ctx.setLineDash(d.dash ? [7 * hr, 5 * hr] : []);
+        if (d.type === 'hline') { if (y1 == null) continue; ctx.beginPath(); ctx.moveTo(0, y1 * r); ctx.lineTo(W, y1 * r); ctx.stroke(); ctx.setLineDash([]); ask({ text: fmtP(d.a.p), x: W / hr - 4, align: 'right', y: y1 - 8, color: col, bg: true, pri: 90, must: true }); }
+        else if (d.type === 'vline') { if (x1 == null) continue; ctx.beginPath(); ctx.moveTo(x1 * hr, 0); ctx.lineTo(x1 * hr, H * r); ctx.stroke(); ctx.setLineDash([]); ask({ text: dayText(d.a.t), x: x1 + 4, y: 26, color: col, bg: true, pri: 90, must: true }); }
+        else if ((d.type === 'trend' || d.type === 'ray') && x1 != null && y1 != null && x2 != null && y2 != null) {
+          let ex = x2, ey = y2;
+          if (d.type === 'ray') { if (Math.abs(x2 - x1) > 0.5) { ex = x2 > x1 ? W / hr : 0; ey = y1 + (y2 - y1) * (ex - x1) / (x2 - x1); } else ey = y2 >= y1 ? H : 0; }
+          ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(ex * hr, ey * r); ctx.stroke(); ctx.setLineDash([]);
+          if (!on) for (const [x, y] of [[x1, y1], [x2, y2]]) { ctx.beginPath(); ctx.arc(x * hr, y * r, 2.6 * r, 0, 7); ctx.fill(); }
+        } else if (d.type === 'rect' && x1 != null && y1 != null && x2 != null && y2 != null) {
+          const L = Math.min(x1, x2) * hr, T = Math.min(y1, y2) * r, w = Math.abs(x2 - x1) * hr, h = Math.abs(y2 - y1) * r;
+          ctx.globalAlpha = 0.14; ctx.fillRect(L, T, w, h); ctx.globalAlpha = 1; ctx.strokeRect(L, T, w, h); ctx.setLineDash([]);
+        } else if (d.type === 'fib' && x1 != null && y1 != null && x2 != null && y2 != null) {
+          ctx.setLineDash([]); const left = Math.min(x1, x2) * hr;
+          FIB.forEach((lv, k) => {
             const p = d.b.p - (d.b.p - d.a.p) * lv, y = yOf(p); if (y == null) return;
-            const next = i < FIB.length - 1 ? yOf(d.b.p - (d.b.p - d.a.p) * FIB[i + 1]) : null;
-            if (next != null) { ctx.fillStyle = FIB_COLORS[i] + '14'; ctx.fillRect(left, Math.min(y, next) * r, W - left, Math.abs(next - y) * r); }
-            ctx.strokeStyle = FIB_COLORS[i]; ctx.beginPath(); ctx.moveTo(left, y * r); ctx.lineTo(W, y * r); ctx.stroke();
-            ask({ text: `${lv} (${fmtP(p)})`, short: String(lv), x: left / hr + 4, y: y - 7, color: FIB_COLORS[i], bg: true, pri: 40 });
+            const next = k < FIB.length - 1 ? yOf(d.b.p - (d.b.p - d.a.p) * FIB[k + 1]) : null;
+            if (next != null) { ctx.fillStyle = FIB_COLORS[k] + '14'; ctx.fillRect(left, Math.min(y, next) * r, W - left, Math.abs(next - y) * r); }
+            ctx.strokeStyle = FIB_COLORS[k]; ctx.lineWidth = Math.max(1, 1.3 * r); ctx.beginPath(); ctx.moveTo(left, y * r); ctx.lineTo(W, y * r); ctx.stroke();
+            ask({ text: `${lv} (${fmtP(p)})`, short: String(lv), x: left / hr + 4, y: y - 7, color: FIB_COLORS[k], bg: true, pri: 40 });
           });
-          ctx.setLineDash([4 * hr, 4 * hr]); ctx.strokeStyle = '#787b86'; ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke(); ctx.setLineDash([]);
+          ctx.setLineDash([4 * hr, 4 * hr]); ctx.strokeStyle = '#787b86'; ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke();
         }
+        ctx.setLineDash([]);
+        if (i === -1) for (const [x, y] of [[x1, y1], [x2, y2]]) if (x != null && y != null) { ctx.beginPath(); ctx.arc(x * hr, y * r, 4 * r, 0, 7); ctx.fillStyle = col; ctx.fill(); }   // a drawing being placed: its points
+        if (on) grips(sc, gripsOf(d), col);
       }
-      const m = measure && measure.b ? measure : draft && draft.type === 'measure' ? draft : null;
-      if (m) {
+      const m = draft && draft.type === 'measure' ? draft : measure;
+      if (m && m.b) {
         const x1 = xOf(m.a.t), y1 = yOf(m.a.p), x2 = xOf(m.b.t), y2 = yOf(m.b.p);
         if (x1 != null && y1 != null && x2 != null && y2 != null) {
-          const upm = m.b.p >= m.a.p, col = upm ? 'rgba(41,98,255,' : 'rgba(242,54,69,';
-          ctx.fillStyle = col + '0.15)'; ctx.fillRect(Math.min(x1, x2) * hr, Math.min(y1, y2) * r, Math.abs(x2 - x1) * hr, Math.abs(y2 - y1) * r);
-          ctx.strokeStyle = col + '0.9)'; ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke();
-          const dp = m.b.p - m.a.p, pct = m.a.p ? dp / m.a.p : 0, nb = Math.round(timeToLogical(m.b.t) - timeToLogical(m.a.t));
-          const days = Math.abs(m.b.t - m.a.t) / 86400;
-          const txt = `${dp >= 0 ? '+' : '−'}${fmtP(Math.abs(dp))} (${dp >= 0 ? '+' : '−'}${(Math.abs(pct) * 100).toFixed(2)}%) · ${Math.abs(nb)} bars, ${days >= 1 ? Math.round(days) + 'd' : Math.round(days * 24) + 'h'}`;
-          const bx = Math.min(x1, x2) * hr, by = (upm ? Math.min(y1, y2) - 22 : Math.max(y1, y2) + 6) * r;
-          ctx.font = `${Math.round(11 * r)}px Archivo, system-ui, sans-serif`;
-          const tw = ctx.measureText(txt).width + 12 * hr;
-          ctx.fillStyle = col + '0.95)'; roundRect(ctx, bx, by, tw, 18 * r, 4 * r); ctx.fill();
-          ctx.fillStyle = '#fff'; ctx.fillText(txt, bx + 6 * hr, by + 13 * r);
-          LB.push({ text: ' ', x: bx / hr, y: by / r + 9, w0: tw / hr, pri: 1000, fixed: true, reserve: { x: bx / hr, y: by / r, w: tw / hr, h: 18 } });   // its place is kept free
+          const upm = m.b.p >= m.a.p, colm = upm ? '#22C55E' : '#EF4444';
+          ctx.globalAlpha = 0.16; ctx.fillStyle = colm; ctx.fillRect(Math.min(x1, x2) * hr, Math.min(y1, y2) * r, Math.abs(x2 - x1) * hr, Math.abs(y2 - y1) * r); ctx.globalAlpha = 1;
+          ctx.strokeStyle = colm; ctx.lineWidth = Math.max(1, 1.5 * r); ctx.beginPath(); ctx.moveTo(x1 * hr, y1 * r); ctx.lineTo(x2 * hr, y2 * r); ctx.stroke();
+          for (const [x, y] of [[x1, y1], [x2, y2]]) { ctx.beginPath(); ctx.arc(x * hr, y * r, 3.5 * r, 0, 7); ctx.fillStyle = colm; ctx.fill(); }
+          if (sel === 'm') grips(sc, gripsOf({ ...m, type: 'trend' }), colm);
+          if (sel !== 'm' && m !== draft) ask({ text: measureText(m, true), x: Math.max(x1, x2) + 6, y: upm ? Math.min(y1, y2) - 8 : Math.max(y1, y2) + 12, color: colm, bg: true, pri: 85 });   // left on the chart: its figure beside it
         }
+      }
+      if (guide) {   // the point being placed or moved: a crosshair through it, with its price at the right
+        ctx.setLineDash([3 * hr, 3 * hr]); ctx.strokeStyle = dark() ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)'; ctx.lineWidth = Math.max(1, r);
+        ctx.beginPath(); ctx.moveTo(0, guide.y * r); ctx.lineTo(W, guide.y * r); ctx.moveTo(guide.x * hr, 0); ctx.lineTo(guide.x * hr, H * r); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(guide.x * hr, guide.y * r, 5 * r, 0, 7); ctx.strokeStyle = css('--accent', '#9C8CFF'); ctx.lineWidth = 2 * r; ctx.stroke();
+        ask({ text: fmtP(guide.p), x: W / hr - 4, align: 'right', y: guide.y - 8, color: dark() ? '#ffffff' : '#111111', bg: true, pri: 99, must: true });
       }
       layout(sc);
     }
+    const knob = (g) => ({ x: g.x, y: g.y + (g.y > paneH - 60 ? -38 : 38) });
+    function grips(sc, list, col) {
+      const ctx = sc.context, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio, bg = dark() ? '#0e0f13' : '#ffffff';
+      for (const g of list) {
+        const k = knob(g); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, r); ctx.beginPath(); ctx.moveTo(g.x * hr, g.y * r); ctx.lineTo(k.x * hr, k.y * r); ctx.stroke();
+        ctx.beginPath(); ctx.arc(k.x * hr, k.y * r, 10 * r, 0, 7); ctx.fillStyle = col; ctx.globalAlpha = 0.92; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.arc(k.x * hr, k.y * r, 3 * r, 0, 7); ctx.fillStyle = bg; ctx.fill();
+        ctx.beginPath(); ctx.arc(g.x * hr, g.y * r, 5.5 * r, 0, 7); ctx.fillStyle = bg; ctx.fill(); ctx.lineWidth = 2 * r; ctx.strokeStyle = col; ctx.stroke();
+      }
+    }
     function roundRect(ctx, x, y, w, h, rad) { ctx.beginPath(); ctx.moveTo(x + rad, y); ctx.arcTo(x + w, y, x + w, y + h, rad); ctx.arcTo(x + w, y + h, x, y + h, rad); ctx.arcTo(x, y + h, x, y, rad); ctx.arcTo(x, y, x + w, y, rad); ctx.closePath(); }
 
-    // ---- tools: pointer input on an overlay while a drawing tool is active ----
-    const HINTS = { measure: 'Drag between two points to measure.', fib: 'Drag from a low to a high (or a high to a low).', trend: 'Drag to draw a trend line.', hline: 'Tap a price to place a line.' };
-    function setTool(t) {
-      tool = t;
-      for (const b of [bCursor, bMeasure, bFib, bTrend, bH]) b.setAttribute('aria-pressed', String(b.dataset.k === t));
-      const drawing = t !== 'cursor';
-      overlay.style.pointerEvents = drawing ? 'auto' : 'none';
-      overlay.style.cursor = drawing ? 'crosshair' : '';
-      chart.applyOptions({ handleScroll: !drawing, handleScale: !drawing });
-      hint.textContent = HINTS[t] || ''; hint.hidden = !drawing;
+    // ---- drawing, made for a finger (Matteo, 28 Nov 2026: "using a finger on the phone to drag ... the finger itself covers the
+    // starting and the end point"; "when I draw a line on the chart, I would like to move it and change its extremes, or generate a
+    // parallel"). With a finger the point being placed sits LIFT px above it, with a crosshair and its price, and the readout at the
+    // top says where it is: a tap places a point, a second tap the other end (a mouse may also drag). A drawing is selected by a tap:
+    // its ends get grips set below them (the finger holds the knob, the point stays in view), its body moves the whole of it, and a
+    // bar offers a parallel copy, a colour, dashes and delete. Everything is undone step by step (hist).
+    const LIFT = 56, ONE = { hline: 1, vline: 1 };
+    const HINTS = { measure: 'Tap the start, then the end.', fib: 'Tap a low, then a high (or a high, then a low).', trend: 'Tap the start, then the end.', ray: 'Tap the start, then a second point: the line runs on past it.', rect: 'Tap one corner, then the opposite one.', hline: 'Tap the price for the line.', vline: 'Tap the day for the line.' };
+    const local = (ev) => { const rc = overlay.getBoundingClientRect(); return { x: ev.clientX - rc.left, y: ev.clientY - rc.top }; };
+    const ptXY = (x, y) => { const l = chart.timeScale().coordinateToLogical(x), p = candles.coordinateToPrice(y); if (l == null || p == null) return null; return { t: Math.round(logicalToTime(l)), p }; };
+    const lifted = (ev) => { const q = local(ev), up = ev.pointerType === 'mouse' ? 0 : LIFT; return { x: q.x, y: Math.max(4, Math.min(paneH - 2, q.y - up)) }; };
+    const snap = () => { hist.push(JSON.stringify({ d: drawings, m: measure })); if (hist.length > 40) hist.shift(); };
+    function setMode() {
+      const on = tool !== 'cursor' || sel != null; overlay.style.pointerEvents = on ? 'auto' : 'none'; overlay.style.cursor = tool !== 'cursor' ? 'crosshair' : on ? 'grab' : '';
+      chart.applyOptions({ handleScroll: !on, handleScale: !on }); root.dataset.edit = sel == null ? '' : String(sel);
     }
-    const pointAt = (ev) => {
-      const rc = overlay.getBoundingClientRect(), x = ev.clientX - rc.left, y = ev.clientY - rc.top;
-      const l = chart.timeScale().coordinateToLogical(x), p = candles.coordinateToPrice(y);
-      if (l == null || p == null) return null;
-      return { t: Math.round(logicalToTime(l)), p };
-    };
+    function openDraw(on) { drawBar.hidden = !on; bDraw.setAttribute('aria-expanded', String(on)); bDraw.setAttribute('aria-pressed', String(on || (tool !== 'cursor' && tool !== 'measure'))); }
+    function setTool(t) {
+      tool = t; draft = null; guide = null; if (t !== 'cursor') { sel = null; editBar.hidden = true; }
+      bCursor.setAttribute('aria-pressed', String(t === 'cursor')); bMeasure.setAttribute('aria-pressed', String(t === 'measure'));
+      for (const b of drawBar.querySelectorAll('.ch-dbtn')) b.setAttribute('aria-pressed', String(b.dataset.k === t));
+      bDraw.setAttribute('aria-pressed', String(!drawBar.hidden || (t !== 'cursor' && t !== 'measure')));
+      hint.textContent = HINTS[t] || ''; hint.hidden = t === 'cursor'; root.dataset.tool = t;
+      setMode(); showRead(); redraw();
+    }
+    function select(i) {
+      sel = i; const d = typeof i === 'number' ? drawings[i] : null;
+      editBar.hidden = i == null; eParallel.hidden = !(d && (d.type === 'trend' || d.type === 'ray')); eColor.hidden = !d; eDash.hidden = !d || d.type === 'fib';
+      if (d) { editBar.querySelector('.ch-swatch').style.background = d.color || DCOL[0]; eDash.setAttribute('aria-pressed', String(!!d.dash)); }
+      setMode(); showRead(); redraw();
+    }
+    function measureText(m, short) {
+      const dp = m.b.p - m.a.p, pct = m.a.p ? dp / m.a.p : 0, nb = Math.round(timeToLogical(m.b.t) - timeToLogical(m.a.t)), days = Math.abs(m.b.t - m.a.t) / 86400, s1 = dp >= 0 ? '+' : '−';
+      const span = `${Math.abs(nb)} bar${Math.abs(nb) === 1 ? '' : 's'}, ${days >= 1 ? Math.round(days) + (short ? 'd' : ' days') : Math.round(days * 24) + ' h'}`;
+      return short ? `${s1}${(Math.abs(pct) * 100).toFixed(2)}% · ${span}` : `${s1}${fmtP(Math.abs(dp))}   ${s1}${(Math.abs(pct) * 100).toFixed(2)}%   ·   ${span}`;
+    }
+    function showRead() {
+      const m = draft && draft.type === 'measure' ? draft : sel === 'm' || (tool === 'measure' && measure) ? measure : null;
+      let txt = '', cls = '';
+      if (m && m.b && (m.b.t !== m.a.t || m.b.p !== m.a.p)) { txt = measureText(m); cls = m.b.p >= m.a.p ? ' is-up' : ' is-down'; }
+      else if (guide) txt = `${fmtP(guide.p)}   ·   ${dayText(guide.t)}`;
+      else if (draft && draft.stage === 'wait') txt = 'Now the other end';
+      readout.hidden = !txt; readout.textContent = txt; readout.className = 'ch-read' + cls;
+    }
+    function gripsOf(d) {   // the points that can be dragged, in CSS px
+      if (d.type === 'hline') { const y = yOf(d.a.p); return y == null ? [] : [{ k: 'a', x: overlay.clientWidth * 0.5, y }]; }
+      if (d.type === 'vline') { const x = xOf(d.a.t); return x == null ? [] : [{ k: 'a', x, y: paneH * 0.5 }]; }
+      const out = []; for (const k of ['a', 'b']) { const x = xOf(d[k].t), y = yOf(d[k].p); if (x != null && y != null) out.push({ k, x, y }); } return out;
+    }
+    function segDist(px, py, x1, y1, x2, y2, ray) { const dx = x2 - x1, dy = y2 - y1, L = dx * dx + dy * dy; let u = L ? ((px - x1) * dx + (py - y1) * dy) / L : 0; u = ray ? Math.max(0, u) : Math.max(0, Math.min(1, u)); return Math.hypot(px - (x1 + u * dx), py - (y1 + u * dy)); }
+    function near(d, x, y) {   // how far a point is from a drawing (CSS px); Infinity when it is off it
+      if (d.type === 'hline') { const y1 = yOf(d.a.p); return y1 == null ? Infinity : Math.abs(y - y1); }
+      if (d.type === 'vline') { const x1 = xOf(d.a.t); return x1 == null || y > paneH ? Infinity : Math.abs(x - x1); }
+      const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p); if (x1 == null || y1 == null || x2 == null || y2 == null) return Infinity;
+      if (d.type === 'trend' || d.type === 'ray') return segDist(x, y, x1, y1, x2, y2, d.type === 'ray');
+      const l = Math.min(x1, x2), rr = Math.max(x1, x2), t = Math.min(y1, y2), bt = Math.max(y1, y2);
+      if (d.type === 'fib') return x >= l - 8 && y >= t - 8 && y <= bt + 8 ? 0 : Infinity;
+      return x >= l - 8 && x <= rr + 8 && y >= t - 8 && y <= bt + 8 ? 0 : Infinity;   // a zone, and the measure's box
+    }
+    function hitAt(x, y) {   // the drawing a tap at x, y touches: the nearest within 16 px (the measure: inside its box)
+      let best = null, bd = 16;
+      drawings.forEach((d, i) => { const k = near(d, x, y); if (k < bd) { bd = k; best = i; } });
+      if (best == null && measure && measure.b && near({ ...measure, type: 'rect' }, x, y) === 0) best = 'm';
+      return best;
+    }
+    function finish() {
+      const d = draft; draft = null; guide = null;
+      if (d.type === 'measure') { snap(); measure = { a: d.a, b: d.b }; setTool('cursor'); select('m'); return; }
+      snap(); const nd = { type: d.type, a: d.a, color: d.color }; if (!ONE[d.type]) nd.b = d.b;
+      drawings.push(nd); save(); setTool('cursor'); openDraw(false); select(drawings.length - 1);
+    }
+    let downAt = null;
     overlay.addEventListener('pointerdown', (ev) => {
-      const pt = pointAt(ev); if (!pt) return;
-      ev.preventDefault(); overlay.setPointerCapture(ev.pointerId);
-      if (tool === 'hline') { drawings.push({ type: 'hline', a: pt }); save(); setTool('cursor'); redraw(); return; }
-      draft = { type: tool, a: pt, b: pt };
-      if (tool === 'measure') measure = null;
-      redraw();
+      const q = local(ev); ev.preventDefault(); try { overlay.setPointerCapture(ev.pointerId); } catch (e) { /* a synthetic event */ }
+      downAt = { x: q.x, y: q.y, mouse: ev.pointerType === 'mouse' };
+      if (tool !== 'cursor') {
+        const L = lifted(ev), pt = ptXY(L.x, L.y); if (!pt) return; guide = { ...L, ...pt };
+        if (!draft) { draft = { type: tool, a: pt, b: pt, color: lastColor, stage: ONE[tool] ? 'one' : 'a' }; if (tool === 'measure') { sel = null; measure = null; } }
+        else if (draft.stage === 'wait') { draft.b = pt; draft.stage = 'b'; }
+        showRead(); redraw(); return;
+      }
+      const d = typeof sel === 'number' ? drawings[sel] : sel === 'm' ? measure : null;
+      if (d) {
+        for (const g of (sel === 'm' ? gripsOf({ ...measure, type: 'trend' }) : gripsOf(d))) {
+          const k = knob(g);
+          if (Math.hypot(q.x - k.x, q.y - k.y) <= 26 || Math.hypot(q.x - g.x, q.y - g.y) <= 14) { snap(); drag = { kind: 'end', k: g.k, off: { x: g.x - q.x, y: g.y - q.y } }; return; }
+        }
+        if (near(sel === 'm' ? { ...measure, type: 'rect' } : d, q.x, q.y) <= 16) { snap(); drag = { kind: 'body', start: q, orig: JSON.parse(JSON.stringify(d)) }; return; }
+      }
+      const other = hitAt(q.x, q.y);
+      select(other != null && other !== sel ? other : null);   // another drawing: selected at once; nothing: the edit ends
     });
-    overlay.addEventListener('pointermove', (ev) => { if (!draft) return; const pt = pointAt(ev); if (pt) { draft.b = pt; redraw(); } });
-    const finish = (ev) => {
-      if (!draft) return;
-      const pt = pointAt(ev); if (pt) draft.b = pt;
-      const moved = Math.abs((xOf(draft.b.t) || 0) - (xOf(draft.a.t) || 0)) + Math.abs((yOf(draft.b.p) || 0) - (yOf(draft.a.p) || 0)) > 6;
-      if (moved) { if (draft.type === 'measure') measure = draft; else { drawings.push(draft); save(); } }
-      draft = null; setTool('cursor'); redraw();
+    overlay.addEventListener('pointermove', (ev) => {
+      if (!downAt) return;
+      const q = local(ev);
+      if (tool !== 'cursor' && draft) {
+        const L = lifted(ev), pt = ptXY(L.x, L.y); if (!pt) return; guide = { ...L, ...pt };
+        if (draft.stage === 'one') draft.a = draft.b = pt;
+        else if (draft.stage === 'a') { if (!downAt.mouse) { draft.a = draft.b = pt; } else if (Math.hypot(q.x - downAt.x, q.y - downAt.y) > 8) { draft.b = pt; draft.stage = 'drag'; } }
+        else if (draft.stage === 'drag' || draft.stage === 'b') draft.b = pt;
+        showRead(); redraw(); return;
+      }
+      if (!drag) return;
+      const d = typeof sel === 'number' ? drawings[sel] : measure; if (!d) return;
+      if (drag.kind === 'end') {
+        const x = q.x + drag.off.x, y = q.y + drag.off.y, pt = ptXY(x, y); if (!pt) return;
+        if (d.type === 'hline') d.a.p = pt.p; else if (d.type === 'vline') d.a.t = pt.t; else d[drag.k] = pt;
+        guide = { x, y, ...pt };
+      } else {
+        const dx = q.x - drag.start.x, dy = q.y - drag.start.y, o = drag.orig;
+        for (const k of ['a', 'b']) if (o[k]) { const x = xOf(o[k].t), y = yOf(o[k].p); if (x == null || y == null) continue; const pt = ptXY(x + (d.type === 'hline' ? 0 : dx), y + (d.type === 'vline' ? 0 : dy)); if (pt) d[k] = { t: d.type === 'hline' ? o[k].t : pt.t, p: d.type === 'vline' ? o[k].p : pt.p }; }
+      }
+      showRead(); redraw();
+    });
+    const lift = (ev) => {
+      if (!downAt) return; downAt = null;
+      if (tool !== 'cursor' && draft) {
+        if (draft.stage === 'one') { finish(); return; }
+        if (draft.stage === 'a') { draft.stage = 'wait'; guide = null; hint.textContent = tool === 'rect' ? 'Now tap the opposite corner.' : 'Now tap the other end.'; showRead(); redraw(); return; }
+        const far = Math.hypot((xOf(draft.b.t) || 0) - (xOf(draft.a.t) || 0), (yOf(draft.b.p) || 0) - (yOf(draft.a.p) || 0)) > 6;
+        if (far) finish(); else { draft.stage = 'wait'; guide = null; showRead(); redraw(); }
+        return;
+      }
+      if (drag) { drag = null; guide = null; save(); showRead(); redraw(); }
     };
-    overlay.addEventListener('pointerup', finish);
-    overlay.addEventListener('pointercancel', () => { draft = null; redraw(); });
+    overlay.addEventListener('pointerup', lift);
+    overlay.addEventListener('pointercancel', () => { downAt = null; if (drag) { const s0 = hist.pop(); if (s0) { const o = JSON.parse(s0); drawings = o.d; measure = o.m; } drag = null; } guide = null; showRead(); redraw(); });
     function save() { lsSet(key, drawings.slice(-60)); }
-    bCursor.addEventListener('click', () => setTool('cursor'));
-    bMeasure.addEventListener('click', () => setTool(tool === 'measure' ? 'cursor' : 'measure'));
-    bFib.addEventListener('click', () => setTool(tool === 'fib' ? 'cursor' : 'fib'));
-    bTrend.addEventListener('click', () => setTool(tool === 'trend' ? 'cursor' : 'trend'));
+    bCursor.addEventListener('click', () => { openDraw(false); setTool('cursor'); select(null); });
+    bMeasure.addEventListener('click', () => { openDraw(false); setTool(tool === 'measure' ? 'cursor' : 'measure'); });
+    bDraw.addEventListener('click', () => { const on = drawBar.hidden; openDraw(on); if (!on && tool !== 'measure' && tool !== 'cursor') setTool('cursor'); });
+    for (const b of drawBar.querySelectorAll('.ch-dbtn')) b.addEventListener('click', () => setTool(tool === b.dataset.k ? 'cursor' : b.dataset.k));
+    eDone.addEventListener('click', () => select(null));
+    eDel.addEventListener('click', () => { snap(); if (sel === 'm') measure = null; else if (typeof sel === 'number') { drawings.splice(sel, 1); save(); } select(null); });
+    eColor.addEventListener('click', () => { const d = drawings[sel]; if (!d) return; snap(); d.color = DCOL[(DCOL.indexOf(d.color || DCOL[0]) + 1) % DCOL.length]; lastColor = d.color; save(); select(sel); });
+    eDash.addEventListener('click', () => { const d = drawings[sel]; if (!d) return; snap(); d.dash = !d.dash; save(); select(sel); });
+    // a parallel: the same line, set a step above or below (where there is room); it is selected, ready to be moved where you want it
+    eParallel.addEventListener('click', () => {
+      const d = drawings[sel]; if (!d || !(d.type === 'trend' || d.type === 'ray')) return;
+      const ya = yOf(d.a.p), yb = yOf(d.b.p); if (ya == null || yb == null) return;
+      const off = (Math.max(ya, yb) < paneH * 0.6 ? 1 : -1) * Math.max(30, paneH * 0.12), pa = candles.coordinateToPrice(ya + off), pb = candles.coordinateToPrice(yb + off); if (pa == null || pb == null) return;
+      snap(); drawings.push({ ...d, a: { t: d.a.t, p: pa }, b: { t: d.b.t, p: pb } }); save(); select(drawings.length - 1);
+    });
     // tap a level or a trendline to see what it is made of
     chart.subscribeClick((ev) => {
+      if (ev && ev.point && tool === 'cursor') { const h = hitAt(ev.point.x, ev.point.y); if (h != null) { select(h); return; } }
       if (!ev || !ev.point || tool !== 'cursor' || !opts.onPick) return;
       let hit = null, bd = 10;
       if (ind.sr) for (const lv of levelsShown) { const y = yOf(lv.p); if (y != null && Math.abs(y - ev.point.y) < bd) { bd = Math.abs(y - ev.point.y); hit = { p: lv.p, label: lv.full || lv.label, kind: lv.kind }; } }
@@ -626,7 +781,9 @@
     });
     scale.subscribeVisibleLogicalRangeChange(() => { if (opts.onPan && !dead) opts.onPan(); queueRange(); });
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
-    root.__drawings = () => drawings.length;
+    root.__drawings = () => drawings.length; root.dataset.drawKey = key;
+    root.__draw = () => ({ drawings: JSON.parse(JSON.stringify(drawings)), sel, tool, measure: measure ? JSON.parse(JSON.stringify(measure)) : null, draft: draft ? { ...draft } : null, paneH, style,
+      xy: (t, p) => ({ x: xOf(t), y: yOf(p) }), pt: (x, y) => ptXY(x, y), grips: () => { const d = typeof sel === 'number' ? drawings[sel] : sel === 'm' ? { ...measure, type: 'trend' } : null; return d ? gripsOf(d).map((g) => ({ ...g, knob: knob(g) })) : []; } });
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
     root.__tick = tickText;   // for the tests
     root.__mine = () => mineDrawn;   // for the tests: how many of your trades are drawn
@@ -646,16 +803,15 @@
     root.__log = () => chart.priceScale('right').options().mode;   // for the tests: 1 logarithmic, 0 normal
     root.__zoom = (count) => { const n = bars.length; if (!n) return null; chart.timeScale().setVisibleLogicalRange({ from: n - count, to: n + 3 }); return new Promise((res) => setTimeout(() => res(root.__lines()), 350)); };   // for the tests: the last `count` candles on screen, and the lines then shown
     root.__probe = () => autos.concat(shownLines()).filter((d) => d.type === 'line').map((d) => { const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = xOf(d.b.t), y2 = yOf(d.b.p), xl = bars.length ? xOf(bars[bars.length - 1].time) : null; if (x1 == null || y1 == null || x2 == null || y2 == null || xl == null || x2 === x1) return null; const x = xl - 20; return { x, y: y1 + (y2 - y1) * (x - x1) / (x2 - x1), agree: d.agree || 0 }; }).filter(Boolean);
-    bH.addEventListener('click', () => setTool(tool === 'hline' ? 'cursor' : 'hline'));
-    bUndo.addEventListener('click', () => { if (measure) measure = null; else drawings.pop(); save(); redraw(); });
-    bClear.addEventListener('click', () => { drawings = []; measure = null; save(); redraw(); });
+    bUndo.addEventListener('click', () => { if (hist.length) { const o = JSON.parse(hist.pop()); drawings = o.d; measure = o.m; } else if (measure) measure = null; else drawings.pop(); save(); select(null); });
+    bClear.addEventListener('click', () => { if (!drawings.length && !measure) return; snap(); drawings = []; measure = null; save(); select(null); });
     bInd.addEventListener('click', () => { menu.hidden = !menu.hidden; bInd.setAttribute('aria-pressed', String(!menu.hidden)); });
     // the indicators list closes with a tap anywhere outside it (or Escape), as menus do
     const outside = (e) => {
       if (!viewMenu.hidden && !viewMenu.contains(e.target) && !viewButton.contains(e.target)) openViews(false);
       if (menu.hidden || menu.contains(e.target) || bInd.contains(e.target)) return; menu.hidden = true; bInd.setAttribute('aria-pressed', 'false');
     };
-    const escape = (e) => { if (e.key !== 'Escape') return; if (!viewMenu.hidden) { openViews(false); e.stopPropagation(); } if (!menu.hidden) { menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); e.stopPropagation(); } };
+    const escape = (e) => { if (e.key !== 'Escape') return; if (sel != null || tool !== 'cursor') { setTool('cursor'); select(null); openDraw(false); e.stopPropagation(); return; } if (!viewMenu.hidden) { openViews(false); e.stopPropagation(); } if (!menu.hidden) { menu.hidden = true; bInd.setAttribute('aria-pressed', 'false'); e.stopPropagation(); } };
     document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', escape, true);
     // height: the window in full view, the page's own height on a wide window (opts.height), else a phone-sized chart
     function sizeMain() {
@@ -679,7 +835,7 @@
       openViews(false);
       setTimeout(() => { try { chart.resize(main.clientWidth, main.clientHeight); } catch (e) { /* the chart sizes itself */ } redraw(); queueRange(); }, 90);   // fill the window in full view (and the trades' words for the new width)
     }
-    setTool('cursor');
+    setTool('cursor'); applyStyle();
 
     // ---- legend: OHLC and indicator values under the crosshair ----
     chart.subscribeCrosshairMove((p) => {
@@ -689,7 +845,7 @@
       const prevBar = bars[Math.max(0, bars.findIndex((x) => x.time === p.time) - 1)];
       if (prevBar) parts.push(`${b.close >= prevBar.close ? '+' : ''}${((b.close / prevBar.close - 1) * 100).toFixed(2)}%`);
       for (const [k, s] of Object.entries(S)) { const v = p.seriesData.get(s); if (v && v.value != null && !k.startsWith('comp') && !k.startsWith('bb') && !k.startsWith('macd')) parts.push(`${k.toUpperCase().replace('MA', 'MA ')} ${k === 'rsi' ? v.value.toFixed(1) : fmtP(v.value)}`); }
-      if (comparison) for (const [k, label] of Object.entries(comparison.mode === 'ratio' ? { compRatio: 'Ratio' } : { compA: comparison.a, compB: comparison.b })) {
+      if (comparison) for (const [k, label] of Object.entries(comparison.mode === 'ratio' ? { compRatio: `${comparison.a} ÷ ${comparison.b}` } : { compA: comparison.a, compB: comparison.b })) {
         const v = S[k] && p.seriesData.get(S[k]); if (v && v.value != null) parts.push(label + ' ' + comparePct(v.value));
       }
       legend.textContent = parts.join('  ');
@@ -757,7 +913,7 @@
         const { mode, a, b } = comparison;
         const add = (color, title) => chart.addSeries(LW().LineSeries, { color, title, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'custom', minMove: 0.01, formatter: comparePct } }, pane);
         let first;
-        if (mode === 'ratio') first = S.compRatio = add('#ef6c00', a + ' / ' + b);
+        if (mode === 'ratio') first = S.compRatio = add('#ef6c00', `${a} ÷ ${b}, %`);
         else {
           first = S.compA = add('#2962ff', a);
           S.compB = add('#ef6c00', b);
@@ -777,6 +933,8 @@
         if (f && f.sec !== frame.sec) { bench = []; comparison = null; toggleDates(false); }
         bars = newBars; frame = f || frame;
         candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+        { const c = bars.length ? bars[bars.length - 1].close : 1, mm = c >= 1 ? 0.01 : Math.pow(10, Math.floor(Math.log10(Math.max(c, 1e-9))) - 3); if (mm !== candles.options().priceFormat.minMove) { candles.applyOptions({ priceFormat: pf(mm) }); for (const sr of Object.values(styleS)) sr.applyOptions({ priceFormat: pf(mm) }); } }
+        styleData();
         vol.setData(bars.some((b) => b.volume > 0) ? bars.map((b) => ({ time: b.time, value: b.volume || 0, color: b.close >= b.open ? 'rgba(8,153,129,0.35)' : 'rgba(242,54,69,0.35)' })) : []);   // no volume at all (currencies, the account's value): no empty strip
         chart.applyOptions({ timeScale: { timeVisible: frame.sec < 86400 } });
         applyIndicators(); makeFuture();
@@ -791,6 +949,7 @@
         if (atEnd) chart.timeScale().setVisibleLogicalRange({ from: vr0.from + 1, to: vr0.to + 1 });   // a new candle: the view moves one step with it, as on TradingView
         if (isNew) makeFuture();   // a new candle: the empty slots start after it again
         candles.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+        if (style === 'bars') styleS.bars.update({ time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close }); else if (style === 'line' || style === 'area') styleS[style].update({ time: bar.time, value: bar.close });
         queueRange();
       },
       setZones(L) { zones = L; redraw(); },
@@ -816,7 +975,7 @@ slot, fit: () => { sizeMain(); }, note: (t) => { noteEl.textContent = t || ''; }
       },
       setPosition(p) { posn = p && p.entry > 0 ? p : null; root.dataset.pos = posn ? String(posn.entry) : ''; redraw(); },
       setEvents(e) { events = Array.isArray(e) ? e : []; root.dataset.events = String(events.length); redraw(); },
-      back() { if (!viewMenu.hidden) { openViews(false); return true; } if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
+      back() { if (!viewMenu.hidden) { openViews(false); return true; } if (sel != null) { select(null); return true; } if (tool !== 'cursor' || !drawBar.hidden) { setTool('cursor'); openDraw(false); return true; } if (root.classList.contains('is-full')) { toggleFull(false); return true; } if (tool !== 'cursor' || !menu.hidden) { setTool('cursor'); menu.hidden = true; return true; } return false; },
       destroy() { dead = true; window.removeEventListener('sr-chartlog', onLog); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escape, true); if (rangeFrame !== null) cancelAnimationFrame(rangeFrame); document.body.classList.remove('chart-full'); try { chart.remove(); } catch (e) { /* gone */ } },
     };
   }
