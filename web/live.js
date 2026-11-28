@@ -70,7 +70,8 @@
   const MK = { m: new Map(), want: new Set(), busy: false, t: null };
   function marketAsk(ids) {
     let added = false;
-    for (const x of ids || []) { const id = +x; if (id > 0 && !(id >= 100000 && id < 200000)) { const f = MK.m.get(id); if (!f || Date.now() - f.at > 300000) { MK.want.add(id); added = true; } } }
+    // coins too since build 164: their market is always open, but the read brings eToro's change today
+    for (const x of ids || []) { const id = +x; if (id > 0) { const f = MK.m.get(id); if (!f || Date.now() - f.at > 300000) { MK.want.add(id); added = true; } } }
     if (added && !MK.t) MK.t = setTimeout(marketRead, 300);
   }
   async function marketRead() {
@@ -80,14 +81,28 @@
     if (!ids.length) return;
     MK.busy = true;
     try {
-      const r = await SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,isExchangeOpen,isCurrentlyTradable,isDelisted,isActiveInPlatform&instrumentId=${ids.join(',')}&pageSize=100`, 2);
+      // build 164 (Matteo, 28 Nov 2026: "When i open the app for the first time it takes too long to load prices"): the same read
+      // also brings eToro's own daily change (dailyPriceChange, in %) for up to 100 assets at once, so every tile has its number
+      // a second after the screen opens, instead of after one candle read per asset (48 a minute at most, behind the fund history)
+      const r = await SRApp.etoroGet(`/api/v1/market-data/search?fields=instrumentId,isExchangeOpen,isCurrentlyTradable,isDelisted,isActiveInPlatform,dailyPriceChange,currentRate&instrumentId=${ids.join(',')}&pageSize=100`, 2);
       if (r && r.status === 200) {
         const j = JSON.parse(r.body), at = Date.now(), b = (v) => (v === true || v === 'true' ? true : v === false || v === 'false' ? false : undefined);
-        for (const it of (j && j.items) || []) MK.m.set(+it.instrumentId, { open: b(it.isExchangeOpen), tradable: b(it.isActiveInPlatform) === false ? false : b(it.isCurrentlyTradable), delisted: b(it.isDelisted), at });   // switched off on eToro: not tradable
+        for (const it of (j && j.items) || []) { const id = +it.instrumentId, dp = it.dailyPriceChange == null || it.dailyPriceChange === '' ? NaN : +it.dailyPriceChange, q = quotes.get(id);
+          MK.m.set(id, { open: b(it.isExchangeOpen), tradable: b(it.isActiveInPlatform) === false ? false : b(it.isCurrentlyTradable), delisted: b(it.isDelisted), at,   // switched off on eToro: not tradable
+            chg: Number.isFinite(dp) && Math.abs(dp) < 90 ? dp / 100 : null, px0: q && q.price > 0 ? q.price : null }); }
         for (const id of ids) { MK.want.delete(id); if (!MK.m.has(id)) MK.m.set(id, { at }); }
         for (const f of marketSeen) { try { f(); } catch (e) { /* the next one */ } }
       }
-    } catch (e) { /* asked again with the next assets shown */ } finally { MK.busy = false; if (MK.want.size && !MK.t) MK.t = setTimeout(marketRead, 3000); }
+    } catch (e) { /* asked again with the next assets shown */ } finally { MK.busy = false; if (MK.want.size && !MK.t) MK.t = setTimeout(marketRead, 400); }
+  }
+  // an asset's change today in eToro's own figure (from the read above, at most 15 minutes old), moved by the app's own price since
+  // that read while its market is open; null when eToro gave none (the tiles then use the daily candles, as before)
+  function dayChange(id) {
+    id = +id; const f = MK.m.get(id); if (!f || f.chg == null || Date.now() - f.at > 15 * 60e3) return null;
+    const q = quotes.get(id), open = marketOf(id).open;
+    if (q && q.price > 0 && !(f.px0 > 0)) f.px0 = q.price;   // the first price seen after the read is where the move is counted from
+    const moved = open !== false && q && q.price > 0 && f.px0 > 0 ? q.price / f.px0 : 1;
+    return { chg: (1 + f.chg) * moved - 1, open, quoteAt: q ? q.at : null };
   }
   const marketSeen = new Set();   // what redraws when eToro has said which markets are open
   // open: true / false / undefined (not known yet); a price that moved in the last 2 minutes means open, whatever was read before
@@ -1407,6 +1422,6 @@
     const pl = o.isBuy ? units * (rate * conv - open * oc) : units * (open - rate) * conv;
     return { pl: Math.round(pl * 100) / 100, rate, live: true };
   }
-  window.SRLive = { _store: { keep, cache, stats2, jumpsOf },  close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
+  window.SRLive = { _store: { keep, cache, stats2, jumpsOf },  close, preload, positionPL, liveIdOf: idOfAny, isCoin, marketOpen: (id) => marketOf(id).open, market: marketOf, marketAsk, dayChange, _mk: MK, marketLine, agoText, onMarket: (f) => marketSeen.add(f), onTick, onBack, streamState: () => ({ ok: STREAM.ok, state: STREAM.state, lastTick: STREAM.lastTick, subs: STREAM.subs.size }), tickNow: () => runTicks(false), streaming, candleStats: () => Object.assign({}, stats), views: () => [...views], open, back, isOpen: () => !!sheet() && !sheet().hidden, quotes, search, assetView, poll, candles, kept, want, openAsset, liveOf };
   init();
 })();

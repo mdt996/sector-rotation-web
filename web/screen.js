@@ -55,7 +55,8 @@
     liteBusy = false; if (got) { keepAll(); SRApp.renderDraw('screener'); }
   }
   // a tile's change: from the daily candles the app holds (its own funds and the first board: 400 days) or the wider board's six
-  const mover = () => { const UN = new Map(universe().map((u) => [u.sym, u])); return (r) => { const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null) || lite.get(r.id) || null; return tooOld(r.sym, RR) ? null : dayMove(RR, r.id); }; };
+  // eToro's own daily change first (one read for 100 tiles, build 164); the daily candles when eToro gave none
+  const mover = () => { const UN = new Map(universe().map((u) => [u.sym, u])); return (r) => { const e = etoroMove(r.id); if (e) return e; const u = UN.get(r.sym), d = SRApp._store[r.sym], RR = (u && u.rows) || r.rows || (d && Array.isArray(d.data) ? d.data : null) || lite.get(r.id) || null; return tooOld(r.sym, RR) ? null : dayMove(RR, r.id); }; };
   const SHORT = { tri_brk_up: 'Triangle breakout', wedge_fall_brk: 'Falling-wedge breakout', tl_brk_up: 'Trendline break', div_bull: 'RSI divergence', fib_sup: 'Fibonacci pullback', rsi30: 'RSI below 30', rsi70: 'RSI above 70', lo250: 'New 1-year low', neg_bear: 'Up candle negated', tri_brk_dn: 'Triangle breakdown', wedge_rise_brk: 'Rising-wedge breakdown' };
   const stats = () => (window.SR_TASTATS || {}).by || {};
   const cache = new Map(), extra = new Map();
@@ -740,6 +741,7 @@
     if (L.length > shown) { const mb = box.appendChild(el('button', 'sc-more', `${T('more')} (${(L.length - shown).toLocaleString('en-US')})`)); mb.type = 'button'; mb.addEventListener('click', () => { shown += 60; SRApp.renderDraw('screener'); }); }
     // live prices: this device's own assets, and the scanned ones that are on screen
     if (window.SRLive && window.SRLive.want) window.SRLive.want('screen', [...new Set([...R.map((r) => r.id), ...tileIds, ...vis.filter((r) => r.scanned).slice(0, 40).map((r) => r.id)])].filter(Boolean));
+    if (window.SRLive && SRLive.marketAsk) SRLive.marketAsk(tileIds);   // each tile's market and eToro's change today, 100 in one read
     box.appendChild(extra);
     box.appendChild(el('p', 'g-hint', 'The line is the last 3 months. The ring is how often a buy signal worked in the test for that kind of asset. Market value and finances are eToro\'s figures, in dollars. A scanned asset shows the scan\'s price until its live one arrives. Analysis, not advice.'));
     for (const f of later) f();
@@ -751,6 +753,16 @@
   // a tile's change: today's against the last close; before the asset's market has traded today (no candle of today, eToro says it is closed
   // or the price is still the last close), the last session's change and that day's name
   const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  // a closed market's figure is its last session's: named by the weekday of its last price in New York (a US index's price at
+  // 00:10 UTC on Saturday is still Friday's session; Tokyo's and Hong Kong's close falls on the same day there), unless that is today
+  let nyDay = null; try { nyDay = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'America/New_York' }); } catch (e) { /* the UTC day then */ }
+  const dayOf = (t) => (nyDay ? nyDay.format(new Date(t)) : WD[new Date(t).getUTCDay()]);
+  function etoroMove(id) {
+    const e = id && window.SRLive && SRLive.dayChange ? SRLive.dayChange(id) : null; if (!e || !Number.isFinite(e.chg)) return null;
+    if (e.open !== false) return { chg: e.chg, day: '', src: 'etoro' };
+    const t = e.quoteAt || Date.now(), day = dayOf(t);
+    return { chg: e.chg, day: day === WD[new Date().getDay()] && Date.now() - t < 864e5 ? '' : day, src: 'etoro' };   // today, where the user is: no day
+  }
   function dayMove(R, id) {
     if (!R || R.length < 2) return null;
     const n = R.length, last = R[n - 1], today = new Date().toISOString().slice(0, 10), q = window.SRLive && SRLive.quotes ? SRLive.quotes.get(id) : null, px = q && q.price > 0 ? q.price : last.close;
@@ -856,7 +868,8 @@
     }
     return w;
   }
-  const sectorsToday = (box) => { const bySym = new Map(rows().map((r) => [r.sym, r])); const w = sectorGrid(box, mover(), bySym, '', (r, name) => { if (r.id) open({ ...r, name: r.name || name }); }); w.classList.add('g-sectors'); flip(w, 'today'); return w; };
+  const sectorsToday = (box) => { const bySym = new Map(rows().map((r) => [r.sym, r])); const w = sectorGrid(box, mover(), bySym, '', (r, name) => { if (r.id) open({ ...r, name: r.name || name }); }); w.classList.add('g-sectors'); flip(w, 'today');
+    if (window.SRLive && SRLive.marketAsk) SRLive.marketAsk(TILES[0][1].map(([sym]) => SRApp.idOf(sym)).filter(Boolean)); return w; };
   // from a sector fund's page: its companies on Markets
   const showSector = (sym) => { const sec = SECTOR[sym]; if (!sec) return false; Object.assign(F, { sec, cls: F.cls === 'Stocks' ? 'Stocks' : '' }); shown = 60; hlId = null; allMemo = null; saveF();
     if (document.body.classList.contains('sheet-open') && window.SRLive && SRLive.close) SRLive.close();

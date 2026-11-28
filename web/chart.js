@@ -501,6 +501,45 @@
       if (key !== trendKey) { trendKey = key; try { trendShown = trend(from, to, max, full) || []; } catch (e) { trendShown = []; } root.dataset.lines = String(trendShown.length); }
       return trendShown;
     }
+    // where a trend line or a ray is drawn on screen, left to right (a ray runs on to the edge it points to); null if off the chart
+    function lineEnds(d, W, H, hr) {
+      const x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = d.b ? xOf(d.b.t) : null, y2 = d.b ? yOf(d.b.p) : null;
+      if (x1 == null || y1 == null || x2 == null || y2 == null) return null;
+      let ex = x2, ey = y2;
+      if (d.type === 'ray') { if (Math.abs(x2 - x1) > 0.5) { ex = x2 > x1 ? W / hr : 0; ey = y1 + (y2 - y1) * (ex - x1) / (x2 - x1); } else ey = y2 >= y1 ? H : 0; }
+      return x1 <= ex ? [[x1, y1], [ex, ey]] : [[ex, ey], [x1, y1]];
+    }
+    // the lines of one channel: made with Parallel they share d.ch; a parallel from before the link (build 163) has its line's
+    // two days exactly, which is how it is still recognised
+    function channels() {
+      const g = new Map();
+      drawings.forEach((d, i) => {
+        if (!(d.type === 'trend' || d.type === 'ray') || !d.b) return;
+        const k = d.ch ? 'c' + d.ch : `t${d.type}|${d.a.t}|${d.b.t}`;
+        if (!g.has(k)) g.set(k, []); g.get(k).push(i);
+      });
+      return [...g.values()].filter((v) => v.length > 1);
+    }
+    let bandsDrawn = [];
+    // each channel's lines from top to bottom (at the middle of their span), and the band between each line and the next one,
+    // in the colour of the channel's first line, see-through
+    function drawChannels(ctx, W, H, hr, r) {
+      const out = [];
+      for (const ids of channels()) {
+        const lines = ids.map((i) => ({ i, e: lineEnds(drawings[i], W, H, hr) })).filter((l) => l.e);
+        const mid = (e) => (e[0][1] + e[1][1]) / 2;
+        lines.sort((u, v) => mid(u.e) - mid(v.e));
+        const col = drawings[Math.min(...ids)].color || DCOL[0];
+        for (let k = 0; k + 1 < lines.length; k++) {
+          const A = lines[k].e, B = lines[k + 1].e;
+          ctx.globalAlpha = 0.15; ctx.fillStyle = col; ctx.beginPath();
+          ctx.moveTo(A[0][0] * hr, A[0][1] * r); ctx.lineTo(A[1][0] * hr, A[1][1] * r); ctx.lineTo(B[1][0] * hr, B[1][1] * r); ctx.lineTo(B[0][0] * hr, B[0][1] * r);
+          ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+          out.push({ lines: [lines[k].i, lines[k + 1].i], color: col, pts: [A[0], A[1], B[1], B[0]] });
+        }
+      }
+      return out;
+    }
     function drawShapes(sc) {
       const ctx = sc.context, W = sc.bitmapSize.width, r = sc.verticalPixelRatio, hr = sc.horizontalPixelRatio;
       ctx.font = `${Math.round(10.5 * r)}px Archivo, system-ui, sans-serif`; ctx.lineWidth = Math.max(1, 1.3 * r);
@@ -559,6 +598,7 @@
       ctx.lineWidth = Math.max(1, 1.3 * r);
       const H = sc.bitmapSize.height / r; paneH = H;   // the price pane's height in CSS px (the grips and the hit tests use the same)
       const all = drawings.map((d, i) => [d, i]).concat(draft && draft.type !== 'measure' ? [[draft, -1]] : []);
+      bandsDrawn = drawChannels(ctx, W, H, hr, r);   // a parallel and its line: the space between them filled in see-through colour, under the lines
       for (const [d, i] of all) {
         const col = d.color || DCOL[0], on = i === sel, x1 = xOf(d.a.t), y1 = yOf(d.a.p), x2 = d.b ? xOf(d.b.t) : null, y2 = d.b ? yOf(d.b.p) : null;
         ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = Math.max(1, (on ? 2.2 : 1.5) * r); ctx.setLineDash(d.dash ? [7 * hr, 5 * hr] : []);
@@ -760,7 +800,8 @@
       const d = drawings[sel]; if (!d || !(d.type === 'trend' || d.type === 'ray')) return;
       const ya = yOf(d.a.p), yb = yOf(d.b.p); if (ya == null || yb == null) return;
       const off = (Math.max(ya, yb) < paneH * 0.6 ? 1 : -1) * Math.max(30, paneH * 0.12), pa = candles.coordinateToPrice(ya + off), pb = candles.coordinateToPrice(yb + off); if (pa == null || pb == null) return;
-      snap(); drawings.push({ ...d, a: { t: d.a.t, p: pa }, b: { t: d.b.t, p: pb } }); save(); select(drawings.length - 1);
+      snap(); if (!d.ch) d.ch = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);   // the link: the band between them is filled
+      drawings.push({ ...d, a: { t: d.a.t, p: pa }, b: { t: d.b.t, p: pb } }); save(); select(drawings.length - 1);
     });
     // tap a level or a trendline to see what it is made of
     chart.subscribeClick((ev) => {
@@ -782,7 +823,7 @@
     scale.subscribeVisibleLogicalRangeChange(() => { if (opts.onPan && !dead) opts.onPan(); queueRange(); });
     // where the drawn trendlines are on screen, 20 px left of the last candle (used by the automated test of "tap a line")
     root.__drawings = () => drawings.length; root.dataset.drawKey = key;
-    root.__draw = () => ({ drawings: JSON.parse(JSON.stringify(drawings)), sel, tool, measure: measure ? JSON.parse(JSON.stringify(measure)) : null, draft: draft ? { ...draft } : null, paneH, style,
+    root.__draw = () => ({ drawings: JSON.parse(JSON.stringify(drawings)), sel, tool, measure: measure ? JSON.parse(JSON.stringify(measure)) : null, draft: draft ? { ...draft } : null, paneH, style, bands: JSON.parse(JSON.stringify(bandsDrawn)),
       xy: (t, p) => ({ x: xOf(t), y: yOf(p) }), pt: (x, y) => ptXY(x, y), grips: () => { const d = typeof sel === 'number' ? drawings[sel] : sel === 'm' ? { ...measure, type: 'trend' } : null; return d ? gripsOf(d).map((g) => ({ ...g, knob: knob(g) })) : []; } });
     root.__marks = () => marks.map((m) => { const x = xOf(m.a.t), y = yOf(m.side > 0 ? m.a.lo : m.a.hi); return x == null || y == null ? null : { x, y: y + (m.side > 0 ? 12 : -12), side: m.side, st: m.st }; }).filter(Boolean);
     root.__tick = tickText;   // for the tests
